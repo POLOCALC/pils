@@ -100,12 +100,12 @@ class Inclinometer:
 
         # Convert counter to time (seconds)
         inclino_tst = new_counter / 2000.0  # assuming 2 kHz sampling
-        inclino_data["timestamp"] = inclino_tst
+        inclino_data["counter_timestamp"] = inclino_tst
 
         if self.logpath is not None:
             self.read_log_time(logfile=self.logpath)
             inclino_data["datetime"] = inclino_data["timestamp"].apply(lambda x: self.tstart + pd.Timedelta(seconds=x))
-            inclino_data["tunix"] = inclino_data["datetime"].astype('int64') / 10**9
+            inclino_data["timestamp"] = inclino_data["datetime"].astype('int64') / 10**9
 
         # Rename Euler angles to match drone convention
         inclino_data = inclino_data.rename(columns={"Roll": "pitch", "Pitch": "roll", "Heading": "yaw"})
