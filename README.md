@@ -124,9 +124,7 @@ Instantiated via `drone_init(drone_model, path)`:
 ### 🛠️ Notes
 
 - All components support a `load_data()` method if applicable.
-- `PathHandler` must be initialized first to provide paths to all modules.
-- The `Payload` class automatically initializes and links all relevant sensors.
-
+- All components have a `data` attribute
 
 ---
 
