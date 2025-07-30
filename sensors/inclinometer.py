@@ -104,7 +104,7 @@ class Inclinometer:
 
         if self.logpath is not None:
             self.read_log_time(logfile=self.logpath)
-            inclino_data["datetime"] = inclino_data["timestamp"].apply(lambda x: self.tstart + pd.Timedelta(seconds=x))
+            inclino_data["datetime"] = inclino_data["counter_timestamp"].apply(lambda x: self.tstart + pd.Timedelta(seconds=x))
             inclino_data["timestamp"] = inclino_data["datetime"].astype('int64') / 10**9
 
         # Rename Euler angles to match drone convention
