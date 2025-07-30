@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import struct
+import matplotlib.pyplot as plt
 
 from tools import is_ascii_file, get_logpath_from_datapath
 
@@ -78,7 +79,7 @@ def decode_adc_file_ascii(adc_path, gain_config=0.256):
     adc_data["amplitude"] *= gain/2048*1e3
     # Normalize timestamps (optional but helpful for plotting)
     adc_data["timestamp"] = (adc_data["timestamp"] - adc_data["timestamp"].iloc[0]) / 1e6  # convert from us to seconds
-    adc_data["amplitude"] = adc_data["amplitude"].astype(int)
+    #adc_data["amplitude"] = adc_data["amplitude"].astype(float)
 
     return adc_data
 
@@ -107,3 +108,10 @@ class ADC:
             self.data = decode_adc_file_ascii(self.path, self.gain_config)
         else:
             self.data = decode_adc_file_struct(self.path)
+
+    def plot(self):
+        plt.figure(figsize=(10,5))
+        plt.plot(self.data["timestamp"], self.data["amplitude"], color="crimson")
+        plt.ylabel("ADC amplitude [mV]")
+        plt.xlabel("Time [s]")
+        plt.show()

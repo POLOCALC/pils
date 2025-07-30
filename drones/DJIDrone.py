@@ -1,12 +1,14 @@
 import pandas as pd
 from tools import drop_nan_and_zero_cols
 
+import matplotlib.pyplot as plt
+
 class DJIDrone:
     def __init__(self, path):
         self.path = path
         self.data = None
 
-    def load_data(self, cols=None):
+    def load_data(self, cols=["Clock:offsetTime", 'GPS:dateTimeStamp', "RTKdata:GpsState", "RTKdata:Lat_P", "RTKdata:Lon_P", "RTKdata:Hmsl_P"]):
         """
         Load and filter drone data from a CSV file.
 
@@ -26,8 +28,6 @@ class DJIDrone:
         None
             Filtered data is stored in `self.data`.
         """
-        if cols is None:
-            cols = ["Clock:offsetTime", 'GPS:dateTimeStamp', "RTKdata:GpsState", "RTKdata:Lat_P", "RTKdata:Lon_P", "RTKdata:Hmsl_P"]
 
         data = pd.read_csv(self.path, low_memory=False, usecols=cols)
         ind = pd.Series(True, index=data.index)
@@ -44,3 +44,16 @@ class DJIDrone:
         data = drop_nan_and_zero_cols(data)
         
         self.data = data
+
+    def plot(self):
+        fig, axs = plt.subplots(3, 1, sharex=True)
+        axs[0].plot(self.data["GPS:dateTimeStamp"], self.data["RTKdata:Lon_P"], color="black")
+        axs[1].plot(self.data["GPS:dateTimeStamp"], self.data["RTKdata:Lat_P"], color="black")
+        axs[2].plot(self.data["GPS:dateTimeStamp"], self.data["RTKdata:Hmsl_P"], color="black")
+
+        axs[0].set_ylabel("Longitude [°]")
+        axs[1].set_ylabel("Latitude [°]")
+        axs[2].set_ylabel("Altitude [m]")
+        axs[-1].set_xlabel("Time [s]")
+        plt.tight_layout()
+        plt.show()

@@ -1,4 +1,5 @@
 import pandas as pd
+import matplotlib.pyplot as plt
 from tools import drop_nan_and_zero_cols, read_log_time, get_logpath_from_datapath
 
 from decoders import KERNEL_utils as kernel
@@ -112,5 +113,19 @@ class Inclinometer:
         inclino_data = drop_nan_and_zero_cols(inclino_data)
 
         self.data = inclino_data
+
+    def plot(self):
+        if self.data is None:
+            raise ValueError("Data not loaded. Run load_data() first.")
+        fig, axs = plt.subplots(3, 1, sharex=True)
+        axs[0].plot(self.data["timestamp"], self.data["yaw"], color="cornflowerblue")
+        axs[1].plot(self.data["timestamp"], self.data["pitch"], color="crimson")
+        axs[2].plot(self.data["timestamp"], self.data["roll"], color="forestgreen")
+
+        axs[0].set_ylabel("Yaw [°]")
+        axs[1].set_ylabel("Pitch [°]")
+        axs[2].set_ylabel("Roll [°]")
+        axs[-1].set_xlabel("Time [s]")
+        plt.show()
 
         

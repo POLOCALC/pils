@@ -16,6 +16,8 @@ class IMUSensor:
 
     def load_data(self):
         self.data = pd.read_csv(self.path, names=SENSOR_COLUMNS[self.type], sep=" ")
+        self.data["datetime"] = pd.to_datetime(self.data["timestamp"], unit="us")
+        
 
 class IMU:
     def __init__(self, dirpath):

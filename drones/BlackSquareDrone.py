@@ -73,6 +73,7 @@ def messages_to_df(messages, columns, format_str):
     # Create structured array
     arr = np.array([tuple(row) for row in messages], dtype=dtypes)
     return pd.DataFrame(arr)
+
 def read_msgs(path):
     with open(path, "r") as f:
         lines = (line.strip() for line in f)
@@ -164,7 +165,6 @@ class BlackSquareDrone:
         self.params = None
 
         self.datetime = None
-
 
     def load_data(self):
         self.data = read_msgs(self.path)
