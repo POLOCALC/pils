@@ -48,6 +48,10 @@ class DataHandler:
         self.paths = PathHandler(num=num, dirpath=dirpath)
         self.paths.get_filenames()
 
+        if self.paths.logfile is None:
+            print("[DataHandler] No matching logfile found. Stopped the process.")
+            return
+
         #Define the drone model and initialize the drone object with the correct function
         self.drone_model = drone_model.lower()
         self.drone = drone_init(self.drone_model, self.paths.drone)

@@ -134,67 +134,59 @@ def match_log_filename(drone_tst, sensors_root_dir=DATADIR, time_delta=pd.Timede
         print(f"[match_log_filename] Found no files with time delta <({time_delta}).")
         return None, None
     
-def match_litchi_filename(drone_tst, litchi_dir=DATADIR, time_delta=pd.Timedelta(minutes=10)):    
+def match_litchi_filename(drone_tst, dirpath, time_delta=pd.Timedelta(minutes=10)):
     """
-    Matches and retrieves the Litchi flight log file closest in time to the drone's
-    recorded GPS timestamp.
+    Matches and retrieves the Litchi flight log file closest in time to a given drone timestamp.
 
     Parameters
     ----------
-    drone : DJIDrone
-        An instance of a drone object with a loaded "GPS:dateTimeStamp" column.
-    litchi_dir : str, optional
-        Directory where Litchi log files are stored. Defaults to `DATADIR`.
+    drone_tst : datetime.datetime
+        The UTC timestamp of the drone log to match against.
+    dirpath : str
+        Directory containing Litchi log files.
     time_delta : pd.Timedelta, optional
-        Maximum allowable difference between the drone's and Litchi log's timestamps
-        to consider it a valid match. Defaults to 10 minutes.
+        Maximum allowable time difference for a match. Default is 10 minutes.
 
     Returns
     -------
     str or None
-        Full path to the best-matching Litchi log file, or None if no suitable match is found.
+        Full path to the matched Litchi file, or None if no match found.
 
     Notes
     -----
-    - Filenames must follow the pattern "YYYY-MM-DD_HH-MM-SS_v2.csv".
-    - The timestamp in filenames is assumed to be in local time (America/Santiago), and is
-      converted to UTC before matching.
-    - If no filenames can be parsed or if none match within the time threshold,
-      the function returns None.
+    - Litchi filenames must follow the pattern "YYYY-MM-DD_HH-MM-SS_v2.csv".
+    - Timestamps are interpreted as local (America/Santiago) and converted to UTC.
     """
-    #Look for litchi files with matching datetime
-    litchi_files = get_path_from_keyword(litchi_dir, "_v2.csv") #[f for f in os.listdir(litchi_dir) if f.endswith("_v2.csv") and f.startswith("20")]
+    # Gather candidate files
+    litchi_files = get_path_from_keyword(dirpath, "_v2.csv")
     if not litchi_files:
-        print(f"[match_litchi_filename] No Litchi files found in {litchi_dir}")
+        print(f"[match_litchi_filename] No Litchi files found in {dirpath}")
         return None
 
-    #Look for the closest litchi datetime to the drone data
-    timestamps = []
+    # Parse timestamps
+    valid_entries = []
     for f in litchi_files:
         try:
-            ts = datetime.datetime.strptime(os.path.basename(f), "%Y-%m-%d_%H-%M-%S_v2.csv")
-            timestamps.append(ts)
+            ts_local = datetime.datetime.strptime(os.path.basename(f), "%Y-%m-%d_%H-%M-%S_v2.csv")
+            valid_entries.append((f, ts_local))
         except ValueError:
             print(f"[match_litchi_filename] Skipping unparseable filename: {f}")
             continue
 
-    if not timestamps:
+    if not valid_entries:
         print("[match_litchi_filename] No valid timestamps parsed from filenames.")
         return None
-    
-    litchi_df = pd.DataFrame({
-        "filename": litchi_files,
-        "timestamp": timestamps
-    })
-    litchi_df["timestamp_utc"] = pd.to_datetime(litchi_df["timestamp"]).dt.tz_localize("America/Santiago").dt.tz_convert("UTC")
 
-    #Return the closest litchi file if the timedelta betwwen drone and litchi files are less than 20 minutes
-    deltas = np.abs(litchi_df["timestamp_utc"] - drone_tst)
+    # Build DataFrame with UTC timestamps
+    litchi_df = pd.DataFrame(valid_entries, columns=["filename", "timestamp_local"])
+    litchi_df["timestamp_utc"] = pd.to_datetime(litchi_df["timestamp_local"]).dt.tz_localize("America/Santiago").dt.tz_convert("UTC")
 
-    min_delta = deltas.min()
-    if min_delta < time_delta:
-        best_match = litchi_df.loc[deltas.idxmin(), "filename"]
-        return best_match
+    # Find the file closest in time to the drone timestamp
+    litchi_df["delta"] = np.abs(litchi_df["timestamp_utc"] - drone_tst)
+    closest = litchi_df.loc[litchi_df["delta"].idxmin()]
+
+    if closest["delta"] <= time_delta:
+        return closest["filename"]
     else:
         print(f"[match_litchi_filename] No Litchi file within ({time_delta}).")
         return None
@@ -223,6 +215,10 @@ class PathHandler:
         drone_tst = get_drone_timestamp(self.drone, model=self.drone_model)
         sensors_dir, self.logfile = match_log_filename(drone_tst, self.dirpath)
 
+        if self.logfile is None:
+            print("[get_filenames] No matching logfile found. Stopped the process.")
+            return
+
         if sensors_dir is None:
             print("[get_filenames] No matching logfile found. Stopped the process.")
         else:
@@ -235,7 +231,7 @@ class PathHandler:
             self.magneto = get_path_from_keyword(sensors_dir, "magnetometer")
 
             if litchi:
-                self.litchi = match_litchi_filename(drone_tst)
+                self.litchi = match_litchi_filename(drone_tst, self.dirpath)
 
         
 

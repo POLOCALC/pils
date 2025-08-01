@@ -84,9 +84,12 @@ def is_ascii_file(file_bytes):
         return False
     
 def get_logpath_from_datapath(datapath):
-    dirname = Path(datapath).resolve().parents[1]
-    logpath = str(files[0]) if (files := [f for f in dirname.iterdir() if f.name.startswith("file.log")]) else None
-    return logpath
+    if datapath is None:
+        return None
+    else:
+        dirname = Path(datapath).resolve().parents[1]
+        logpath = str(files[0]) if (files := [f for f in dirname.iterdir() if f.name.startswith("file.log")]) else None
+        return logpath
 
 def far_to_celcius(temp):
     return (temp - 32)*5/9
