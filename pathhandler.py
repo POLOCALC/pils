@@ -208,12 +208,14 @@ class PathHandler:
         self.magneto = None
         self.imu_dir = None
         self.litchi = None
+        self.camera = None
 
     def get_filenames(self, litchi=True):
         
         self.drone = flightpath_from_num(self.num, self.dirpath)
         drone_tst = get_drone_timestamp(self.drone, model=self.drone_model)
         sensors_dir, self.logfile = match_log_filename(drone_tst, self.dirpath)
+        camera_dir = os.path.abspath(os.path.join(sensors_dir, "../.."))
 
         if self.logfile is None:
             print("[get_filenames] No matching logfile found. Stopped the process.")
@@ -229,6 +231,7 @@ class PathHandler:
             self.gyro = get_path_from_keyword(sensors_dir, "gyroscope")
             self.accelero = get_path_from_keyword(sensors_dir, "accelerometer")
             self.magneto = get_path_from_keyword(sensors_dir, "magnetometer")
+            self.camera = get_path_from_keyword(camera_dir, "MP4")
 
             if litchi:
                 self.litchi = match_litchi_filename(drone_tst, self.dirpath)

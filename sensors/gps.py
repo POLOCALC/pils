@@ -1,5 +1,6 @@
 import pandas as pd
 from pyubx2 import UBXReader, UBX_PROTOCOL
+import matplotlib.pyplot as plt
 
 from tools import read_log_time, get_logpath_from_datapath
 
@@ -43,5 +44,21 @@ class GPS:
         # Time offset vectorized (relative to first iTOW)
         self.t_start = read_log_time(keyphrase="Sensor ZED-F9P started", logfile=self.logpath)
         gps_data["datetime"] = pd.to_datetime(self.t_start) + pd.to_timedelta(gps_data["iTOW"] - gps_data["iTOW"].iloc[0], unit="ms")
-        
+        gps_data["timestamp"] = gps_data["datetime"].astype('int64') / 10**9
+
         self.data = gps_data
+
+    def plot(self):
+        if self.data is None:
+            raise ValueError("Data not loaded. Run load_data() first.")
+        fig, axs = plt.subplots(3, 1, sharex=True)
+        axs[0].plot(self.data["timestamp"], self.data["lon"], color="mediumblue")
+        axs[1].plot(self.data["timestamp"], self.data["lat"], color="darkorchid")
+        axs[2].plot(self.data["timestamp"], self.data["height"], color="magenta")
+
+        axs[0].set_ylabel("Longitude [°]")
+        axs[1].set_ylabel("Latitude [°]")
+        axs[2].set_ylabel("Height [m]")
+        axs[-1].set_xlabel("Time [s]")
+        plt.show()
+

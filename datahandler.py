@@ -6,6 +6,7 @@ from sensors.IMU import IMUSensor
 from drones.litchi import Litchi
 from drones.DJIDrone import DJIDrone
 from drones.BlackSquareDrone import BlackSquareDrone
+from sensors.camera import Camera
 
 def drone_init(drone_model, drone_path):
     drone_model = drone_model.lower()
@@ -62,8 +63,8 @@ class DataHandler:
         #Initialize the litchi object
         self.litchi = Litchi(self.paths.litchi)
 
-        #Photogrammetry to be done later
-        self.photogrammetry = None
+        #Initialize the camera object
+        self.camera = Camera(self.paths.camera)
 
     def load_data(self):
         for attr_name in vars(self):

@@ -1,6 +1,5 @@
 import os
 import datetime
-from pathlib import Path
 
 def read_log_time(keyphrase, logfile):
     """
@@ -84,12 +83,41 @@ def is_ascii_file(file_bytes):
         return False
     
 def get_logpath_from_datapath(datapath):
-    if datapath is None:
-        return None
-    else:
-        dirname = Path(datapath).resolve().parents[1]
-        logpath = str(files[0]) if (files := [f for f in dirname.iterdir() if f.name.startswith("file.log")]) else None
-        return logpath
+    """
+    Given a path to a video or data file, this function returns the path to the
+    corresponding log file. The log file is assumed to be in the same directory
+    as the video file or in the parent directory of the ADC file.
+
+    Parameters
+    ----------
+    datapath : str
+        Path to the video or ADC file.
+
+    Returns
+    -------
+    logpath : str
+        Path to the log file.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no log file is found in the expected location.
+    FileExistsError
+        If multiple log files are found in the expected location.
+    """
+    if os.path.splitext(datapath)[-1].lower() == ".mp4":
+        updir = "../"
+    elif os.path.splitext(datapath)[-1].lower() == ".bin":
+        updir = "../../"
+    dirname = os.path.abspath(os.path.join(datapath, updir))
+    logfiles = [os.path.join(root, f) for root, _, files in os.walk(dirname) for f in files if f == "file.log"]
+
+    if len(logfiles) == 0:
+        raise FileNotFoundError(f"[get_logpath_from_datapath] No log file found in {dirname}")
+    if len(logfiles) > 1:
+        raise FileExistsError(f"[get_logpath_from_datapath] Multiple log files found in {dirname}")
+
+    return logfiles[0]
 
 def far_to_celcius(temp):
     return (temp - 32)*5/9

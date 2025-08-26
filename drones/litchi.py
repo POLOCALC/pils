@@ -7,7 +7,7 @@ class Litchi:
         self.path = path
         self.data = None
     def load_data(self, cols=['latitude', 'longitude', 'altitude(m)', 'speed(mps)', 'distance(m)', 'velocityX(mps)', 'velocityY(mps)', 'velocityZ(mps)', 'pitch(deg)', 'roll(deg)', 'yaw(deg)',
-                    'batteryTemperature', 'pitchRaw', 'rollRaw', 'yawRaw', 'gimbalPitchRaw', 'gimbalRollRaw', 'gimbalYawRaw', "datetime(utc)"]):
+                    'batteryTemperature', 'pitchRaw', 'rollRaw', 'yawRaw', 'gimbalPitchRaw', 'gimbalRollRaw', 'gimbalYawRaw', "datetime(utc)", "isflying"]):
         """
         Reads a Litchi flight log file and returns its content as a pandas DataFrame.
 

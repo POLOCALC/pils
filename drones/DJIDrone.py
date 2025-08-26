@@ -34,6 +34,9 @@ class DJIDrone:
 
         if "GPS:dateTimeStamp" in data.columns:
             data["GPS:dateTimeStamp"] = pd.to_datetime(data["GPS:dateTimeStamp"].values, errors="coerce")
+            data["datetime"] = data["GPS:dateTimeStamp"].dt.tz_localize(None)
+            data["timestamp"] = data["datetime"].astype('int64') / 10**9
+
             ind &= data["GPS:dateTimeStamp"].notna()
         if "RTKdata:GpsState" in data.columns:
             ind &= data["RTKdata:GpsState"].notna()
