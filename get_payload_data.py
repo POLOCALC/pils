@@ -10,7 +10,7 @@ import sys
 from decoders import KERNEL_utils as kernel
 from pyubx2 import UBXReader, UBX_PROTOCOL
 
-from tools import drop_nan_and_zero_cols
+from pils.tools import drop_nan_and_zero_cols
 
 import time
 

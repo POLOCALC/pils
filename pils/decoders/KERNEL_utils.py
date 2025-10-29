@@ -2,7 +2,7 @@ import copy
 import pickle
 import struct
 
-import decoders.KERNEL_dicts as Kdb
+import pils.decoders.KERNEL_dicts as Kdb
 
 HEADER = b"\xaa\x55"
 

@@ -1,5 +1,5 @@
 import pandas as pd
-from tools import drop_nan_and_zero_cols
+from pils.tools import drop_nan_and_zero_cols
 
 import matplotlib.pyplot as plt
 

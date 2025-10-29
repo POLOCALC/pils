@@ -1,5 +1,7 @@
 import os
 import datetime
+import glob
+
 
 def read_log_time(keyphrase, logfile):
     """
@@ -20,13 +22,16 @@ def read_log_time(keyphrase, logfile):
     """
     with open(logfile, "r") as f:
         lines = f.readlines()
-    
+
     line_tstart = [line for line in lines if keyphrase in line]
     if len(line_tstart) != 0:
-        tstart =  datetime.datetime.strptime(line_tstart[0].split("[")[0].replace(" ", ""), "%Y/%m/%d%H:%M:%S.%f")
+        tstart = datetime.datetime.strptime(
+            line_tstart[0].split("[")[0].replace(" ", ""), "%Y/%m/%d%H:%M:%S.%f"
+        )
         return tstart
     else:
         return None
+
 
 def drop_nan_and_zero_cols(df):
     """
@@ -47,6 +52,7 @@ def drop_nan_and_zero_cols(df):
     to_drop = all_nan | all_zero
     return df.loc[:, ~to_drop]
 
+
 def get_path_from_keyword(dirpath, keyword):
     paths = []
     for root, dir, files in os.walk(dirpath):
@@ -61,6 +67,7 @@ def get_path_from_keyword(dirpath, keyword):
         paths = paths[0]
 
     return paths
+
 
 def is_ascii_file(file_bytes):
     """
@@ -77,47 +84,81 @@ def is_ascii_file(file_bytes):
         True if the file is written in ASCII, False otherwise.
     """
     try:
-        file_bytes.decode('ascii')
+        file_bytes.decode("ascii")
         return True
     except UnicodeDecodeError:
         return False
-    
-def get_logpath_from_datapath(datapath):
+
+
+def get_logpath(aux_path):
     """
-    Given a path to a video or data file, this function returns the path to the
-    corresponding log file. The log file is assumed to be in the same directory
-    as the video file or in the parent directory of the ADC file.
+    Given a path to a sensor data file anywhere under the aux folder,
+    this function traverses up to find the aux folder and returns the
+    path to the log file located there.
+
+    The folder structure is expected to be:
+    aux/
+        file.log
+        sensors_data/
+            ZED-F9P_*.bin
+            Kernel-100_*.bin
+            Inertial_*/
+                barometer.bin
+                etc.
 
     Parameters
     ----------
-    datapath : str
-        Path to the video or ADC file.
+    aux_path : str
+        Path to a sensor data file (e.g., /home/data/aux/sensors_data/ZED-F9P_*.bin)
+        or any file under the aux folder.
 
     Returns
     -------
     logpath : str
-        Path to the log file.
+        Path to the log file in the aux folder.
 
     Raises
     ------
     FileNotFoundError
-        If no log file is found in the expected location.
-    FileExistsError
-        If multiple log files are found in the expected location.
+        If no log file is found in the aux folder.
+    ValueError
+        If the path doesn't contain an 'aux' folder.
     """
-    if os.path.splitext(datapath)[-1].lower() == ".mp4":
-        updir = "../"
-    elif os.path.splitext(datapath)[-1].lower() == ".bin":
-        updir = "../../"
-    dirname = os.path.abspath(os.path.join(datapath, updir))
-    logfiles = [os.path.join(root, f) for root, _, files in os.walk(dirname) for f in files if f == "file.log"]
+    if aux_path is None:
+        raise ValueError("[get_logpath] Path is None")
 
-    if len(logfiles) == 0:
-        raise FileNotFoundError(f"[get_logpath_from_datapath] No log file found in {dirname}")
-    if len(logfiles) > 1:
-        raise FileExistsError(f"[get_logpath_from_datapath] Multiple log files found in {dirname}")
+    # Convert to absolute path
+    aux_path = os.path.abspath(aux_path)
 
-    return logfiles[0]
+    # Split the path into components
+    path_parts = aux_path.split(os.sep)
+
+    # Find the 'aux' folder in the path
+    try:
+        aux_index = path_parts.index("aux")
+    except ValueError:
+        raise ValueError(f"[get_logpath] No 'aux' folder found in path: {aux_path}")
+
+    # Reconstruct path up to and including 'aux'
+    aux_folder = os.sep.join(path_parts[: aux_index + 1])
+
+    # Look for .log files in the aux folder (not recursive)
+    log_files = glob.glob(os.path.join(aux_folder, "*.log"))
+
+    if len(log_files) == 0:
+        raise FileNotFoundError(
+            f"[get_logpath] No log file found in aux folder: {aux_folder}"
+        )
+
+    if len(log_files) > 1:
+        # If multiple log files, try to find one that matches the date pattern
+        # For now, just return the first one
+        print(
+            f"[get_logpath] Warning: Multiple log files found in {aux_folder}, using first one"
+        )
+
+    return log_files[0]
+
 
 def far_to_celcius(temp):
-    return (temp - 32)*5/9
+    return (temp - 32) * 5 / 9

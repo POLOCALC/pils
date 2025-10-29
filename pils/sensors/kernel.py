@@ -1,8 +1,9 @@
 import pandas as pd
 import matplotlib.pyplot as plt
-from tools import drop_nan_and_zero_cols, read_log_time, get_logpath_from_datapath
+from pils.tools import drop_nan_and_zero_cols, read_log_time, get_logpath
 
-from decoders import KERNEL_utils as kernel
+from pils.decoders import KERNEL_utils as kernel
+
 
 def decode_inclino(inclino_path):
     """
@@ -22,18 +23,18 @@ def decode_inclino(inclino_path):
     with open(inclino_path, "rb") as fd:
         data = fd.read()
 
-    #Define the starting sequence of a message
-    sequence = b'\xaaU\x01\x81'
+    # Define the starting sequence of a message
+    sequence = b"\xaaU\x01\x81"
     msgs = data.split(sequence)[1:]
 
-    decoded_msg = {}    
+    decoded_msg = {}
     for msg in msgs:
         try:
             msg = sequence + msg
             tmp = kernel.KernelMsg().decode_single(msg, return_dict=True)
 
             if not decoded_msg.keys():
-                decoded_msg = {k:[] for k in tmp.keys()}
+                decoded_msg = {k: [] for k in tmp.keys()}
 
             for j in tmp.keys():
                 decoded_msg[j].append(tmp[j])
@@ -41,19 +42,23 @@ def decode_inclino(inclino_path):
             continue
     return decoded_msg
 
+
 class Inclinometer:
     def __init__(self, path, logpath=None):
-        self.path = path    
+        self.path = path
         if logpath is not None:
             self.logpath = logpath
         else:
-            self.logpath = get_logpath_from_datapath(self.path)
+            self.logpath = get_logpath(self.path)
 
         self.data = None
         self.tstart = None
 
     def read_log_time(self, logfile=None):
-        keyphrases = ["Connected to KERNEL sensor Kernel-100", "Sensor Kernel-100 started"]
+        keyphrases = [
+            "Connected to KERNEL sensor Kernel-100",
+            "Sensor Kernel-100 started",
+        ]
         for keyphrase in keyphrases:
             try:
                 # Get start time from logfile
@@ -64,7 +69,9 @@ class Inclinometer:
                     self.tstart = tstart
                     break
             except:
-                print("Couldn't find start time from logfile. Skipping datetime conversion.")
+                print(
+                    "Couldn't find start time from logfile. Skipping datetime conversion."
+                )
 
     def load_data(self):
         """
@@ -90,11 +97,13 @@ class Inclinometer:
         # Detect counter wrap-arounds (where counter resets)
         counter = inclino_data["Counter"]
         diff_counter = counter.diff()
-        wraps = diff_counter.abs() > 60000
+        wraps = pd.to_numeric(diff_counter.abs(), errors="coerce") > 60000
         wrap_cumsum = wraps.cumsum()
         new_counter = counter + wrap_cumsum * (counter.max() - counter.min())
-        
-        ind_good = (new_counter.diff() == 16) | (new_counter.diff() == 13) #must be updated to more flexibility
+
+        ind_good = (new_counter.diff() == 16) | (
+            new_counter.diff() == 13
+        )  # must be updated to more flexibility
         new_counter = new_counter[ind_good]
         inclino_data = inclino_data[ind_good]
 
@@ -104,11 +113,20 @@ class Inclinometer:
 
         if self.logpath is not None:
             self.read_log_time(logfile=self.logpath)
-            inclino_data["datetime"] = inclino_data["counter_timestamp"].apply(lambda x: self.tstart + pd.Timedelta(seconds=x))
-            inclino_data["timestamp"] = inclino_data["datetime"].astype('int64') / 10**9
+            if self.tstart is not None:
+                inclino_data["datetime"] = inclino_data["counter_timestamp"].apply(
+                    lambda x: (
+                        self.tstart + pd.Timedelta(seconds=x) if self.tstart else None
+                    )
+                )
+                inclino_data["timestamp"] = (
+                    inclino_data["datetime"].astype("int64") / 10**9
+                )
 
         # Rename Euler angles to match drone convention
-        inclino_data = inclino_data.rename(columns={"Roll": "pitch", "Pitch": "roll", "Heading": "yaw"})
+        inclino_data = inclino_data.rename(
+            columns={"Roll": "pitch", "Pitch": "roll", "Heading": "yaw"}
+        )
         inclino_data.loc[:, "pitch"] = -inclino_data["pitch"]
         inclino_data = drop_nan_and_zero_cols(inclino_data)
 
@@ -127,5 +145,3 @@ class Inclinometer:
         axs[2].set_ylabel("Roll [°]")
         axs[-1].set_xlabel("Time [s]")
         plt.show()
-
-        

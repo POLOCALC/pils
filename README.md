@@ -1,6 +1,148 @@
-# POLOCALC Data Loader
+# PILS - POLOCALC Inertial & drone Loader System
 
 This repository provides tools to load and visualize data from drone missions, including drone logs, payload sensor data, Litchi flight logs, and (optionally) photogrammetry data.
+
+## Installation
+
+### Option 1: Install with pip (recommended for development)
+
+```bash
+cd /path/to/data_loader
+pip install -e .
+```
+
+### Option 2: Install with conda environment
+
+If you're using conda and need opencv:
+
+```bash
+# Create/activate your conda environment first
+conda install -c conda-forge numpy pandas matplotlib astropy
+
+# Install opencv via conda (avoids dependency conflicts)
+conda install -c conda-forge opencv
+
+# Then install pils without opencv dependency
+pip install -e . --no-deps
+pip install pyubx2  # Install remaining pip-only dependencies
+```
+
+### Option 3: Install with opencv support via pip
+
+```bash
+pip install -e ".[cv]"  # Installs opencv-python from PyPI
+```
+
+### Option 4: Install with PDF report generation support
+
+```bash
+pip install -e ".[report]"  # Installs jinja2, weasyprint, markdown
+# OR install everything:
+pip install -e ".[report,dev]"
+```
+
+## Usage
+
+### Basic Example
+
+```python
+import pils
+
+# Automatic detection: if path exists, loads from filesystem; otherwise from database
+handler = pils.PathHandler("flight_20240715_1430")  # Loads from database
+# OR
+handler = pils.PathHandler("/path/to/flight/data")  # Loads from filesystem
+
+handler.load_flight_data()
+
+# Access drone and sensor files
+drone_files = handler.get_drone_files("*.csv")
+gps_files = handler.get_aux_files("**/ZED-F9P*")
+```
+
+### DataHandler with Dictionary Access
+
+The `DataHandler` provides convenient dictionary access to all loaded data using `__getitem__`:
+
+```python
+from pils import DataHandler
+
+# Initialize (auto-detects path vs flight name)
+d = DataHandler('flight_20240715_1430')  # Database mode
+# OR
+d = DataHandler('/path/to/flight/data')  # Filesystem mode
+
+# Load all data
+d.load_data()
+
+# Direct dictionary access - CLEANEST!
+adc_data = d['adc']
+gps_data = d['gps']
+drone_data = d['drone']
+
+# Check if sensor data is available
+if 'adc' in d:
+    print(d['adc'].head())
+
+# See what's available
+print(list(d.keys()))  # ['drone', 'litchi', 'gps', 'adc', 'inclino', ...]
+
+# Other ways that still work:
+# adc_data = d.data['adc']           # Via .data attribute
+# adc_data = d.payload.adc.data      # OLD WAY (still works)
+```
+
+### PDF Report Generation
+
+Generate comprehensive PDF reports with plots and analysis:
+
+```python
+from pils import DataHandler, FlightReport, quick_report
+
+# Load data
+d = DataHandler('/path/to/flight/data')
+d.load_data()
+
+# Option 1: Quick automated report
+pdf_path = quick_report(d, '~/flight_report.pdf')
+
+# Option 2: Custom report
+report = FlightReport(d, title="My Flight Analysis")
+report.add_data_summary()
+report.add_section("GPS Analysis", "Analyzing GPS coordinates...")
+report.add_plot_from_data('gps', 'datetime', 'latitude', 
+                         title='GPS Latitude', ylabel='Latitude (deg)')
+report.add_plot_from_data('inclino', 'datetime', ['pitch', 'roll', 'yaw'],
+                         title='Inclinometer Angles')
+report.add_statistics_table('gps', columns=['latitude', 'longitude', 'altitude'])
+pdf_path = report.generate('~/custom_report.pdf')
+
+# Option 3: Add custom matplotlib plots
+import matplotlib.pyplot as plt
+fig, ax = plt.subplots()
+ax.plot(d['gps']['longitude'], d['gps']['latitude'])
+ax.set_title('Flight Path')
+report.add_plot(fig, caption="GPS Track")
+```
+
+**Note:** Report generation requires additional dependencies:
+```bash
+pip install -e ".[report]"  # Installs jinja2, weasyprint, markdown
+```
+
+### Enable Logging (Optional)
+
+By default, pils runs in silent mode to avoid cluttering console output. If you want to see internal logging messages from the stout database integration:
+
+```python
+import pils
+
+# Enable logging to see debug information
+pils.enable_stout_logging(verbose=True)
+
+# Now you'll see logging messages
+handler = pils.PathHandler("flight_20240715_1430")
+```
 
 ## Requirements
 
