@@ -81,43 +81,75 @@ def is_ascii_file(file_bytes):
         return True
     except UnicodeDecodeError:
         return False
-    
+
+
+# def get_logpath_from_datapath(datapath):
+#     """
+#     Given a path to a video or data file, returns the corresponding log file path.
+#     The log file is expected to match '*_file.log' in the same directory or parent.
+
+#     Parameters
+#     ----------
+#     datapath : str
+#         Path to a video or sensor file.
+
+#     Returns
+#     -------
+#     logpath : str
+
+#     Raises
+#     ------
+#     FileNotFoundError
+#         If no log file is found
+#     FileExistsError
+#         If multiple log files are found
+#     """
+#     print(datapath)
+#     ext = os.path.splitext(datapath)[-1].lower()
+
+#     if ext == ".mp4":
+#         search_dir = os.path.abspath(os.path.join(datapath, "../"))
+#     elif ext == ".bin":
+#         search_dir = os.path.abspath(os.path.join(datapath, "../"))  # parent of sensor
+#     else:
+#         search_dir = os.path.dirname(datapath)
+
+#     # Look for any *_file.log
+#     logfiles = [os.path.join(search_dir, f)
+#                 for f in os.listdir(search_dir)
+#                 if f.endswith("_file.log")]
+
+#     print(search_dir[1])
+
+#     if len(logfiles) == 0:
+#         raise FileNotFoundError(f"[get_logpath_from_datapath] No log file found in {search_dir}")
+#     if len(logfiles) > 1:
+#         raise FileExistsError(f"[get_logpath_from_datapath] Multiple log files found in {search_dir}")
+
+#     return logfiles[0]
+
 def get_logpath_from_datapath(datapath):
     """
-    Given a path to a video or data file, this function returns the path to the
-    corresponding log file. The log file is assumed to be in the same directory
-    as the video file or in the parent directory of the ADC file.
-
-    Parameters
-    ----------
-    datapath : str
-        Path to the video or ADC file.
-
-    Returns
-    -------
-    logpath : str
-        Path to the log file.
-
-    Raises
-    ------
-    FileNotFoundError
-        If no log file is found in the expected location.
-    FileExistsError
-        If multiple log files are found in the expected location.
+    Given a sensor or camera file path, return the *_file.log in the aux folder.
     """
-    if os.path.splitext(datapath)[-1].lower() == ".mp4":
-        updir = "../"
-    elif os.path.splitext(datapath)[-1].lower() == ".bin":
-        updir = "../../"
-    dirname = os.path.abspath(os.path.join(datapath, updir))
-    logfiles = [os.path.join(root, f) for root, _, files in os.walk(dirname) for f in files if f == "file.log"]
+    if not os.path.exists(datapath):
+        raise FileNotFoundError(f"Datapath does not exist: {datapath}")
 
-    if len(logfiles) == 0:
-        raise FileNotFoundError(f"[get_logpath_from_datapath] No log file found in {dirname}")
+    # Go to parent folder(s)
+    folder = os.path.dirname(datapath)          # sensor file → sensors/
+    aux_dir = os.path.dirname(folder)           # sensors/ → aux/
+
+    # Look for *_file.log
+    logfiles = [f for f in os.listdir(aux_dir) if f.endswith("_file.log")]
+    if not logfiles:
+        raise FileNotFoundError(f"No log file found in {aux_dir}")
     if len(logfiles) > 1:
-        raise FileExistsError(f"[get_logpath_from_datapath] Multiple log files found in {dirname}")
+        raise FileExistsError(f"Multiple log files found in {aux_dir}")
 
-    return logfiles[0]
+    return os.path.join(aux_dir, logfiles[0])
+
+
+
 
 def far_to_celcius(temp):
     return (temp - 32)*5/9
