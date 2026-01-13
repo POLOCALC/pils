@@ -43,7 +43,7 @@ def decode_adc_file_struct(adc_path):
     adc_data["datetime"] = pd.to_datetime(adc_data["timestamp"], unit="s")
     return adc_data
 
-def decode_adc_file_ascii(adc_path, gain_config=0.256):
+def decode_adc_file_ascii(adc_path, gain_config=16):
     """
     Decodes the last version of ADC file written in ASCII format and returns its content as a list of tuples.
 
@@ -76,9 +76,10 @@ def decode_adc_file_ascii(adc_path, gain_config=0.256):
             continue
 
     adc_data = pd.DataFrame(adc_data, columns=["timestamp", "amplitude"])
+    print(gain)
     adc_data["amplitude"] *= gain/2048*1e3
     # Normalize timestamps (optional but helpful for plotting)
-    adc_data["timestamp"] = (adc_data["timestamp"] - adc_data["timestamp"].iloc[0]) / 1e6  # convert from us to seconds
+    adc_data["timestamp"] = adc_data["timestamp"] / 1e6  # convert from us to seconds
     #adc_data["amplitude"] = adc_data["amplitude"].astype(float)
 
     return adc_data

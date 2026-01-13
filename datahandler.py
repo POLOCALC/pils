@@ -84,7 +84,7 @@ class Payload:
     def __init__(self, pathhandler):
         self.gps = GPS(pathhandler.gps)
         self.adc = ADC(pathhandler.adc)
-        self.inclino = Inclinometer(pathhandler.inclino)
+        #self.inclino = Inclinometer(pathhandler.inclino)
         self.baro = IMUSensor(pathhandler.baro, "baro")
         self.accelero = IMUSensor(pathhandler.accelero, "accelero")
         self.magneto = IMUSensor(pathhandler.magneto, "magneto")

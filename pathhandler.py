@@ -111,8 +111,8 @@ class PathHandler:
                     self.gps = os.path.join(sensors_dir, f)
                 elif f.endswith("_ADC.bin"):
                     self.adc = os.path.join(sensors_dir, f)
-                elif f.endswith("_INC.bin"):
-                    self.inclino = os.path.join(sensors_dir, f)
+                #elif f.endswith("_INC_ins.csv"):
+                    #self.inclino = os.path.join(sensors_dir, f)
                 elif f.endswith("_BAR.bin"):
                     self.baro = os.path.join(sensors_dir, f)
                 elif f.endswith("_GYR.bin"):
