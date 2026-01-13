@@ -76,7 +76,6 @@ def decode_adc_file_ascii(adc_path, gain_config=16):
             continue
 
     adc_data = pd.DataFrame(adc_data, columns=["timestamp", "amplitude"])
-    print(gain)
     adc_data["amplitude"] *= gain/2048*1e3
     # Normalize timestamps (optional but helpful for plotting)
     adc_data["timestamp"] = adc_data["timestamp"] / 1e6  # convert from us to seconds
