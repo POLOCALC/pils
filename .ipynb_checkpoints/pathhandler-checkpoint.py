@@ -54,6 +54,7 @@ class PathHandler:
         self.gyro = None
         self.accelero = None
         self.magneto = None
+        self.LM76 = None
 
         self.timestamp = None
 
@@ -92,7 +93,6 @@ class PathHandler:
             raise FileNotFoundError(f"[PathHandler] No _file.log found in {self.aux_dir}")
         self.logfile = os.path.join(self.aux_dir, logfiles[0])
 
-
         # camera
         camera_dir = os.path.join(self.aux_dir, "camera")
         if os.path.isdir(camera_dir):
@@ -121,3 +121,5 @@ class PathHandler:
                     self.accelero = os.path.join(sensors_dir, f)
                 elif f.endswith("_MAG.bin"):
                     self.magneto = os.path.join(sensors_dir, f)
+                elif f.endswith("_TMP.csv"):
+                    self.LM76 = os.path.join(sensors_dir, f)

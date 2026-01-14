@@ -22,6 +22,7 @@ from sensors.gps import GPS
 from sensors.adc import ADC
 from sensors.IMU import IMUSensor
 from sensors.camera import Camera
+from sensors.LM76 import LM76
 
 from drones.litchi import Litchi
 from drones.DJIDrone import DJIDrone
@@ -89,6 +90,7 @@ class Payload:
         self.accelero = IMUSensor(pathhandler.accelero, "accelero")
         self.magneto = IMUSensor(pathhandler.magneto, "magneto")
         self.gyro = IMUSensor(pathhandler.gyro, "gyro")
+        self.LM76 = LM76(pathhandler.LM76,"LM76")
 
     def load_data(self):
         for attr in vars(self).values():
