@@ -121,5 +121,5 @@ class PathHandler:
                     self.accelero = os.path.join(sensors_dir, f)
                 elif f.endswith("_MAG.bin"):
                     self.magneto = os.path.join(sensors_dir, f)
-                elif f.endswith("_TMP.csv"):
+                elif f.endswith(".csv") and "TMP" in f:
                     self.LM76 = os.path.join(sensors_dir, f)
