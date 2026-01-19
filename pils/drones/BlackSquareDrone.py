@@ -1,39 +1,40 @@
 import numpy as np
-import pandas as pd
+import polars as pl
 from collections import defaultdict
+from datetime import datetime, timedelta
 
 from astropy.utils.iers import LeapSeconds
 
 """https://ardupilot.org/copter/docs/logmessages.html"""
 
 ARDUTYPES = {
-    'a': (np.int16, (32,)),        # int16_t[32]
-    'b': np.int8,                  # int8_t
-    'B': np.uint8,                 # uint8_t
-    'h': np.int16,                 # int16_t
-    'H': np.uint16,                # uint16_t
-    'i': np.int32,                 # int32_t
-    'I': np.uint32,                # uint32_t
-    'f': np.float32,               # float
-    'd': np.float64,               # double
-    'n': 'S4',                     # char[4]
-    'N': 'S16',                    # char[16]
-    'Z': 'S64',                    # char[64]
-    'c': np.float64, #np.int16,                 # int16_t * 100, usually scaled
-    'C': np.float64, #np.uint16,                # uint16_t * 100, usually scaled
-    'e': np.float64, #np.int32,                 # int32_t * 100, usually scaled
-    'E': np.float64, #np.uint32,                # uint32_t * 100, usually scaled
-    'L': np.float64, #np.int32,                 # int32_t * 1e7 latitude/longitude
-    'M': "S64", #np.uint8,                 # uint8_t flight mode
-    'q': np.int64,                 # int64_t
-    'Q': np.uint64,                # uint64_t
+    "a": (np.int16, (32,)),  # int16_t[32]
+    "b": np.int8,  # int8_t
+    "B": np.uint8,  # uint8_t
+    "h": np.int16,  # int16_t
+    "H": np.uint16,  # uint16_t
+    "i": np.int32,  # int32_t
+    "I": np.uint32,  # uint32_t
+    "f": np.float32,  # float
+    "d": np.float64,  # double
+    "n": "S4",  # char[4]
+    "N": "S16",  # char[16]
+    "Z": "S64",  # char[64]
+    "c": np.float64,  # np.int16,                 # int16_t * 100, usually scaled
+    "C": np.float64,  # np.uint16,                # uint16_t * 100, usually scaled
+    "e": np.float64,  # np.int32,                 # int32_t * 100, usually scaled
+    "E": np.float64,  # np.uint32,                # uint32_t * 100, usually scaled
+    "L": np.float64,  # np.int32,                 # int32_t * 1e7 latitude/longitude
+    "M": "S64",  # np.uint8,                 # uint8_t flight mode
+    "q": np.int64,  # int64_t
+    "Q": np.uint64,  # uint64_t
 }
 ARDUFACTOR = {
-    'c' : 100, 
-    'C' : 100, 
-    'e' : 100, 
-    'E' : 100, 
-    'L' : 1e7,
+    "c": 100,
+    "C": 100,
+    "e": 100,
+    "E": 100,
+    "L": 1e7,
 }
 FLIGHTMODES = {
     "Stabilize": 0,
@@ -60,7 +61,7 @@ FLIGHTMODES = {
     "ZigZag": 24,
     "System Identification": 25,
     "Heli_Autorotate": 26,
-    "Turtle": 27
+    "Turtle": 27,
 }
 
 
@@ -72,7 +73,10 @@ def messages_to_df(messages, columns, format_str):
 
     # Create structured array
     arr = np.array([tuple(row) for row in messages], dtype=dtypes)
-    return pd.DataFrame(arr)
+    # Convert to polars DataFrame
+    data_dict = {col: arr[col].tolist() for col in columns}
+    return pl.DataFrame(data_dict)
+
 
 def read_msgs(path):
     with open(path, "r") as f:
@@ -83,19 +87,19 @@ def read_msgs(path):
         grouped_msgs = defaultdict(list)
 
         for line in lines:
-            #Extract all the formats
+            # Extract all the formats
             if line.startswith("FMT"):
                 parts = [p.strip() for p in line.split(",")]
                 if len(parts) >= 6:
                     _, _, _, msg_type, format_str, *colnames = parts
                     formats[msg_type] = {"Format": format_str, "Columns": colnames}
-            #Extract all the messages
+            # Extract all the messages
             elif line and not line.startswith("FILE"):
                 parts = [p.strip() for p in line.split(",")]
                 msg_type, values = parts[0], parts[1:]
                 grouped_msgs[msg_type].append(values)
 
-    #Start parsing
+    # Start parsing
     dfs = {}
     for msg_type, messages in grouped_msgs.items():
         if msg_type not in formats:
@@ -106,11 +110,12 @@ def read_msgs(path):
 
         try:
             df = messages_to_df(messages, columns, format_str)
-            dfs[msg_type] = df.reset_index(drop=True)
+            dfs[msg_type] = df
         except Exception as e:
             print(f"Warning: Failed to parse message type '{msg_type}': {e}")
 
     return dfs
+
 
 def generate_log_file(lines):
     msgs = []
@@ -119,32 +124,37 @@ def generate_log_file(lines):
         if msg[0] == "FILE":
             msgs.append([msg[1], msg[4][1:]])
 
-    msg_df = pd.DataFrame(msgs, columns=["Name", "Log"])
-    names = msg_df["Name"].unique()
-    s = msg_df.groupby("Name").get_group(names[0])["Log"].sum()
-    decoded_str = s.encode('utf-8').decode('unicode_escape')
+    msg_df = pl.DataFrame(msgs, schema=["Name", "Log"])
+    names = msg_df["Name"].unique().to_list()
+    s = msg_df.filter(pl.col("Name") == names[0])["Log"].str.concat("")
+    decoded_str = s[0].encode("utf-8").decode("unicode_escape")
 
     # Write to a text file with proper formatting
     with open("test.txt", "w", encoding="utf-8") as f:
         f.write(decoded_str)
 
+
 def get_leapseconds(year, month):
-# Load and prepare DataFrame
-    ls_df = LeapSeconds.auto_open().to_pandas()
-    ls_df["date"] = pd.to_datetime(ls_df[['year', 'month', 'day']])
-    ls_df = ls_df.set_index("date").sort_index()
+    # Load and prepare DataFrame
+    ls_pd = LeapSeconds.auto_open().to_pandas()
+    ls_df = pl.from_pandas(ls_pd)
+    ls_df = ls_df.with_columns(
+        [pl.date(pl.col("year"), pl.col("month"), pl.col("day")).alias("date")]
+    )
+    ls_df = ls_df.sort("date")
 
     # Define dates
-    start_date = pd.Timestamp("1980-01-01")
-    end_date = pd.Timestamp(f"{year}-{month:02d}-01")
+    start_date = datetime(1980, 1, 1).date()
+    end_date = datetime(year, month, 1).date()
 
-    # Use asof to find nearest previous dates
-    tai_utc_start = ls_df.loc[ls_df.index.asof(start_date), "tai_utc"]
-    tai_utc_end = ls_df.loc[ls_df.index.asof(end_date), "tai_utc"]
+    # Find the leap seconds at start and end
+    start_ls = ls_df.filter(pl.col("date") <= start_date).tail(1)["tai_utc"][0]
+    end_ls = ls_df.filter(pl.col("date") <= end_date).tail(1)["tai_utc"][0]
 
     # Compute leap seconds
-    leap_seconds = tai_utc_end - tai_utc_start
+    leap_seconds = end_ls - start_ls
     return leap_seconds
+
 
 class BlackSquareDrone:
     def __init__(self, path):
@@ -179,17 +189,31 @@ class BlackSquareDrone:
         self.gpa = self.data["GPA"]
 
         self.params = self.data["PARM"]
-        self.params["Name"] = self.params["Name"].apply(lambda x: x.decode("utf-8"))
-        self.params = self.params.set_index("Name")
+        self.params = self.params.with_columns(
+            [pl.col("Name").cast(pl.Utf8).str.replace(r"^b'|'$", "").alias("Name")]
+        )
 
         if "MNT" in self.data.keys():
             self.gimbal = self.data["MNT"]
 
     def compute_datetime(self):
-        gps = self.gps#.groupby("I").get_group(2)
-        gps_dt = pd.to_datetime("1980-01-01 00:00:00") + pd.to_timedelta(gps["GWk"], unit='w') + pd.to_timedelta(gps["GMS"], unit='ms')
-        leapseconds = get_leapseconds(gps_dt.dt.year[0], gps_dt.dt.month[0])
-        gps_dt -= pd.Timedelta(seconds=leapseconds)
-        self.datetime = gps_dt
+        gps = self.gps
+        # GPS epoch is 1980-01-06, calculate datetime from GWk (week) and GMS (milliseconds)
+        gps_epoch = datetime(1980, 1, 6)
 
-    
+        gps_dt = []
+        for row in gps.iter_rows(named=True):
+            dt = gps_epoch + timedelta(
+                weeks=int(row["GWk"]), milliseconds=int(row["GMS"])
+            )
+            gps_dt.append(dt)
+
+        gps_dt_series = pl.Series("gps_datetime", gps_dt)
+
+        # Get leap seconds
+        first_dt = gps_dt[0]
+        leapseconds = get_leapseconds(first_dt.year, first_dt.month)
+
+        # Subtract leap seconds
+        gps_dt_corrected = [dt - timedelta(seconds=leapseconds) for dt in gps_dt]
+        self.datetime = pl.Series("datetime", gps_dt_corrected)

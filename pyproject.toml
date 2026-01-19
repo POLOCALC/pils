@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pils"
+version = "0.1.0"
+description = "PILS - POLOCALC Inertial & Drone Loading System. Integrated flight data loading and decoding with STOUT database interface"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "POLOCALC Team", email = "info@polocalc.org"}
+]
+keywords = ["drone", "data-loading", "sensors", "stout", "database"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+requires-python = ">=3.10"
+
+dependencies = [
+    "polars>=0.20.0",
+    "numpy>=1.23.0",
+    "opencv-python>=4.6.0",
+    "matplotlib>=3.5.0",
+    "pyubx2>=1.2.0",
+]
+
+[project.optional-dependencies]
+stout = ["stout>=2.0.0"]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "black>=23.0",
+    "flake8>=6.0",
+    "mypy>=1.0",
+]
+
+[project.urls]
+Repository = "https://github.com/POLOCALC/data-loader"
+Documentation = "https://github.com/POLOCALC/data-loader/wiki"

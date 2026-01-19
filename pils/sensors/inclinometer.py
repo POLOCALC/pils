@@ -1,0 +1,644 @@
+import polars as pl
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+import glob
+from typing import Optional, Literal, Union
+from datetime import timedelta
+
+from ..utils.tools import (
+    drop_nan_and_zero_cols,
+    read_log_time,
+    get_logpath_from_datapath,
+)
+
+from ..decoders import KERNEL_utils as kernel
+
+# Check if yaml is available for config file reading
+try:
+    import yaml  # noqa: F401
+
+    YAML_AVAILABLE = True
+except ImportError:
+    YAML_AVAILABLE = False
+
+
+def decode_inclino(inclino_path):
+    """
+    Decodes inclinometer data from a binary file and returns the decoded messages as a dictionary.
+
+    Parameters
+    ----------
+    inclino_path : str
+        Path to the binary file containing inclinometer data.
+
+    Returns
+    -------
+    decoded_msg : dict
+        A dictionary where keys are message field names and values are lists of field values extracted from the decoded messages.
+    """
+
+    with open(inclino_path, "rb") as fd:
+        data = fd.read()
+
+    # Define the starting sequence of a message
+    sequence = b"\xaaU\x01\x81"
+    msgs = data.split(sequence)[1:]
+
+    decoded_msg = {}
+    for msg in msgs:
+        try:
+            msg = sequence + msg
+            tmp = kernel.KernelMsg().decode_single(msg, return_dict=True)
+
+            if not decoded_msg.keys():
+                decoded_msg = {k: [] for k in tmp.keys()}
+
+            for j in tmp.keys():
+                decoded_msg[j].append(tmp[j])
+        except:
+            continue
+    return decoded_msg
+
+
+def detect_inclinometer_type_from_config(dirpath: str) -> Optional[str]:
+    """
+    Detect the type of inclinometer from the config.yml file.
+
+    Looks for sensors with type 'IMX5' (InertialSense) or checks for
+    INERTIAL sensors with Kernel manufacturer.
+
+    Parameters
+    ----------
+    dirpath : str
+        Path to the aux folder or sensors subfolder.
+
+    Returns
+    -------
+    str or None
+        'imx5', 'kernel', or None if not found.
+    """
+    if not YAML_AVAILABLE:
+        return None
+
+    import yaml as yaml_module
+
+    # Find config file - could be in dirpath or parent (aux folder)
+    config_files = glob.glob(os.path.join(dirpath, "*_config.yml"))
+    if not config_files:
+        # Check parent directory (if we're in sensors subfolder)
+        parent_dir = os.path.dirname(dirpath)
+        config_files = glob.glob(os.path.join(parent_dir, "*_config.yml"))
+    if not config_files:
+        # Try just config.yml
+        config_path = os.path.join(dirpath, "config.yml")
+        if os.path.exists(config_path):
+            config_files = [config_path]
+        else:
+            parent_config = os.path.join(os.path.dirname(dirpath), "config.yml")
+            if os.path.exists(parent_config):
+                config_files = [parent_config]
+
+    if not config_files:
+        return None
+
+    try:
+        with open(config_files[0], "r") as f:
+            config = yaml_module.safe_load(f)
+
+        sensors = config.get("sensors", {})
+
+        # Check for IMX5 sensor
+        for sensor_name, sensor_config in sensors.items():
+            sensor_info = sensor_config.get("sensor_info", {})
+            sensor_type = sensor_info.get("type", "").upper()
+            manufacturer = sensor_info.get("manufacturer", "").lower()
+
+            # IMX5 from InertialSense
+            if sensor_type == "IMX5" or (
+                manufacturer == "inertialsense" and "imx" in sensor_name.lower()
+            ):
+                return "imx5"
+
+            # Kernel inclinometer (type: Inertial, manufacturer might be 'Kernel' or similar)
+            if sensor_type == "INERTIAL":
+                # Check if it's a Kernel sensor
+                name = sensor_config.get("name", "").lower()
+                if "kernel" in name or "kernel" in manufacturer:
+                    return "kernel"
+
+        # Secondary check: look for specific sensor names
+        for sensor_name in sensors.keys():
+            if "IMX5" in sensor_name.upper() or "IMX-5" in sensor_name.upper():
+                return "imx5"
+            if "KERNEL" in sensor_name.upper() or "INERTIAL" in sensor_name.upper():
+                # Check if there are INC files to determine type
+                return None  # Let file detection handle it
+
+    except Exception:
+        pass
+
+    return None
+
+
+def detect_inclinometer_type_from_files(dirpath: str) -> tuple[str, Optional[str]]:
+    """
+    Detect the type of inclinometer data available in a directory by file patterns.
+    This is a fallback when config detection fails.
+
+    Parameters
+    ----------
+    dirpath : str
+        Path to the sensors directory containing inclinometer files.
+
+    Returns
+    -------
+    tuple[str, Optional[str]]
+        Tuple of (inclinometer_type, path_to_file).
+        inclinometer_type is 'imx5', 'kernel', or 'unknown'.
+    """
+    # Check for IMX-5 files (CSV format with INC_ prefix)
+    imx5_ins_files = glob.glob(os.path.join(dirpath, "*_INC_ins.csv"))
+    if imx5_ins_files:
+        return ("imx5", imx5_ins_files[0])
+
+    # Check for Kernel files (binary INC.bin format)
+    kernel_files = glob.glob(os.path.join(dirpath, "*_INC.bin"))
+    if kernel_files:
+        return ("kernel", kernel_files[0])
+
+    return ("unknown", None)
+
+
+def detect_inclinometer_type(dirpath: str) -> tuple[str, Optional[str]]:
+    """
+    Detect the type of inclinometer data available in a directory.
+
+    First tries to read from config.yml, then falls back to file pattern detection.
+
+    Parameters
+    ----------
+    dirpath : str
+        Path to the sensors directory containing inclinometer files.
+
+    Returns
+    -------
+    tuple[str, Optional[str]]
+        Tuple of (inclinometer_type, path_to_file).
+        inclinometer_type is 'imx5', 'kernel', or 'unknown'.
+    """
+    # First try config-based detection
+    config_type = detect_inclinometer_type_from_config(dirpath)
+
+    if config_type == "imx5":
+        # Find the IMX5 file
+        imx5_ins_files = glob.glob(os.path.join(dirpath, "*_INC_ins.csv"))
+        if imx5_ins_files:
+            return ("imx5", imx5_ins_files[0])
+        return ("imx5", None)
+
+    elif config_type == "kernel":
+        # Find the Kernel file
+        kernel_files = glob.glob(os.path.join(dirpath, "*_INC.bin"))
+        if kernel_files:
+            return ("kernel", kernel_files[0])
+        return ("kernel", None)
+
+    # Fall back to file-based detection
+    return detect_inclinometer_type_from_files(dirpath)
+
+
+class IMX5Inclinometer:
+    """
+    Decoder for InertialSense IMX-5 inclinometer data.
+
+    The IMX-5 outputs three CSV files:
+    - *_INC_imu.csv: Raw IMU data (accelerometer, gyroscope)
+    - *_INC_ins.csv: INS solution (position, velocity, attitude)
+    - *_INC_inl2.csv: Extended INL2 data (quaternions, biases)
+    """
+
+    def __init__(self, dirpath: str, logpath: Optional[str] = None):
+        """
+        Initialize IMX5Inclinometer.
+
+        Parameters
+        ----------
+        dirpath : str
+            Path to the sensors directory containing IMX-5 CSV files.
+        logpath : str, optional
+            Path to log file for timing information.
+        """
+        self.dirpath = dirpath
+        self.logpath = logpath
+
+        # Find IMX-5 files
+        self.ins_path = self._find_file("*_INC_ins.csv")
+        self.imu_path = self._find_file("*_INC_imu.csv")
+        self.inl2_path = self._find_file("*_INC_inl2.csv")
+
+        # Data storage
+        self.ins_data: Optional[pl.DataFrame] = None
+        self.imu_data: Optional[pl.DataFrame] = None
+        self.inl2_data: Optional[pl.DataFrame] = None
+        self.data: Optional[pl.DataFrame] = None  # Main attitude data
+
+    def _find_file(self, pattern: str) -> Optional[str]:
+        """Find a file matching the pattern in dirpath."""
+        files = glob.glob(os.path.join(self.dirpath, pattern))
+        return files[0] if files else None
+
+    def load_ins(self) -> Optional[pl.DataFrame]:
+        """
+        Load INS solution data (position, velocity, attitude).
+
+        Returns
+        -------
+        pl.DataFrame or None
+            INS data with columns including lat, lon, alt, roll, pitch, yaw, velocities.
+        """
+        if self.ins_path is None:
+            return None
+
+        df = pl.read_csv(self.ins_path)
+
+        # Convert radians to degrees for attitude
+        cols_to_add = []
+        if "roll_rad" in df.columns:
+            cols_to_add.append((pl.col("roll_rad") * 180 / np.pi).alias("roll"))
+        if "pitch_rad" in df.columns:
+            cols_to_add.append((pl.col("pitch_rad") * 180 / np.pi).alias("pitch"))
+        if "yaw_rad" in df.columns:
+            cols_to_add.append((pl.col("yaw_rad") * 180 / np.pi).alias("yaw"))
+
+        # Create timestamp from timestamp_ns
+        if "timestamp_ns" in df.columns:
+            cols_to_add.append((pl.col("timestamp_ns") / 1e9).alias("timestamp"))
+            cols_to_add.append(
+                pl.from_epoch(pl.col("timestamp_ns"), time_unit="ns").alias("datetime")
+            )
+
+        if cols_to_add:
+            df = df.with_columns(cols_to_add)
+
+        self.ins_data = df
+        return df
+
+    def load_imu(self) -> Optional[pl.DataFrame]:
+        """
+        Load raw IMU data (accelerometer, gyroscope).
+
+        Returns
+        -------
+        pl.DataFrame or None
+            IMU data with accelerometer and gyroscope readings.
+        """
+        if self.imu_path is None:
+            return None
+
+        df = pl.read_csv(self.imu_path)
+
+        cols_to_add = []
+        # Create timestamp from timestamp_ns
+        if "timestamp_ns" in df.columns:
+            cols_to_add.append((pl.col("timestamp_ns") / 1e9).alias("timestamp"))
+            cols_to_add.append(
+                pl.from_epoch(pl.col("timestamp_ns"), time_unit="ns").alias("datetime")
+            )
+
+        # Convert gyro from rad/s to deg/s
+        for col in ["pqr_P_rad_s", "pqr_Q_rad_s", "pqr_R_rad_s"]:
+            if col in df.columns:
+                new_col = col.replace("_rad_s", "_deg_s")
+                cols_to_add.append((pl.col(col) * 180 / np.pi).alias(new_col))
+
+        if cols_to_add:
+            df = df.with_columns(cols_to_add)
+
+        self.imu_data = df
+        return df
+
+    def load_inl2(self) -> Optional[pl.DataFrame]:
+        """
+        Load INL2 extended data (quaternions, biases).
+
+        Returns
+        -------
+        pl.DataFrame or None
+            INL2 data with quaternions, ECEF position, and bias estimates.
+        """
+        if self.inl2_path is None:
+            return None
+
+        df = pl.read_csv(self.inl2_path)
+
+        cols_to_add = []
+        # Create timestamp from timestamp_ns
+        if "timestamp_ns" in df.columns:
+            cols_to_add.append((pl.col("timestamp_ns") / 1e9).alias("timestamp"))
+            cols_to_add.append(
+                pl.from_epoch(pl.col("timestamp_ns"), time_unit="ns").alias("datetime")
+            )
+
+        if cols_to_add:
+            df = df.with_columns(cols_to_add)
+
+        self.inl2_data = df
+        return df
+
+    def load_data(self):
+        """
+        Load all IMX-5 data and set main attitude data.
+
+        The main `self.data` attribute will contain the INS solution
+        with roll, pitch, yaw in degrees.
+        """
+        self.load_ins()
+        self.load_imu()
+        self.load_inl2()
+
+        # Use INS data as the main attitude source
+        if self.ins_data is not None:
+            self.data = self.ins_data.clone()
+        elif self.imu_data is not None:
+            # Fall back to IMU data if no INS
+            self.data = self.imu_data.clone()
+
+
+class KernelInclinometer:
+    """
+    Decoder for Kernel-100 inclinometer data (binary format).
+    """
+
+    def __init__(self, path: str, logpath: Optional[str] = None):
+        """
+        Initialize KernelInclinometer.
+
+        Parameters
+        ----------
+        path : str
+            Path to the Kernel binary file (*_INC.bin).
+        logpath : str, optional
+            Path to log file for timing information.
+        """
+        self.path = path
+        if logpath is not None:
+            self.logpath = logpath
+        else:
+            self.logpath = get_logpath_from_datapath(self.path)
+
+        self.data: Optional[pl.DataFrame] = None
+        self.tstart = None
+
+    def read_log_time(self, logfile: Optional[str] = None):
+        """Read start time from log file."""
+        if logfile is None:
+            return
+
+        keyphrases = [
+            "Connected to KERNEL sensor Kernel-100",
+            "Sensor Kernel-100 started",
+        ]
+        for keyphrase in keyphrases:
+            try:
+                tstart, _ = read_log_time(keyphrase=keyphrase, logfile=logfile)
+                if tstart is None:
+                    continue
+                else:
+                    self.tstart = tstart
+                    break
+            except:
+                print(
+                    "Couldn't find start time from logfile. Skipping datetime conversion."
+                )
+
+    def load_data(self):
+        """
+        Load and decode Kernel inclinometer data.
+        """
+        # Load data from binary decoder
+        decoded = decode_inclino(self.path)
+        inclino_data = pl.DataFrame(decoded)
+
+        # Detect counter wrap-arounds (where counter resets)
+        counter = inclino_data["Counter"]
+        diff_counter = counter.diff()
+
+        # Create wrap detection
+        wraps = diff_counter.abs() > 60000
+        wrap_cumsum = wraps.cum_sum()
+        counter_vals = counter.to_numpy()
+        counter_max = float(counter_vals.max())
+        counter_min = float(counter_vals.min())
+        new_counter = counter + wrap_cumsum * (counter_max - counter_min)
+
+        # Filter good indices
+        new_counter_diff = new_counter.diff()
+        ind_good = (new_counter_diff == 16) | (new_counter_diff == 13)
+
+        # Apply filter
+        inclino_data = inclino_data.with_columns(
+            [new_counter.alias("new_counter"), ind_good.alias("ind_good")]
+        )
+        inclino_data = inclino_data.filter(pl.col("ind_good"))
+
+        # Convert counter to time (seconds)
+        inclino_data = inclino_data.with_columns(
+            [(pl.col("new_counter") / 2000.0).alias("counter_timestamp")]
+        )
+
+        if self.logpath is not None:
+            self.read_log_time(logfile=self.logpath)
+            if self.tstart is not None:
+                tstart = self.tstart
+                # Calculate datetime for each row
+                timestamps = inclino_data["counter_timestamp"].to_list()
+                datetimes = [tstart + timedelta(seconds=t) for t in timestamps]
+                inclino_data = inclino_data.with_columns(
+                    [pl.Series("datetime", datetimes)]
+                )
+                inclino_data = inclino_data.with_columns(
+                    [
+                        (pl.col("datetime").dt.epoch(time_unit="ns") / 1e9).alias(
+                            "timestamp"
+                        )
+                    ]
+                )
+
+        # Rename Euler angles to match drone convention
+        inclino_data = inclino_data.rename(
+            {"Roll": "pitch", "Pitch": "roll", "Heading": "yaw"}
+        )
+        inclino_data = inclino_data.with_columns([(-pl.col("pitch")).alias("pitch")])
+
+        # Drop helper columns
+        cols_to_drop = ["new_counter", "ind_good"]
+        inclino_data = inclino_data.drop(
+            [c for c in cols_to_drop if c in inclino_data.columns]
+        )
+
+        inclino_data = drop_nan_and_zero_cols(inclino_data)
+
+        self.data = inclino_data
+
+
+class Inclinometer:
+    """
+    Unified inclinometer class that auto-detects and loads either
+    Kernel-100 (binary) or IMX-5 (CSV) inclinometer data.
+
+    Parameters
+    ----------
+    path : str
+        Path to inclinometer file (for Kernel) or sensors directory (for IMX-5).
+    logpath : str, optional
+        Path to log file for timing information.
+    sensor_type : str, optional
+        Force sensor type: 'kernel', 'imx5', or None for auto-detect.
+    """
+
+    def __init__(
+        self,
+        path: str,
+        logpath: Optional[str] = None,
+        sensor_type: Optional[Literal["kernel", "imx5"]] = None,
+    ):
+        self.path = path
+        self.logpath = logpath
+        self.sensor_type = sensor_type
+        self.data: Optional[pl.DataFrame] = None
+        self._decoder: Optional[KernelInclinometer | IMX5Inclinometer] = None
+
+        # Auto-detect sensor type if not specified
+        if self.sensor_type is None:
+            self._auto_detect()
+
+        # Initialize the appropriate decoder
+        self._init_decoder()
+
+    def _auto_detect(self):
+        """Auto-detect inclinometer type from config.yml file."""
+        # Determine the directory to search for config
+        if os.path.isdir(self.path):
+            search_dir = self.path
+        elif os.path.isfile(self.path):
+            search_dir = os.path.dirname(self.path)
+        else:
+            search_dir = os.path.dirname(self.path)
+
+        # First try config-based detection (primary method)
+        config_type = detect_inclinometer_type_from_config(search_dir)
+
+        if config_type is not None:
+            self.sensor_type = config_type
+            # Ensure path is set correctly for the decoder
+            if config_type == "imx5" and os.path.isfile(self.path):
+                self.path = os.path.dirname(self.path)
+            return
+
+        # Fallback: file-based detection if config not available
+        if os.path.isdir(self.path):
+            inc_type, _ = detect_inclinometer_type_from_files(self.path)
+            self.sensor_type = inc_type if inc_type != "unknown" else None
+        elif os.path.isfile(self.path):
+            # Infer from file extension as last resort
+            if self.path.endswith(".bin") and "_INC" in self.path:
+                self.sensor_type = "kernel"
+            elif "_INC_" in self.path and self.path.endswith(".csv"):
+                self.sensor_type = "imx5"
+                self.path = os.path.dirname(self.path)
+        else:
+            # Check parent directory
+            parent_dir = os.path.dirname(self.path)
+            if os.path.isdir(parent_dir):
+                inc_type, _ = detect_inclinometer_type_from_files(parent_dir)
+                if inc_type != "unknown":
+                    self.sensor_type = inc_type
+                    if inc_type == "imx5":
+                        self.path = parent_dir
+
+    def _init_decoder(self):
+        """Initialize the appropriate decoder based on sensor type."""
+        if self.sensor_type == "kernel":
+            self._decoder = KernelInclinometer(self.path, self.logpath)
+        elif self.sensor_type == "imx5":
+            self._decoder = IMX5Inclinometer(self.path, self.logpath)
+        else:
+            # Try to find any inclinometer data
+            if os.path.isdir(self.path):
+                inc_type, inc_path = detect_inclinometer_type(self.path)
+                if inc_type == "imx5":
+                    self._decoder = IMX5Inclinometer(self.path, self.logpath)
+                    self.sensor_type = "imx5"
+                elif inc_type == "kernel" and inc_path:
+                    self._decoder = KernelInclinometer(inc_path, self.logpath)
+                    self.sensor_type = "kernel"
+
+    @property
+    def tstart(self):
+        """Get start time (Kernel only)."""
+        if isinstance(self._decoder, KernelInclinometer):
+            return self._decoder.tstart
+        return None
+
+    @property
+    def ins_data(self) -> Optional[pl.DataFrame]:
+        """Get INS data (IMX-5 only)."""
+        if isinstance(self._decoder, IMX5Inclinometer):
+            return self._decoder.ins_data
+        return None
+
+    @property
+    def imu_data(self) -> Optional[pl.DataFrame]:
+        """Get IMU data (IMX-5 only)."""
+        if isinstance(self._decoder, IMX5Inclinometer):
+            return self._decoder.imu_data
+        return None
+
+    @property
+    def inl2_data(self) -> Optional[pl.DataFrame]:
+        """Get INL2 data (IMX-5 only)."""
+        if isinstance(self._decoder, IMX5Inclinometer):
+            return self._decoder.inl2_data
+        return None
+
+    def load_data(self):
+        """Load inclinometer data using the detected decoder."""
+        if self._decoder is None:
+            raise ValueError(
+                f"No inclinometer data found at {self.path}. "
+                "Expected either *_INC.bin (Kernel) or *_INC_*.csv (IMX-5) files."
+            )
+        self._decoder.load_data()
+        self.data = self._decoder.data
+
+    def plot(self):
+        """Plot roll, pitch, yaw over time."""
+        if self.data is None:
+            raise ValueError("Data not loaded. Run load_data() first.")
+
+        fig, axs = plt.subplots(3, 1, sharex=True, figsize=(10, 8))
+
+        # Determine x-axis (prefer timestamp)
+        if "timestamp" in self.data.columns:
+            x = self.data["timestamp"].to_numpy()
+            xlabel = "Time [s]"
+        elif "datetime" in self.data.columns:
+            x = self.data["datetime"].to_numpy()
+            xlabel = "Time"
+        else:
+            x = np.arange(len(self.data))
+            xlabel = "Sample"
+
+        axs[0].plot(x, self.data["yaw"].to_numpy(), color="cornflowerblue")
+        axs[1].plot(x, self.data["pitch"].to_numpy(), color="crimson")
+        axs[2].plot(x, self.data["roll"].to_numpy(), color="forestgreen")
+
+        axs[0].set_ylabel("Yaw [°]")
+        axs[1].set_ylabel("Pitch [°]")
+        axs[2].set_ylabel("Roll [°]")
+        axs[-1].set_xlabel(xlabel)
+
+        plt.suptitle(f"Inclinometer Data ({self.sensor_type or 'unknown'})")
+        plt.tight_layout()
+        plt.show()
