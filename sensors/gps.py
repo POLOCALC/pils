@@ -45,6 +45,7 @@ class GPS:
         self.t_start = read_log_time(keyphrase="Sensor ZED-F9P started", logfile=self.logpath)
         gps_data["datetime"] = pd.to_datetime(self.t_start) + pd.to_timedelta(gps_data["iTOW"] - gps_data["iTOW"].iloc[0], unit="ms")
         gps_data["timestamp"] = gps_data["datetime"].astype('int64') / 10**9
+        gps_data["height"] = gps_data["height"]/1000 # to get values in m
 
         self.data = gps_data
 
