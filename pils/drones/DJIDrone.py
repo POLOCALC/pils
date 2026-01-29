@@ -1,4 +1,9 @@
+from typing import Union, Dict, Optional, Tuple
+
+import glob as gl
 import polars as pl
+import polars.selectors as cs
+from functools import reduce
 import struct
 import logging
 import re
@@ -69,11 +74,17 @@ MESSAGE_DEFINITIONS = {
 
 
 class DJIDrone:
-    def __init__(self, path):
+    def __init__(self, path, source_format=None):
+
         self.path = path
-        self.data = {}  # Dictionary: {message_name: polars.DataFrame}
-        self.sync_params = None  # Store (slope, intercept) from Gaussian sync
-        self.source_format = None  # Track if data came from CSV or DAT
+        self.data: Union[Dict[str, pl.DataFrame], pl.DataFrame] = (
+            {}
+        )  # Dictionary or DataFrame
+        self.sync_params: Optional[Tuple[float, float]] = (
+            None  # Store (slope, intercept) from Gaussian sync
+        )
+        self.source_format: Optional[str] = None  # Track if data came from CSV or DAT
+        self.aligned_df: Optional[pl.DataFrame] = None  # Store aligned DataFrame
 
     def load_data(
         self,
@@ -85,7 +96,11 @@ class DJIDrone:
             "RTKdata:Lon_P",
             "RTKdata:Hmsl_P",
         ],
-        use_dat: bool = False,
+        use_dat: bool = True,
+        remove_duplicate: bool = False,
+        correct_timestamp: bool = True,
+        polars_interpolation: bool = True,
+        align: bool = True,
     ):
         """
         Load and filter drone data from a CSV or DAT file.
@@ -95,25 +110,71 @@ class DJIDrone:
         - Converts 'GPS:dateTimeStamp' to datetime.
         - Filters out rows with missing or zero values in critical columns.
         - Drops any columns that are fully NaN or zero using `drop_nan_and_zero_cols`.
+        - Removes consecutive duplicate position samples.
 
         Parameters
         ----------
         cols : list of str, optional
             List of columns to load (for CSV files). Defaults to key RTK and timestamp fields.
         use_dat : bool, optional
-            If True, try to load from DAT file instead of CSV. Default is False.
+            If True, try to load from DAT file instead of CSV.
+            If None (default), auto-detect based on file extension.
 
         Returns
         -------
         None
             Filtered data is stored in `self.data`.
         """
+        # Auto-detect file format if not specified
+        # if use_dat is None:
+        #     file_extension = Path(self.path).suffix.lower()
+        #     use_dat = file_extension in [".dat", ".bin"]
+
         if use_dat:
             self._load_from_dat()
             self.source_format = "DAT"
         else:
             self._load_from_csv(cols)
             self.source_format = "CSV"
+
+        # Remove consecutive duplicate position samples
+        if remove_duplicate:
+            self._remove_consecutive_duplicates()
+
+        if correct_timestamp:
+            logger.info("Converting timestamps to milliseconds")
+            if self.source_format == "CSV":
+                # For CSV format, self.data is a DataFrame
+                assert isinstance(
+                    self.data, pl.DataFrame
+                ), "Expected DataFrame for CSV format"
+                # Calculate mean offset from actual data, not expressions
+                timestamp_vals = self.data.get_column("timestamp").to_numpy()
+                tags = np.where(np.diff(timestamp_vals) > 0.5)[0] + 1
+
+                offset_vals = self.data.get_column("Clock:offsetTime").to_numpy()
+
+                offset_vals = offset_vals[tags].astype(np.float64)
+                timestamp_vals = timestamp_vals[tags].astype(np.float64)
+                mean_offset = float(np.mean(timestamp_vals - offset_vals))
+
+                self.data = self.data.with_columns(
+                    ((pl.col("Clock:offsetTime") + mean_offset).cast(pl.Float64)).alias(
+                        "correct_timestamp"
+                    )
+                )
+            elif self.source_format == "DAT":
+                # For DAT format, align_datfile returns a DataFrame
+                aligned = self.align_datfile(polars_interpolation=polars_interpolation)
+                if aligned is not None:
+                    self.data = aligned
+
+        else:
+            if self.source_format == "DAT" and align:
+                aligned = self.align_datfile(correct_timestamp=False)
+
+                if aligned is not None:
+                    self.data = aligned
 
     def _load_from_csv(self, cols):
         """Load drone data from CSV file."""
@@ -181,7 +242,94 @@ class DJIDrone:
             data = drop_nan_and_zero_cols(data)
 
         # Store as 'CSV' dataset in dictionary
-        self.data["CSV"] = data
+        self.data = data
+
+    def _remove_consecutive_duplicates(self):
+        """
+        Remove consecutive duplicate position samples from all loaded data.
+
+        Removes rows where ALL position columns are identical to the previous row,
+        eliminating static position artifacts from the data.
+
+        Position columns checked:
+        - CSV: GPS:Lat[degrees], GPS:Long[degrees]
+        - DAT: GPS:latitude, GPS:longitude
+        - Both: RTKdata:Lat_P, RTKdata:Lon_P, RTKdata:Lat_S, RTKdata:Lon_S
+        """
+        # Handle both dict (DAT format) and DataFrame (CSV format)
+        if isinstance(self.data, pl.DataFrame):
+            items = [("CSV", self.data)]
+        elif isinstance(self.data, dict):
+            items = self.data.items()
+        else:
+            return
+
+        for data_key, df in items:
+            if df is None or len(df) < 2:
+                continue
+
+            # Determine which position columns are available
+            # Check only GPS columns (not RTK) to identify consecutive duplicates
+            gps_cols = []
+
+            # CSV format columns
+            if "GPS:Lat[degrees]" in df.columns:
+                gps_cols.append("GPS:Lat[degrees]")
+            if "GPS:Long[degrees]" in df.columns:
+                gps_cols.append("GPS:Long[degrees]")
+
+            # DAT format columns
+            if "GPS:latitude" in df.columns:
+                gps_cols.append("GPS:latitude")
+            if "GPS:longitude" in df.columns:
+                gps_cols.append("GPS:longitude")
+
+            if not gps_cols:
+                logger.debug(
+                    f"No GPS position columns found in {data_key} data, skipping duplicate removal"
+                )
+                continue
+
+            original_len = len(df)
+
+            # Use numpy diff to find where ALL GPS position columns remain unchanged
+            # Start by assuming all rows after first should be removed
+            all_gps_unchanged = np.ones(original_len - 1, dtype=bool)
+
+            for col in gps_cols:
+                # Get column values as numpy array
+                values = df[col].to_numpy()
+                # Calculate differences
+                diffs = np.diff(values)
+                # Mark where this column changed (diff != 0)
+                changed = diffs != 0
+                # Update: row is unchanged only if ALL GPS columns are unchanged
+                all_gps_unchanged = all_gps_unchanged & (~changed)
+
+            # Indices to remove are where all_gps_unchanged is True (add 1 for diff offset)
+            remove_indices = np.where(all_gps_unchanged)[0] + 1
+
+            # Create mask: keep all except remove_indices
+            keep_mask = np.ones(original_len, dtype=bool)
+            keep_mask[remove_indices] = False
+
+            # Get indices to keep
+            keep_indices = np.where(keep_mask)[0]
+
+            # Filter dataframe to keep only these indices
+            filtered_df = df[keep_indices.tolist()]
+
+            removed_count = original_len - len(filtered_df)
+            if removed_count > 0:
+                logger.info(
+                    f"Removed {removed_count} consecutive duplicate position samples from {data_key} data ({original_len} -> {len(filtered_df)} samples, {removed_count/original_len*100:.1f}% removed)"
+                )
+                if isinstance(self.data, pl.DataFrame):
+                    self.data = filtered_df
+                else:
+                    self.data[data_key] = filtered_df
+            else:
+                logger.debug(f"No consecutive duplicates found in {data_key} data")
 
     def _load_from_dat(self):
         """Load and decode drone data from DJI DAT file."""
@@ -428,13 +576,15 @@ class DJIDrone:
         # Replace tick column with unwrapped values
         return df.with_columns(pl.Series("tick", unwrapped))
 
-    def get_tick_offset(self):
+    def get_tick_offset(self) -> float:
+        # Ensure self.data is a dict for DAT format
+        assert isinstance(self.data, dict), "Expected dict for DAT format"
 
         if "GPS" not in self.data:
             logger.warning("No GPS data available for synchronization")
             return 0.0
 
-        gps_data = self.data["GPS"]
+        gps_data: pl.DataFrame = self.data["GPS"]
 
         # Check if we have the required fields
         if "tick" not in gps_data.columns:
@@ -446,97 +596,38 @@ class DJIDrone:
             return 0.0
 
         # Calculate the linear regression parameters
-        diff = np.diff(gps_data["timestamp"].to_numpy())
+        timestamp_arr = gps_data.get_column("timestamp").to_numpy()
+        tick_arr = gps_data.get_column("tick").to_numpy()
+
+        diff = np.diff(timestamp_arr)
         (idx,) = np.where(diff > 0.7)
 
         m, c = np.polyfit(
-            gps_data["timestamp"].to_numpy()[idx + 1],
-            gps_data["tick"].to_numpy()[idx + 1],
+            tick_arr[idx + 1],
+            timestamp_arr[idx + 1],
             1,
         )
 
-        residuals = (
-            c
-            + m * gps_data["timestamp"].to_numpy()[idx + 1]
-            - gps_data["tick"].to_numpy()[idx + 1]
-        )
+        residuals = c + m * tick_arr[idx + 1] - timestamp_arr[idx + 1]
+        off = 0
 
-        (idx_fast,) = np.where(residuals > np.quantile(residuals, 0.99))
+        (idx_fast,) = np.where(residuals[off:] > np.quantile(residuals[off:], 0.95))
 
-        self.data["GPS"] = self.data["GPS"].with_columns(
-            pl.Series(
-                "corrected_tick",
-                self.data["GPS"]["tick"]
-                - np.average(self.data["GPS"]["tick"][idx + 1][idx_fast]),
+        time_offset = float(
+            np.average(
+                +(c + m * tick_arr[idx + 1][idx_fast + off])
+                - timestamp_arr[idx + 1][idx_fast + off]
             )
         )
-
         self.data["GPS"] = self.data["GPS"].with_columns(
             pl.Series(
                 "correct_timestamp",
-                (
-                    self.data["GPS"]["timestamp"]
-                    - (
-                        self.data["GPS"]["corrected_tick"]
-                        - self.data["GPS"]["corrected_tick"][0]
-                    )
-                    / m
-                ).cast(pl.Float64),
+                (m * tick_arr + c - time_offset).astype(np.float64),
             )
         )
 
-        tick_offset = np.average(self.data["GPS"]["tick"][idx + 1][idx_fast])
-        self.sync_params = (m, tick_offset)
-        return tick_offset
-
-    def compute_offset_time(self, message_type="GPS"):
-        """
-        Compute offset time for a message type using the formula:
-        offsetTime = (tick - tickOffset) / 600.0
-
-        where tickOffset is the intercept from the Gaussian synchronization.
-
-        Parameters
-        ----------
-        message_type : str, optional
-            Message type to compute offset time for (default: "GPS")
-
-        Returns
-        -------
-        pl.Series or None
-            Series with offset time values, or None if sync params not available
-        """
-        if self.sync_params is None:
-            logger.warning(
-                "No synchronization parameters available. Run get_tick_offset first."
-            )
-            return None
-
-        if message_type not in self.data:
-            logger.warning(f"Message type '{message_type}' not found in data")
-            return None
-
-        msg_data = self.data[message_type]
-        if "tick" not in msg_data.columns:
-            logger.error(f"{message_type} data missing 'tick' column")
-            return None
-
-        slope, tick_offset = self.sync_params
-
-        # Compute offset time: (tick - tickOffset) / 600.0
-        offset_time = msg_data.with_columns(
-            [((pl.col("tick") - tick_offset) / 4500000.0).alias("offsetTime")]
-        )["offsetTime"]
-
-        logger.info(
-            f"Computed offset time for {message_type}: {len(offset_time)} values"
-        )
-        logger.info(f"  Tick offset used: {tick_offset:.4f}")
-        logger.info(
-            f"  Offset time range: [{offset_time.min():.2f}, {offset_time.max():.2f}] s"
-        )
-
-        return offset_time
+        self.sync_params = (float(m), time_offset)
+        return time_offset
 
     def _parse_gps_datetime(self, payload):
         """Parse GPS datetime from message payload (deprecated - using decoded data now)."""
@@ -558,95 +649,249 @@ class DJIDrone:
         except ValueError:
             return None
 
-    def align_datfile(self, sampling_freq=5.0):
+    def align_datfile(
+        self,
+        correct_timestamp=True,
+        sampling_freq: float = 5.0,
+        polars_interpolation=False,
+    ) -> Optional[pl.DataFrame]:
+        # Ensure self.data is a dict for DAT format
+        assert isinstance(self.data, dict), "Expected dict for DAT format"
 
-        tick_offset = self.get_tick_offset()
+        if correct_timestamp:
 
-        self.data["RTK"] = self.data["RTK"].with_columns(
-            (pl.col("tick") - tick_offset).alias("corrected_tick")
-        )
+            time_offset = self.get_tick_offset()
 
-        gps_df = self.data["GPS"]
-        rtk_df = self.data["RTK"]
+            if polars_interpolation:
 
-        # Determine the start and end ticks based on the overlap of the two datasets
-        start_tick = max(gps_df["corrected_tick"].min(), rtk_df["corrected_tick"].min())
-        end_tick = min(gps_df["corrected_tick"].max(), rtk_df["corrected_tick"].max())
+                # base_time = self.data["GPS"].get_column("correct_timestamp")[0]
+                # base_time_wrong = self.data["GPS"].get_column("timestamp")[0]
+                # base_tick = self.data["GPS"].get_column("correct_tick")[0]
+                # base_tick_wrong = self.data["GPS"].get_column("tick")[0]
 
-        # Logic limits for the ticks to ensure valid range
-        if start_tick >= end_tick:
-            logger.warning("No overlapping data found between GPS and RTK.")
-            return None
+                tmp = pl.DataFrame(
+                    {
+                        "tick": pl.Series([], dtype=pl.Int64),
+                        "msg_type": pl.Series([], dtype=pl.Int64),
+                    }
+                )
 
-        # Create the aligned tick grid based on sampling frequency
-        tick_freq = 4_500_000.0
-        tick_step = tick_freq / sampling_freq
-        target_ticks = np.arange(start_tick, end_tick, tick_step)
+                for i, key in enumerate(self.data):
 
-        aligned_data = {"corrected_tick": target_ticks}
+                    # if key != "GPS":
+                    #     self.data[key] = self.data[key].with_columns(
+                    #         (pl.col("tick") - tick_offset).alias("correct_tick")
+                    #     )
 
-        def interpolate_columns(df, exclude_cols):
-            # Ensure unique and sorted by corrected_tick for reliable interpolation
-            df_unique = df.unique(subset=["corrected_tick"]).sort("corrected_tick")
-            x = df_unique["corrected_tick"].to_numpy()
+                    #     self.data[key] = self.data[key].with_columns(
+                    #         (
+                    #             base_time
+                    #             - time_offset
+                    #             + (pl.col("correct_tick") - base_tick) / 4_500_000.0
+                    #         ).alias("correct_timestamp")
+                    #     )
 
-            for col in df.columns:
-                if col in exclude_cols:
-                    continue
+                    #     self.data[key] = self.data[key].with_columns(
+                    #         (
+                    #             base_time_wrong
+                    #             - (pl.col("tick") - base_tick_wrong) / 4_500_000.0
+                    #         ).alias("correct_timestamp_wrong")
+                    #     )
 
-                # Skip if column is not numeric
-                if df[col].dtype not in [
-                    pl.Float32,
-                    pl.Float64,
-                    pl.Int32,
-                    pl.Int64,
-                    pl.UInt32,
-                    pl.UInt64,
-                ]:
-                    continue
+                    tmp = tmp.join(
+                        self.data[key],
+                        on=["tick", "msg_type"],
+                        how="full",
+                        coalesce=True,
+                    ).sort("tick")
 
-                y = df_unique[col].to_numpy()
-                try:
-                    f = interp1d(
-                        x, y, kind="linear", bounds_error=False, fill_value=np.nan
+                numeric_cols = [
+                    col
+                    for col in tmp.columns
+                    if tmp[col].dtype in [pl.Float32, pl.Float64, pl.Int32, pl.Int64]
+                ]
+                exclude_cols = {"tick", "msg_type"}
+
+                for col in numeric_cols:
+                    if col not in exclude_cols:
+                        tmp = tmp.with_columns(
+                            pl.col(col).interpolate_by("tick").alias(col)
+                        )
+
+                aligned_df = tmp
+
+            else:
+
+                # self.data["RTK"] = self.data["RTK"].with_columns(
+                #     (pl.col("tick") - tick_offset).alias("correct_tick")
+                # )
+
+                gps_df: pl.DataFrame = self.data["GPS"]
+                rtk_df: pl.DataFrame = self.data["RTK"]
+
+                # Determine the start and end ticks based on the overlap of the two datasets
+                gps_min = gps_df.get_column("tick").min()
+                gps_max = gps_df.get_column("tick").max()
+                rtk_min = rtk_df.get_column("tick").min()
+                rtk_max = rtk_df.get_column("tick").max()
+
+                if (
+                    gps_min is None
+                    or gps_max is None
+                    or rtk_min is None
+                    or rtk_max is None
+                ):
+                    logger.warning("Could not determine tick range for alignment.")
+                    return None
+
+                # Cast to float to ensure numeric comparison
+                gps_min_f, gps_max_f = float(gps_min), float(gps_max)  # type: ignore
+                rtk_min_f, rtk_max_f = float(rtk_min), float(rtk_max)  # type: ignore
+
+                start_tick = max(gps_min_f, rtk_min_f)
+                end_tick = min(gps_max_f, rtk_max_f)
+
+                # Logic limits for the ticks to ensure valid range
+                if start_tick >= end_tick:
+                    logger.warning("No overlapping data found between GPS and RTK.")
+                    return None
+
+                # Create the aligned tick grid based on sampling frequency
+                tick_freq = 4_500_000.0
+                tick_step = tick_freq / sampling_freq
+                target_ticks = np.arange(start_tick, end_tick, tick_step)
+
+                logger.info(
+                    f"Target ticks: {len(target_ticks)}, {start_tick:.2f} to {end_tick:.2f}"
+                )
+
+                aligned_data: Dict[str, np.ndarray] = {"corrected_tick": target_ticks}
+
+                def interpolate_columns(df: pl.DataFrame, exclude_cols: set):
+                    # Ensure unique and sorted by corrected_tick for reliable interpolation
+                    x = df.get_column("tick").to_numpy()
+
+                    for col in df.columns:
+                        if col in exclude_cols:
+                            continue
+
+                        # Skip if column is not numeric
+                        if df[col].dtype not in [
+                            pl.Float32,
+                            pl.Float64,
+                            pl.Int32,
+                            pl.Int64,
+                            pl.UInt32,
+                            pl.UInt64,
+                        ]:
+                            continue
+
+                        y = df.get_column(col).to_numpy()
+                        try:
+                            f = interp1d(
+                                x,
+                                y,
+                                kind="linear",
+                                bounds_error=False,
+                                fill_value=np.nan,
+                            )
+                            aligned_data[col] = f(target_ticks)
+                        except Exception as e:
+                            logger.warning(f"Failed to interpolate column {col}: {e}")
+
+                # Columns to exclude from generic interpolation
+                common_exclude = {
+                    "tick",
+                    "date",
+                    "time",
+                    "datetime",
+                    "timestamp",
+                }
+                gps_exclude = common_exclude.union({"GPS:date", "GPS:time"})
+                rtk_exclude = common_exclude.union({"RTK:date", "RTK:time"})
+
+                # # Calculate a smooth, monotonic correct_timestamp for the target ticks
+                # # Anchor to the first GPS record
+                # base_time = float(gps_df.get_column("correct_timestamp")[0])
+                # base_tick = float(gps_df.get_column("correct_tick")[0])
+
+                # aligned_data["correct_timestamp"] = (
+                #     base_time + (target_ticks - base_tick) / tick_freq
+                # )
+
+                interpolate_columns(gps_df, gps_exclude)
+                interpolate_columns(rtk_df, rtk_exclude)
+
+                aligned_df = pl.DataFrame(aligned_data)
+
+                logger.info(
+                    f"Timestamp corrected {aligned_data["correct_timestamp"].min()}, {aligned_data["correct_timestamp"].max()}"
+                )
+
+                aligned_df = aligned_df.with_columns(
+                    (pl.col("correct_timestamp") * 1000)
+                    .cast(pl.Int64)
+                    .cast(pl.Datetime("ms"))
+                    .alias("datetime_converted")
+                )
+
+                logger.info(
+                    f"Timestamp corrected {aligned_data["correct_timestamp"].min()}, {aligned_data["correct_timestamp"].max()}"
+                )
+
+                # Ensure correct_timestamp is present and maybe sort columns
+                self.aligned_df = aligned_df
+
+        else:
+            logger.info("Alignment with no timestamp correction applied")
+
+            base_tick = self.data["GPS"].get_column("tick")[0]
+
+            tmp = pl.DataFrame(
+                {
+                    "tick": pl.Series([], dtype=pl.Int64),
+                    "msg_type": pl.Series([], dtype=pl.Int64),
+                }
+            )
+
+            for _, key in enumerate(self.data):
+
+                tmp = tmp.join(
+                    self.data[key], on=["tick", "msg_type"], how="full", coalesce=True
+                ).sort("tick")
+
+            numeric_cols = [
+                col
+                for col in tmp.columns
+                if tmp[col].dtype in [pl.Float32, pl.Float64, pl.Int32, pl.Int64]
+            ]
+            exclude_cols = {"tick", "msg_type"}
+
+            for col in numeric_cols:
+                if col not in exclude_cols:
+                    tmp = tmp.with_columns(
+                        pl.col(col).interpolate_by("tick").alias(col)
                     )
-                    aligned_data[col] = f(target_ticks)
-                except Exception as e:
-                    logger.warning(f"Failed to interpolate column {col}: {e}")
 
-        # Columns to exclude from generic interpolation
-        common_exclude = {
-            "tick",
-            "corrected_tick",
-            "date",
-            "time",
-            "datetime",
-            "timestamp",
-            "correct_timestamp",
-        }
-        gps_exclude = common_exclude.union({"GPS:date", "GPS:time"})
-        rtk_exclude = common_exclude.union({"RTK:date", "RTK:time"})
+            aligned_df = tmp
 
-        # Calculate a smooth, monotonic correct_timestamp for the target ticks
-        # Anchor to the first GPS record
-        base_time = gps_df["correct_timestamp"][0]
-        base_tick = gps_df["corrected_tick"][0]
+            aligned_df = aligned_df.with_columns(
+                ((pl.col("tick") - base_tick) / 4_500_000.0).alias("offset")
+            )
 
-        aligned_data["correct_timestamp"] = (
-            base_time + (target_ticks - base_tick) / tick_freq
-        )
+            timestamp_vals = aligned_df.get_column("timestamp").to_numpy()
+            tags = np.where(np.diff(timestamp_vals) > 0.5)[0] + 1
 
-        interpolate_columns(gps_df, gps_exclude)
-        interpolate_columns(rtk_df, rtk_exclude)
+            offset_vals = aligned_df.get_column("offset").to_numpy()
 
-        self.aligned_df = pl.DataFrame(aligned_data)
+            offset_vals = offset_vals[tags].astype(np.float64)
+            timestamp_vals = timestamp_vals[tags].astype(np.float64)
+            mean_offset = float(np.mean(timestamp_vals - offset_vals))
 
-        self.aligned_df = self.aligned_df.with_columns(
-            (pl.col("correct_timestamp") * 1000)
-            .cast(pl.Int64)
-            .cast(pl.Datetime("ms"))
-            .alias("datetime_converted")
-        )
+            aligned_df = aligned_df.with_columns(
+                ((pl.col("offset") + mean_offset).cast(pl.Float64)).alias(
+                    "correct_timestamp"
+                )
+            )
 
-        # Ensure correct_timestamp is present and maybe sort columns
-        return self.aligned_df
+        return aligned_df

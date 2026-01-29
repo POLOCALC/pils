@@ -2,9 +2,10 @@ import copy
 import pickle
 import struct
 
-import decoders.KERNEL_dicts as Kdb
+from . import KERNEL_dicts as Kdb
 
 HEADER = b"\xaa\x55"
+
 
 def _checksum(msg):
     """Compute the checksum of a message
@@ -128,5 +129,5 @@ class KernelMsg:
                 pass
 
             count += 1
-            
+
         return decoded

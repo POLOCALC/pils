@@ -67,20 +67,5 @@ def main():
 
     print(aligned.select(["corrected_tick", "correct_timestamp", "datetime_converted"]))
 
-    # print("\nCorrect Timestamp to Datetime conversion (with ms precision):")
-    # # Convert timestamp (seconds) to datetime with ms precision
-    # temp_df = aligned.select(
-    #     [
-    #         pl.col("correct_timestamp"),
-    #         (pl.col("correct_timestamp") * 1000)
-    #         .cast(pl.Int64)
-    #         .cast(pl.Datetime("ms"))
-    #         .alias("datetime_converted"),
-    #     ]
-    # )
-
-    # print(temp_df)
-
-
 if __name__ == "__main__":
     main()

@@ -25,6 +25,9 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 import logging
+import importlib
+
+from pils.config import SENSOR_MAP, DRONE_MAP
 
 # Configure logging
 logging.basicConfig(
@@ -33,7 +36,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class StoutDataLoader:
+class StoutLoader:
     """
     Data loader for STOUT campaign management system.
 
@@ -45,7 +48,7 @@ class StoutDataLoader:
         base_data_path: Base path where all campaign data is stored
     """
 
-    def __init__(self, use_stout: bool = True, base_data_path: Optional[str] = None):
+    def __init__(self):
         """
         Initialize the StoutDataLoader.
 
@@ -54,30 +57,25 @@ class StoutDataLoader:
                       If False, queries filesystem directly.
             base_data_path: Base path for data storage. If None, uses stout config.
         """
-        self.use_stout = use_stout
+
         self.campaign_service = None
-        self.base_data_path = base_data_path
 
-        if use_stout:
-            try:
-                from stout.services.campaigns import CampaignService  # type: ignore
-                from stout.config import Config  # type: ignore
+        try:
+            from stout.services.campaigns import CampaignService  # type: ignore
+            from stout.config import Config  # type: ignore
 
-                self.campaign_service = CampaignService()
-                self.base_data_path = self.base_data_path or Config.MAIN_DATA_PATH
-                logger.info(
-                    f"Initialized with stout database, base path: {self.base_data_path}"
-                )
-            except ImportError as e:
-                logger.warning(
-                    f"Could not import stout: {e}. Falling back to filesystem queries."
-                )
-                self.use_stout = False
+            self.campaign_service = CampaignService()
+            self.base_data_path = Config.MAIN_DATA_PATH
+            logger.info(
+                f"Initialized with stout database, base path: {self.base_data_path}"
+            )
+        except ImportError as e:
+            logger.warning(
+                f"Could not import stout: {e}. Falling back to filesystem queries."
+            )
+            self.use_stout = False
 
-        if not self.use_stout and not base_data_path:
-            raise ValueError("base_data_path is required when use_stout=False")
-
-    def load_all_campaign_flights(self) -> List[Dict[str, Any]]:
+    def load_all_flights(self) -> List[Dict[str, Any]]:
         """
         Load all flights from all campaigns.
 
@@ -88,10 +86,50 @@ class StoutDataLoader:
         """
         logger.info("Loading all flights from all campaigns...")
 
-        if self.use_stout and self.campaign_service:
-            return self._load_all_flights_from_db()
-        else:
-            return self._load_all_flights_from_filesystem()
+        if self.campaign_service is None:
+            raise RuntimeError("Campaign service not initialized")
+        try:
+            flights = self.campaign_service.get_all_flights()
+            logger.info(f"Loaded {len(flights)} flights from database")
+            return flights
+        except Exception as e:
+            logger.error(f"Error loading flights from database: {e}")
+            raise
+
+    def load_all_campaign_flights(
+        self, campaign_id: Optional[str] = None, campaign_name: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Load data for a single flight.
+
+        Args:
+            flight_id: Flight ID to load
+            flight_name: Flight name to load (alternative to flight_id)
+
+        Returns:
+            Flight dictionary with metadata and paths, or None if not found.
+        """
+        if not campaign_id and not campaign_name:
+            raise ValueError("Either flight_id or flight_name must be provided")
+
+        logger.info(
+            f"Loading single flight: flight_id={campaign_id}, flight_name={campaign_name}"
+        )
+
+        if self.campaign_service is None:
+            raise RuntimeError("Campaign service not initialized")
+        try:
+            flights = self.campaign_service.get_flights_by_campaign(
+                campaign_name=campaign_name, campaign_id=campaign_id
+            )
+
+            for flight in flights:
+                if flight:
+                    logger.info(f"Loaded flight: {flight.get('flight_name')}")
+            return flights
+        except Exception as e:
+            logger.error(f"Error loading flight from database: {e}")
+            raise
 
     def load_single_flight(
         self, flight_id: Optional[str] = None, flight_name: Optional[str] = None
@@ -113,10 +151,18 @@ class StoutDataLoader:
             f"Loading single flight: flight_id={flight_id}, flight_name={flight_name}"
         )
 
-        if self.use_stout and self.campaign_service:
-            return self._load_single_flight_from_db(flight_id, flight_name)
-        else:
-            return self._load_single_flight_from_filesystem(flight_id, flight_name)
+        if self.campaign_service is None:
+            raise RuntimeError("Campaign service not initialized")
+        try:
+            flight = self.campaign_service.get_flight(
+                flight_name=flight_name, flight_id=flight_id
+            )
+            if flight:
+                logger.info(f"Loaded flight: {flight.get('flight_name')}")
+            return flight
+        except Exception as e:
+            logger.error(f"Error loading flight from database: {e}")
+            raise
 
     def load_flights_by_date(
         self, start_date: str, end_date: str, campaign_id: Optional[str] = None
@@ -144,12 +190,29 @@ class StoutDataLoader:
 
         logger.info(f"Loading flights between {start_date} and {end_date}")
 
-        if self.use_stout and self.campaign_service:
-            return self._load_flights_by_date_from_db(start_dt, end_dt, campaign_id)
-        else:
-            return self._load_flights_by_date_from_filesystem(
-                start_dt, end_dt, campaign_id
-            )
+        if self.campaign_service is None:
+            raise RuntimeError("Campaign service not initialized")
+        try:
+            # Get all flights and filter by date
+            all_flights = self.campaign_service.get_all_flights()
+
+            filtered_flights = []
+            for flight in all_flights:
+                takeoff = flight.get("takeoff_datetime")
+                if takeoff is None:
+                    continue
+                if isinstance(takeoff, str):
+                    takeoff = datetime.fromisoformat(takeoff.replace("Z", "+00:00"))
+
+                if start_dt <= takeoff < end_dt:
+                    if campaign_id is None or flight.get("campaign_id") == campaign_id:
+                        filtered_flights.append(flight)
+
+            logger.info(f"Loaded {len(filtered_flights)} flights in date range")
+            return filtered_flights
+        except Exception as e:
+            logger.error(f"Error loading flights by date from database: {e}")
+            raise
 
     def load_specific_data(
         self, flight_id: str, data_types: Optional[List[str]] = None
@@ -185,35 +248,6 @@ class StoutDataLoader:
         return self._collect_specific_data(flight, data_types)
 
     # ==================== Database Methods ====================
-
-    def _load_all_flights_from_db(self) -> List[Dict[str, Any]]:
-        """Load all flights from stout database."""
-        if self.campaign_service is None:
-            raise RuntimeError("Campaign service not initialized")
-        try:
-            flights = self.campaign_service.get_all_flights()
-            logger.info(f"Loaded {len(flights)} flights from database")
-            return flights
-        except Exception as e:
-            logger.error(f"Error loading flights from database: {e}")
-            raise
-
-    def _load_single_flight_from_db(
-        self, flight_id: Optional[str] = None, flight_name: Optional[str] = None
-    ) -> Optional[Dict[str, Any]]:
-        """Load single flight from stout database."""
-        if self.campaign_service is None:
-            raise RuntimeError("Campaign service not initialized")
-        try:
-            flight = self.campaign_service.get_flight(
-                flight_name=flight_name, flight_id=flight_id
-            )
-            if flight:
-                logger.info(f"Loaded flight: {flight.get('flight_name')}")
-            return flight
-        except Exception as e:
-            logger.error(f"Error loading flight from database: {e}")
-            raise
 
     def _load_flights_by_date_from_db(
         self, start_dt: datetime, end_dt: datetime, campaign_id: Optional[str] = None
@@ -465,3 +499,238 @@ class StoutDataLoader:
                     )
 
         return campaigns
+
+    # ==================== DataFrame Loading Methods ====================
+
+    def load_flight_data(
+        self,
+        flight_id: Optional[str] = None,
+        flight_name: Optional[str] = None,
+        sensors: Optional[List[str]] = None,
+        drones: Optional[List[str]] = None,
+        freq_interpolation: Optional[float] = None,
+        dji_drone_type: Optional[str] = None,
+        drone_correct_timestamp: Optional[bool] = True,
+        polars_interpolation: Optional[bool] = True,
+        align_drone: Optional[bool] = True,
+    ) -> Dict[str, Any]:
+        """
+        Load flight data and return dataframes for requested sensors and drones.
+
+        This is the main method to load flight data. It returns a dictionary
+        containing flight metadata and dataframes for the requested data types.
+
+        Supported sensors:
+        - 'gps': GPS data from UBX/BIN file
+        - 'imu': IMU data
+        - 'adc': ADC sensor data
+        - 'camera': Camera data
+        - 'inclinometer': Inclinometer data
+
+        Supported drones:
+        - 'dji': DJI drone telemetry from DAT file
+        - 'litchi': Litchi flight logs
+        - 'blacksquare': BlackSquare drone logs
+
+        Args:
+            flight_id: Flight ID to load
+            flight_name: Flight name to load (alternative to flight_id)
+            sensors: List of sensor types to load. If None, loads ['gps'].
+            drones: List of drone types to load. If None, loads ['dji'].
+
+        Returns:
+            Dictionary containing:
+                - 'flight_info': Flight metadata dictionary
+                - '<sensor_type>': DataFrame for each requested sensor
+                - '<drone_type>': DataFrame for each requested drone
+
+        Example:
+            loader = StoutDataLoader()
+            data = loader.load_flight_data(
+                flight_id='some-id',
+                sensors=['gps', 'imu'],
+                drones=['dji']
+            )
+            gps_df = data['gps']
+            drone_df = data['dji']
+        """
+        if sensors is None:
+            sensors = ["gps"]
+        if drones is None:
+            drones = ["dji"]
+
+        # Load flight metadata
+        flight_info = self.load_single_flight(
+            flight_id=flight_id, flight_name=flight_name
+        )
+        if not flight_info:
+            raise ValueError(
+                f"Flight not found: flight_id={flight_id}, flight_name={flight_name}"
+            )
+
+        result: Dict[str, Any] = {"flight_info": flight_info}
+
+        # Load requested sensors
+        for sensor_type in sensors:
+            if sensor_type not in SENSOR_MAP:
+                logger.warning(
+                    f"Unknown sensor type: {sensor_type}. Available: {list(SENSOR_MAP.keys())}"
+                )
+                continue
+            df = self._load_sensor_dataframe(
+                flight_info, sensor_type, freq_interpolation
+            )
+            result[sensor_type] = df
+            logger.info(
+                f"Loaded {sensor_type} data: {df.shape if df is not None else 'None'}"
+            )
+
+        # Load requested drones
+        for drone_type in drones:
+            if drone_type not in DRONE_MAP:
+                logger.warning(
+                    f"Unknown drone type: {drone_type}. Available: {list(DRONE_MAP.keys())}"
+                )
+                continue
+            if drone_type == "dji" and dji_drone_type is not None:
+                dji_drone_type = dji_drone_type
+            df = self._load_drone_dataframe(
+                flight_info,
+                drone_type,
+                dji_drone_type,
+                drone_correct_timestamp,
+                polars_interpolation,
+                align_drone,
+            )
+            result[drone_type] = df
+            logger.info(
+                f"Loaded {drone_type} data: {'OK' if df is not None else 'None'}"
+            )
+
+        return result
+
+    def _load_sensor_dataframe(
+        self,
+        flight_info: Dict[str, Any],
+        sensor_type: str,
+        freq_interpolation: Optional[float] = None,
+    ) -> Optional[Any]:
+        """
+        Load sensor data and return as polars DataFrame.
+
+        Args:
+            flight_info: Flight metadata dictionary
+            sensor_type: Type of sensor to load (must be in SENSOR_MAP)
+
+        Returns:
+            polars.DataFrame with sensor data, or None if not found
+        """
+        config = SENSOR_MAP[sensor_type]
+
+        # Sensors are loaded from aux_data_folder_path
+        folder_path = flight_info.get("aux_data_folder_path")
+
+        logger.info(f"Loading {sensor_type} data from: {folder_path}")
+        if not folder_path or not os.path.exists(folder_path):
+            logger.warning(f"{sensor_type}: Aux folder not found: {folder_path}")
+            return None
+
+        # Find data file/directory
+        data_path = None
+        is_directory = config.get("is_directory", False)
+
+        for pattern in config["patterns"]:
+            if is_directory:
+                # Look for directory
+                dirs = list(Path(folder_path).glob(pattern.rstrip("/")))
+                if dirs:
+                    data_path = str(dirs[0])
+                    break
+            else:
+                # Look for file
+                files = list(Path(folder_path).glob(pattern))
+                if files:
+                    data_path = str(files[0])
+                    break
+
+        if not data_path:
+            logger.warning(
+                f"{sensor_type}: No data found in {folder_path} with patterns {config['patterns']}"
+            )
+            return None
+
+        logger.info(f"Loading {sensor_type} data from: {data_path}")
+
+        # Dynamic import and instantiation
+        module = importlib.import_module(config["module"], package="pils")
+        sensor_class = getattr(module, config["class"])
+
+        # Instantiate and load data
+        sensor = sensor_class(data_path)
+        sensor.load_data(freq_interpolation=freq_interpolation)
+        return sensor.data
+
+    def _load_drone_dataframe(
+        self,
+        flight_info: Dict[str, Any],
+        drone_type: str = "dji",
+        dji_drone_type: Optional[str] = None,
+        drone_correct_timestamp: Optional[bool] = True,
+        polars_interpolation: Optional[bool] = True,
+        align_drone: Optional[bool] = True,
+    ) -> Optional[Any]:
+        """
+        Load drone telemetry and return as polars DataFrame.
+
+        Args:
+            flight_info: Flight metadata dictionary
+            drone_type: Type of drone to load (must be in DRONE_MAP)
+
+        Returns:
+            polars.DataFrame with drone telemetry, or None if not found
+        """
+        config = DRONE_MAP[drone_type]
+
+        # Drones are loaded from drone_data_folder_path
+        folder_path = flight_info.get("drone_data_folder_path")
+        if not folder_path or not os.path.exists(folder_path):
+            logger.warning(f"{drone_type}: Drone folder not found: {folder_path}")
+            return None
+
+        # Find data file
+        data_path = None
+        for pattern in config["patterns"]:
+            files = list(Path(folder_path).glob(pattern))
+            if files:
+                data_path = str(files[0])
+                break
+
+        if not data_path:
+            logger.warning(
+                f"{drone_type}: No data found in {folder_path} with patterns {config['patterns']}"
+            )
+            return None
+
+        logger.info(f"Loading {drone_type} data from: {data_path}")
+
+        # Dynamic import and instantiation
+        module = importlib.import_module(config["module"], package="pils")
+        drone_class = getattr(module, config["class"])
+
+        # Instantiate and load data
+        drone = drone_class(data_path, source_format=dji_drone_type)
+        drone.load_data(
+            correct_timestamp=drone_correct_timestamp,
+            polars_interpolation=polars_interpolation,
+            align=align_drone,
+        )
+
+        return drone.data
+
+    def get_available_sensors(self) -> List[str]:
+        """Return list of available sensor types."""
+        return list(SENSOR_MAP.keys())
+
+    def get_available_drones(self) -> List[str]:
+        """Return list of available drone types."""
+        return list(DRONE_MAP.keys())

@@ -2,22 +2,30 @@ import polars as pl
 from pyubx2 import UBXReader, UBX_PROTOCOL
 import matplotlib.pyplot as plt
 from datetime import timedelta, datetime
+from typing import Optional
+import numpy as np
+import glob
 
 from ..utils.tools import read_log_time, get_logpath_from_datapath
 
 
 class GPS:
     def __init__(self, path, logpath=None):
-        self.path = path
+
+        files = list(path.glob("*"))
+
+        for f in files:
+            if f.name.lower().endswith("gps.bin"):
+                self.data_path = f
         if logpath is not None:
             self.logpath = logpath
         else:
-            self.logpath = get_logpath_from_datapath(self.path)
+            self.logpath = get_logpath_from_datapath(self.data_path)
 
         self.tstart = None
         self.data = None
 
-    def load_data(self):
+    def load_data(self, freq_interpolation=None):
         """
         Reads a GPS file written in binary format and returns its content as a polars DataFrame.
 
@@ -39,7 +47,7 @@ class GPS:
         # Dictionary to collect records from different NAV message types
         nav_records = {}
 
-        with open(self.path, "rb") as stream:
+        with open(self.data_path, "rb") as stream:
             ubr = UBXReader(stream, protfilter=UBX_PROTOCOL, quitonerror=False)
             for raw_data, parsed_data in ubr:
                 if parsed_data is None:
@@ -135,7 +143,7 @@ class GPS:
                 nav_dataframes[msg_type] = df
 
         # Combine dataframes based on a common time grid with interpolation
-        gps_data = self._merge_nav_dataframes(nav_dataframes, freq_ms=100)
+        gps_data = self._merge_nav_dataframes(nav_dataframes, freq=freq_interpolation)
 
         if gps_data is None or len(gps_data) == 0:
             gps_data = pl.DataFrame()
@@ -153,7 +161,7 @@ class GPS:
         self.data = gps_data
 
     def _merge_nav_dataframes(
-        self, nav_dataframes: dict, freq_ms: int = 100
+        self, nav_dataframes: dict, freq: Optional[float] = None
     ) -> pl.DataFrame | None:
         """
         Merge NAV dataframes onto a common time grid with interpolation.
@@ -176,8 +184,11 @@ class GPS:
         # Find global time range across all dataframes
         min_time = None
         max_time = None
+        first_valid_df = None
         for df in nav_dataframes.values():
             if "unix_time_ms" in df.columns and len(df) > 0:
+                if first_valid_df is None:
+                    first_valid_df = df
                 df_min = df["unix_time_ms"].min()
                 df_max = df["unix_time_ms"].max()
                 if min_time is None or df_min < min_time:
@@ -185,8 +196,13 @@ class GPS:
                 if max_time is None or df_max > max_time:
                     max_time = df_max
 
-        if min_time is None or max_time is None:
+        if min_time is None or max_time is None or first_valid_df is None:
             return None
+
+        if freq is None:
+            freq_ms = int(np.mean(np.diff(first_valid_df["unix_time_ms"].to_numpy())))
+        else:
+            freq_ms = int(1000 / freq)
 
         # Create common time grid
         time_grid = pl.DataFrame(

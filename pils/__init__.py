@@ -33,7 +33,9 @@ __author__ = "POLOCALC Team"
 __license__ = "MIT"
 
 # Core imports
-from .loader import StoutDataLoader
+# Load loader implementations from the loader subpackage. The loader
+# subpackage exposes `StoutLoader` (DB-backed) and `PathLoader` (filesystem).
+from .loader import StoutDataLoader, StoutLoader, PathLoader
 from .decoder import DataDecoder
 from .handler import FlightDataHandler
 from .datahandler import Payload
@@ -47,6 +49,8 @@ from . import utils
 
 __all__ = [
     "StoutDataLoader",
+    "StoutLoader",
+    "PathLoader",
     "DataDecoder",
     "FlightDataHandler",
     "Payload",

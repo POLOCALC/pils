@@ -134,17 +134,22 @@ class ADC:
                         If None, attempts to read from config.yml in the same folder.
                         Defaults to 16 if not found.
         """
-        self.path = path
+        files = list(path.glob("*"))
+
+        for f in files:
+            if f.name.lower().endswith("adc.bin"):
+                self.data_path = f
+
         self.data = None
 
         if logpath is not None:
             self.logpath = logpath
         else:
-            self.logpath = get_logpath_from_datapath(self.path)
+            self.logpath = get_logpath_from_datapath(self.data_path)
 
         self.tstart = None
 
-        with open(self.path, "rb") as f:
+        with open(self.data_path, "rb") as f:
             data = f.read()
             self.is_ascii = is_ascii_file(data)
             f.close()
@@ -170,7 +175,7 @@ class ADC:
         import yaml as yaml_module
 
         # Look for config file in the same directory as the ADC file
-        adc_dir = os.path.dirname(self.path)
+        adc_dir = os.path.dirname(self.data_path)
         config_files = glob.glob(os.path.join(adc_dir, "*_config.yml"))
 
         if not config_files:
@@ -198,9 +203,9 @@ class ADC:
 
     def load_data(self):
         if self.is_ascii:
-            self.data = decode_adc_file_ascii(self.path, self.gain_config)
+            self.data = decode_adc_file_ascii(self.data_path, self.gain_config)
         else:
-            self.data = decode_adc_file_struct(self.path)
+            self.data = decode_adc_file_struct(self.data_path)
 
     def plot(self):
         if self.data is None:

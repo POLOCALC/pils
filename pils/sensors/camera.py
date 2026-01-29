@@ -86,7 +86,9 @@ class Camera:
         # -------------------
         if not self.is_image_sequence:
             if self.capture is None:
-                raise ValueError("Video capture not initialized. Call load_data() first.")
+                raise ValueError(
+                    "Video capture not initialized. Call load_data() first."
+                )
             self.capture.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
             ret, frame = self.capture.read()
             if not ret or frame is None:

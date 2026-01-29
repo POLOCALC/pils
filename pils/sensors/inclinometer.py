@@ -5,6 +5,7 @@ import os
 import glob
 from typing import Optional, Literal, Union
 from datetime import timedelta
+from pathlib import Path
 
 from ..utils.tools import (
     drop_nan_and_zero_cols,
@@ -61,7 +62,7 @@ def decode_inclino(inclino_path):
     return decoded_msg
 
 
-def detect_inclinometer_type_from_config(dirpath: str) -> Optional[str]:
+def detect_inclinometer_type_from_config(dirpath: Path) -> Optional[str]:
     """
     Detect the type of inclinometer from the config.yml file.
 
@@ -84,20 +85,7 @@ def detect_inclinometer_type_from_config(dirpath: str) -> Optional[str]:
     import yaml as yaml_module
 
     # Find config file - could be in dirpath or parent (aux folder)
-    config_files = glob.glob(os.path.join(dirpath, "*_config.yml"))
-    if not config_files:
-        # Check parent directory (if we're in sensors subfolder)
-        parent_dir = os.path.dirname(dirpath)
-        config_files = glob.glob(os.path.join(parent_dir, "*_config.yml"))
-    if not config_files:
-        # Try just config.yml
-        config_path = os.path.join(dirpath, "config.yml")
-        if os.path.exists(config_path):
-            config_files = [config_path]
-        else:
-            parent_config = os.path.join(os.path.dirname(dirpath), "config.yml")
-            if os.path.exists(parent_config):
-                config_files = [parent_config]
+    config_files = list(dirpath.glob("*_config.yml"))
 
     if not config_files:
         return None
@@ -141,7 +129,7 @@ def detect_inclinometer_type_from_config(dirpath: str) -> Optional[str]:
     return None
 
 
-def detect_inclinometer_type_from_files(dirpath: str) -> tuple[str, Optional[str]]:
+def detect_inclinometer_type_from_files(dirpath: Path) -> str:
     """
     Detect the type of inclinometer data available in a directory by file patterns.
     This is a fallback when config detection fails.
@@ -158,54 +146,17 @@ def detect_inclinometer_type_from_files(dirpath: str) -> tuple[str, Optional[str
         inclinometer_type is 'imx5', 'kernel', or 'unknown'.
     """
     # Check for IMX-5 files (CSV format with INC_ prefix)
-    imx5_ins_files = glob.glob(os.path.join(dirpath, "*_INC_ins.csv"))
+
+    imx5_ins_files = list(dirpath.glob("*_INC_ins.csv"))
     if imx5_ins_files:
-        return ("imx5", imx5_ins_files[0])
+        return "imx5"
 
     # Check for Kernel files (binary INC.bin format)
-    kernel_files = glob.glob(os.path.join(dirpath, "*_INC.bin"))
+    kernel_files = list(dirpath.glob("*_INC.bin"))
     if kernel_files:
-        return ("kernel", kernel_files[0])
+        return "kernel"
 
-    return ("unknown", None)
-
-
-def detect_inclinometer_type(dirpath: str) -> tuple[str, Optional[str]]:
-    """
-    Detect the type of inclinometer data available in a directory.
-
-    First tries to read from config.yml, then falls back to file pattern detection.
-
-    Parameters
-    ----------
-    dirpath : str
-        Path to the sensors directory containing inclinometer files.
-
-    Returns
-    -------
-    tuple[str, Optional[str]]
-        Tuple of (inclinometer_type, path_to_file).
-        inclinometer_type is 'imx5', 'kernel', or 'unknown'.
-    """
-    # First try config-based detection
-    config_type = detect_inclinometer_type_from_config(dirpath)
-
-    if config_type == "imx5":
-        # Find the IMX5 file
-        imx5_ins_files = glob.glob(os.path.join(dirpath, "*_INC_ins.csv"))
-        if imx5_ins_files:
-            return ("imx5", imx5_ins_files[0])
-        return ("imx5", None)
-
-    elif config_type == "kernel":
-        # Find the Kernel file
-        kernel_files = glob.glob(os.path.join(dirpath, "*_INC.bin"))
-        if kernel_files:
-            return ("kernel", kernel_files[0])
-        return ("kernel", None)
-
-    # Fall back to file-based detection
-    return detect_inclinometer_type_from_files(dirpath)
+    return "unknown"
 
 
 class IMX5Inclinometer:
@@ -218,7 +169,7 @@ class IMX5Inclinometer:
     - *_INC_inl2.csv: Extended INL2 data (quaternions, biases)
     """
 
-    def __init__(self, dirpath: str, logpath: Optional[str] = None):
+    def __init__(self, dirpath: Path, logpath: Optional[str] = None):
         """
         Initialize IMX5Inclinometer.
 
@@ -237,18 +188,14 @@ class IMX5Inclinometer:
         self.imu_path = self._find_file("*_INC_imu.csv")
         self.inl2_path = self._find_file("*_INC_inl2.csv")
 
-        # Data storage
-        self.ins_data: Optional[pl.DataFrame] = None
-        self.imu_data: Optional[pl.DataFrame] = None
-        self.inl2_data: Optional[pl.DataFrame] = None
-        self.data: Optional[pl.DataFrame] = None  # Main attitude data
+        self.data = {}  # Main attitude data
 
     def _find_file(self, pattern: str) -> Optional[str]:
         """Find a file matching the pattern in dirpath."""
         files = glob.glob(os.path.join(self.dirpath, pattern))
         return files[0] if files else None
 
-    def load_ins(self) -> Optional[pl.DataFrame]:
+    def load_ins(self):
         """
         Load INS solution data (position, velocity, attitude).
 
@@ -281,10 +228,10 @@ class IMX5Inclinometer:
         if cols_to_add:
             df = df.with_columns(cols_to_add)
 
-        self.ins_data = df
-        return df
+        if not df.is_empty():
+            self.data["INS"] = df
 
-    def load_imu(self) -> Optional[pl.DataFrame]:
+    def load_imu(self):
         """
         Load raw IMU data (accelerometer, gyroscope).
 
@@ -315,10 +262,10 @@ class IMX5Inclinometer:
         if cols_to_add:
             df = df.with_columns(cols_to_add)
 
-        self.imu_data = df
-        return df
+        if not df.is_empty():
+            self.data["IMU"] = df
 
-    def load_inl2(self) -> Optional[pl.DataFrame]:
+    def load_inl2(self):
         """
         Load INL2 extended data (quaternions, biases).
 
@@ -343,8 +290,8 @@ class IMX5Inclinometer:
         if cols_to_add:
             df = df.with_columns(cols_to_add)
 
-        self.inl2_data = df
-        return df
+        if not df.is_empty():
+            self.data["INL2"] = df
 
     def load_data(self):
         """
@@ -357,20 +304,13 @@ class IMX5Inclinometer:
         self.load_imu()
         self.load_inl2()
 
-        # Use INS data as the main attitude source
-        if self.ins_data is not None:
-            self.data = self.ins_data.clone()
-        elif self.imu_data is not None:
-            # Fall back to IMU data if no INS
-            self.data = self.imu_data.clone()
-
 
 class KernelInclinometer:
     """
     Decoder for Kernel-100 inclinometer data (binary format).
     """
 
-    def __init__(self, path: str, logpath: Optional[str] = None):
+    def __init__(self, path: Path, logpath: Optional[str] = None):
         """
         Initialize KernelInclinometer.
 
@@ -387,7 +327,6 @@ class KernelInclinometer:
         else:
             self.logpath = get_logpath_from_datapath(self.path)
 
-        self.data: Optional[pl.DataFrame] = None
         self.tstart = None
 
     def read_log_time(self, logfile: Optional[str] = None):
@@ -499,80 +438,42 @@ class Inclinometer:
 
     def __init__(
         self,
-        path: str,
+        path: Path,
         logpath: Optional[str] = None,
         sensor_type: Optional[Literal["kernel", "imx5"]] = None,
     ):
-        self.path = path
-        self.logpath = logpath
-        self.sensor_type = sensor_type
-        self.data: Optional[pl.DataFrame] = None
-        self._decoder: Optional[KernelInclinometer | IMX5Inclinometer] = None
+        self._lookout_path = path
 
-        # Auto-detect sensor type if not specified
-        if self.sensor_type is None:
+        if sensor_type is None:
             self._auto_detect()
+        else:
+            self.sensor_type = sensor_type
+
+        print(f"Sensor Type {self.sensor_type}")
+
+        self.logpath = logpath
+        self._decoder: Optional[KernelInclinometer | IMX5Inclinometer] = None
 
         # Initialize the appropriate decoder
         self._init_decoder()
 
     def _auto_detect(self):
         """Auto-detect inclinometer type from config.yml file."""
-        # Determine the directory to search for config
-        if os.path.isdir(self.path):
-            search_dir = self.path
-        elif os.path.isfile(self.path):
-            search_dir = os.path.dirname(self.path)
-        else:
-            search_dir = os.path.dirname(self.path)
-
         # First try config-based detection (primary method)
-        config_type = detect_inclinometer_type_from_config(search_dir)
+        config_type = detect_inclinometer_type_from_config(self._lookout_path)
 
         if config_type is not None:
             self.sensor_type = config_type
-            # Ensure path is set correctly for the decoder
-            if config_type == "imx5" and os.path.isfile(self.path):
-                self.path = os.path.dirname(self.path)
-            return
-
-        # Fallback: file-based detection if config not available
-        if os.path.isdir(self.path):
-            inc_type, _ = detect_inclinometer_type_from_files(self.path)
-            self.sensor_type = inc_type if inc_type != "unknown" else None
-        elif os.path.isfile(self.path):
-            # Infer from file extension as last resort
-            if self.path.endswith(".bin") and "_INC" in self.path:
-                self.sensor_type = "kernel"
-            elif "_INC_" in self.path and self.path.endswith(".csv"):
-                self.sensor_type = "imx5"
-                self.path = os.path.dirname(self.path)
         else:
-            # Check parent directory
-            parent_dir = os.path.dirname(self.path)
-            if os.path.isdir(parent_dir):
-                inc_type, _ = detect_inclinometer_type_from_files(parent_dir)
-                if inc_type != "unknown":
-                    self.sensor_type = inc_type
-                    if inc_type == "imx5":
-                        self.path = parent_dir
+            inc_type = detect_inclinometer_type_from_files(self._lookout_path)
+            self.sensor_type = inc_type if inc_type != "unknown" else None
 
     def _init_decoder(self):
         """Initialize the appropriate decoder based on sensor type."""
         if self.sensor_type == "kernel":
-            self._decoder = KernelInclinometer(self.path, self.logpath)
+            self._decoder = KernelInclinometer(self._lookout_path, self.logpath)
         elif self.sensor_type == "imx5":
-            self._decoder = IMX5Inclinometer(self.path, self.logpath)
-        else:
-            # Try to find any inclinometer data
-            if os.path.isdir(self.path):
-                inc_type, inc_path = detect_inclinometer_type(self.path)
-                if inc_type == "imx5":
-                    self._decoder = IMX5Inclinometer(self.path, self.logpath)
-                    self.sensor_type = "imx5"
-                elif inc_type == "kernel" and inc_path:
-                    self._decoder = KernelInclinometer(inc_path, self.logpath)
-                    self.sensor_type = "kernel"
+            self._decoder = IMX5Inclinometer(self._lookout_path, self.logpath)
 
     @property
     def tstart(self):
@@ -585,30 +486,31 @@ class Inclinometer:
     def ins_data(self) -> Optional[pl.DataFrame]:
         """Get INS data (IMX-5 only)."""
         if isinstance(self._decoder, IMX5Inclinometer):
-            return self._decoder.ins_data
+            return self._decoder.data["INS"]
         return None
 
     @property
     def imu_data(self) -> Optional[pl.DataFrame]:
         """Get IMU data (IMX-5 only)."""
         if isinstance(self._decoder, IMX5Inclinometer):
-            return self._decoder.imu_data
+            return self._decoder.data["IMU"]
         return None
 
     @property
     def inl2_data(self) -> Optional[pl.DataFrame]:
         """Get INL2 data (IMX-5 only)."""
         if isinstance(self._decoder, IMX5Inclinometer):
-            return self._decoder.inl2_data
+            return self._decoder.data["INL2"]
         return None
 
     def load_data(self):
         """Load inclinometer data using the detected decoder."""
         if self._decoder is None:
             raise ValueError(
-                f"No inclinometer data found at {self.path}. "
+                f"No inclinometer data found at {self._lookout_path}. "
                 "Expected either *_INC.bin (Kernel) or *_INC_*.csv (IMX-5) files."
             )
+
         self._decoder.load_data()
         self.data = self._decoder.data
 
