@@ -58,10 +58,9 @@ class PathLoader:
             base_data_path: Base path for data storage. If None, uses stout config.
         """
 
-        self.campaign_service = None
         self.base_data_path = base_data_path
 
-    def load_all_campaign_flights(self) -> List[Dict[str, Any]]:
+    def load_all_flights(self) -> List[Dict[str, Any]]:
         """
         Load all flights from all campaigns.
 
@@ -82,8 +81,16 @@ class PathLoader:
             logger.warning(f"Campaigns directory not found: {campaigns_dir}")
             return flights
 
+        print(os.listdir(campaigns_dir))
+        print("###########")
         # Traverse: campaigns -> date folders -> flight folders
         for campaign_name in os.listdir(campaigns_dir):
+            print(f"{campaign_name}")
+            print("================================")
+            if campaign_name == "telescope_data":
+                print("Skip Telescope Data")
+                continue
+
             campaign_path = os.path.join(campaigns_dir, campaign_name)
             if not os.path.isdir(campaign_path):
                 continue
@@ -94,6 +101,8 @@ class PathLoader:
                     continue
 
                 for flight_name in os.listdir(date_path):
+                    if flight_name in ["base", "calibration"]:
+                        continue
                     flight_path = os.path.join(date_path, flight_name)
                     if not os.path.isdir(flight_path):
                         continue
@@ -106,6 +115,31 @@ class PathLoader:
 
         logger.info(f"Loaded {len(flights)} flights from filesystem")
         return flights
+
+    def load_all_campaign_flights(
+        self, campaign_name: Optional[str] = None, campaign_id=None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Load data for a single flight.
+
+        Args:
+            campaign_name: Flight name to load (alternative to flight_id)
+
+        Returns:
+            Flight dictionary with metadata and paths, or None if not found.
+        """
+        if campaign_name:
+            raise ValueError("Either flight_id or flight_name must be provided")
+
+        logger.info(f"Loading all campaign flighs: campaign_name={campaign_name}")
+
+        all_flights = self.load_all_flights()
+
+        for flight in all_flights:
+            if flight.get("campaign_name") == campaign_name:
+                return flight
+
+        return None
 
     def load_single_flight(
         self, flight_id: Optional[str] = None, flight_name: Optional[str] = None
@@ -127,7 +161,7 @@ class PathLoader:
             f"Loading single flight: flight_id={flight_id}, flight_name={flight_name}"
         )
 
-        all_flights = self.load_all_campaign_flights()
+        all_flights = self.load_all_flights()
 
         for flight in all_flights:
             if flight_id and flight.get("flight_id") == flight_id:
@@ -143,7 +177,7 @@ class PathLoader:
         """Build flight dictionary from filesystem structure."""
         try:
             # Extract date from folder name (YYYYMMDD format)
-            takeoff_date = datetime.strptime(date_folder, "%Y%m%d").replace(
+            takeoff_date = datetime.strptime(flight_name[7:], "%Y%m%d_%H%M").replace(
                 tzinfo=timezone.utc
             )
 
@@ -159,5 +193,7 @@ class PathLoader:
             }
             return flight_dict
         except Exception as e:
-            logger.warning(f"Could not build flight dict for {flight_name}: {e}")
+            logger.warning(
+                f"Could not build flight dict for {flight_name} {flight_path}: {e}"
+            )
             return None

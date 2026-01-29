@@ -193,7 +193,11 @@ class Flight:
         except Exception:
             return "dji"
 
-    def add_drone_data(self, dji_drone_loader: Union[bool, str] = "dat") -> "DroneData":
+    def add_drone_data(
+        self,
+        dji_dat_loader: bool = True,
+        drone_model: Optional[str] = None,
+    ) -> "DroneData":
         """
         Load drone telemetry data based on auto-detected drone model.
 
@@ -203,7 +207,7 @@ class Flight:
 
         Args:
             dji_drone_loader (str, optional): Data loader type for DJI drones.
-                Options: 'dat', 'txt', 'csv'. Defaults to 'dat'.
+                Options: 'dat', 'csv'. Defaults to 'dat'.
 
         Returns:
             DroneData: Reference to the loaded drone data
@@ -234,14 +238,8 @@ class Flight:
 
         drone_folder = self.flight_info.get("drone_data_folder_path")
 
-        drone_model = self._detect_drone_model(drone_folder)
-
-        # Normalize DJI loader flag
-        use_dat_flag: bool
-        if isinstance(dji_drone_loader, str):
-            use_dat_flag = dji_drone_loader.lower() == "dat"
-        else:
-            use_dat_flag = bool(dji_drone_loader)
+        if not drone_model:
+            drone_model = self._detect_drone_model(drone_folder)
 
         # Find candidate files
         available_files = glob.glob(str(drone_folder) + "/*")
@@ -252,7 +250,7 @@ class Flight:
             fname = file.lower()
             if (
                 fname.endswith("drone.dat")
-                and use_dat_flag
+                and dji_dat_loader
                 and "dji" in drone_model.lower()
             ):
                 drone_data_path = file
@@ -268,7 +266,7 @@ class Flight:
                 drone = DJIDrone(drone_folder)
             else:
                 drone = DJIDrone(drone_data_path)
-            drone.load_data(use_dat=use_dat_flag)
+            drone.load_data(use_dat=dji_dat_loader)
             drone_data = drone.data
 
             # load litchi if available (prefer explicit litchi file path)
@@ -287,7 +285,7 @@ class Flight:
         else:
             try:
                 drone = DJIDrone(drone_data_path or drone_folder)
-                drone.load_data(use_dat=use_dat_flag)
+                drone.load_data(use_dat=dji_dat_loader)
                 drone_data = drone.data
                 litchi_loader = Litchi(litchi_path or drone_folder)
                 litchi_loader.load_data()

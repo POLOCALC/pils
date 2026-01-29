@@ -9,6 +9,7 @@ class PILS:
     def __init__(
         self,
         use_stout: bool = True,
+        base_path: str = "/mnt/data/POLOCALC",
         campaign_id: Optional[str] = None,
         campaign_name: Optional[str] = None,
         flight_id: Optional[str] = None,
@@ -18,13 +19,20 @@ class PILS:
         if use_stout:
             self.loader = StoutLoader()
         else:
-            self.loader = PathLoader()
+            self.loader = PathLoader(base_path)
 
+        self.__stout_flag = use_stout
 
         if campaign_id or campaign_name:
 
             self._tmp_flight = self.loader.load_all_campaign_flights(
                 campaign_id=campaign_id, campaign_name=campaign_name
+            )
+
+        elif flight_id or flight_name:
+
+            self._tmp_flight = self.loader.load_single_flight(
+                flight_id=flight_id, flight_name=flight_name
             )
 
         self.flights = []
@@ -35,22 +43,23 @@ class PILS:
 
             self.flights.append(tmp)
 
-    def load_drone_data(self, dji_drone_loader: str = "dat"):
+    def load_drone_data(self, dji_dat_loader: bool = True, drone_model=None):
 
         for flight in self.flights:
 
-            flight.load_drone_data(dji_drone_loader=dji_drone_loader)
-
+            flight.add_drone_data(
+                dji_dat_loader=dji_dat_loader, drone_model=drone_model
+            )
 
     def load_sensor_data(self, sensor_name: List[str]):
 
         for flight in self.flights:
 
-            flight.load_sensor_data(sensor_name=sensor_name)
+            flight.add_sensor_data(sensor_name=sensor_name)
 
-    def load_all_data(self, dji_drone_loader: str = "dat"):
+    def load_all_data(self, dji_dat_loader: bool = True, drone_model=None):
 
-        sensor_list = ["gps", "imu", "inclino", "adc"]
+        sensor_list = ["gps", "imu", "inclinometer", "adc"]
 
-        self.load_drone_data(dji_drone_loader=dji_drone_loader)
+        self.load_drone_data(dji_dat_loader=dji_dat_loader, drone_model=drone_model)
         self.load_sensor_data(sensor_name=sensor_list)
