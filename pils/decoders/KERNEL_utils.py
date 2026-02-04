@@ -1,25 +1,28 @@
-import copy
 import pickle
 import struct
+from typing import Any, Dict
+
+from ..utils.logging_config import get_logger
 
 from . import KERNEL_dicts as Kdb
+
+logger = get_logger(__name__)
 
 HEADER = b"\xaa\x55"
 
 
-def _checksum(msg):
-    """Compute the checksum of a message
+def _checksum(msg: bytes) -> bytes:
+    """Compute the checksum of a message.
 
     The checksum is the arithmetical sum of all the bytes in the message
     excluding the header. The resulting sum is an unsigned short integer
-    whose Least Significant Byte is first
+    whose Least Significant Byte is first.
 
     Args:
-        msg (bytes): message used to compute the checksum
+        msg: Message bytes used to compute the checksum.
 
-    Return:
-        checksum (bytes)
-
+    Returns:
+        Checksum as bytes (2 bytes, little-endian).
     """
 
     if msg.startswith(HEADER):
@@ -29,23 +32,26 @@ def _checksum(msg):
 
 
 class KernelMsg:
+    """Decoder for KERNEL inclinometer messages."""
 
-    def __init__(self):
+    def __init__(self) -> None:
 
         self.msg_address = []
 
         for i in Kdb.MODES.keys():
             self.msg_address.append(Kdb.MODES[i]["Address"])
 
-    def decode_single(self, msg, return_dict=False):
-        """Decode a single message sent by the inclinometer
+    def decode_single(self, msg: bytes, return_dict: bool = False) -> Dict[str, Any]:
+        """Decode a single message sent by the inclinometer.
 
-        The structure of the message is presented in the KERNEL IMU ICD v1.27
+        The structure of the message is presented in the KERNEL IMU ICD v1.27.
 
         Args:
-            msg (bytes): message to be decoded
-        Return:
-            vals ()
+            msg: Message bytes to be decoded.
+            return_dict: If True, return as dictionary (currently unused).
+
+        Returns:
+            Dictionary containing decoded message fields.
         """
 
         if msg[:2] == HEADER:
@@ -66,7 +72,7 @@ class KernelMsg:
 
         try:
             for i in range(len(Kdb.MODES[modes[idx]]["Type"])):
-                mm = Kdb.MODES[modes[idx]]["Parameters"][i]
+                # mm = Kdb.MODES[modes[idx]]["Parameters"][i]  # noqa: F841 (unused)
 
                 fmt = "<" + "".join(Kdb.MODES[modes[idx]]["Type"][i])
                 val = msg[start : start + struct.calcsize(Kdb.MODES[modes[idx]]["Type"][i])]
@@ -86,9 +92,15 @@ class KernelMsg:
 
         return vals
 
-    def decode_multi(self, filename):
-        """Decode multiple messages saved in a binary file"""
+    def decode_multi(self, filename: str) -> Dict[str, list]:
+        """Decode multiple messages saved in a binary file.
 
+        Args:
+            filename: Path to binary file containing KERNEL messages.
+
+        Returns:
+            Dictionary with parameter names as keys and lists of decoded values.
+        """
         count = 0
 
         with open(filename, "rb") as fd:
@@ -97,7 +109,7 @@ class KernelMsg:
             else:
                 data = fd.read()
 
-        print("Values ", len(data))
+        logger.info(f"Decoded {len(data)} values")
 
         parts = data.split(HEADER)
 

@@ -3,14 +3,14 @@ Utility functions for file handling, log parsing, and data processing.
 """
 
 import datetime
-import os
+from pathlib import Path
 from typing import List, Optional, Union
 
 import polars as pl
 
 
 def read_log_time(
-    keyphrase: str, logfile: str
+    keyphrase: str, logfile: str | Path
 ) -> tuple[Optional[datetime.datetime], Optional[datetime.date]]:
     """
     Read a log file and find the line containing the given keyphrase.
@@ -20,7 +20,7 @@ def read_log_time(
     ----------
     keyphrase : str
         The string to search in the log file.
-    logfile : str
+    logfile : str or Path
         Path to the log file.
 
     Returns
@@ -30,6 +30,7 @@ def read_log_time(
     date : datetime.date or None
         The date (YYYY-MM-DD) extracted from the log file, or None if not found.
     """
+    logfile = Path(logfile)  # Convert to Path if string
     with open(logfile, "r") as f:
         lines = f.readlines()
 
@@ -84,13 +85,13 @@ def drop_nan_and_zero_cols(df: pl.DataFrame) -> pl.DataFrame:
     return df.select(cols_to_keep)
 
 
-def get_path_from_keyword(dirpath: str, keyword: str) -> Optional[Union[str, List[str]]]:
+def get_path_from_keyword(dirpath: str | Path, keyword: str) -> Optional[Union[str, List[str]]]:
     """
     Find file(s) in directory tree matching a keyword.
 
     Parameters
     ----------
-    dirpath : str
+    dirpath : str or Path
         Directory to search in.
     keyword : str
         Filename keyword to match.
@@ -100,11 +101,13 @@ def get_path_from_keyword(dirpath: str, keyword: str) -> Optional[Union[str, Lis
     paths : str, list of str, or None
         Single path if one match, list of paths if multiple, None if no matches.
     """
+    dirpath = Path(dirpath)  # Convert to Path if string
     paths = []
-    for root, dirs, files in os.walk(dirpath):
-        for file in files:
-            if keyword in file:
-                paths.append(os.path.join(root, file))
+
+    # Use rglob for recursive search
+    for file_path in dirpath.rglob("*"):
+        if file_path.is_file() and keyword in file_path.name:
+            paths.append(str(file_path))
 
     if len(paths) == 0:
         return None
@@ -135,18 +138,18 @@ def is_ascii_file(file_bytes: bytes) -> bool:
         return False
 
 
-def get_logpath_from_datapath(datapath: str) -> str:
+def get_logpath_from_datapath(datapath: str | Path) -> Path:
     """
     Given a sensor or camera file path, return the *_file.log in the aux folder.
 
     Parameters
     ----------
-    datapath : str
+    datapath : str or Path
         Path to sensor or camera data file.
 
     Returns
     -------
-    logpath : str
+    logpath : Path
         Path to the log file.
 
     Raises
@@ -156,21 +159,23 @@ def get_logpath_from_datapath(datapath: str) -> str:
     FileExistsError
         If multiple log files found.
     """
-    if not os.path.exists(datapath):
+    datapath = Path(datapath)  # Convert to Path if string
+
+    if not datapath.exists():
         raise FileNotFoundError(f"Datapath does not exist: {datapath}")
 
     # Go to parent folder(s)
-    folder = os.path.dirname(datapath)  # sensor file → sensors/
-    aux_dir = os.path.dirname(folder)  # sensors/ → aux/
+    folder = datapath.parent  # sensor file → sensors/
+    aux_dir = folder.parent  # sensors/ → aux/
 
     # Look for *_file.log
-    logfiles = [f for f in os.listdir(aux_dir) if f.endswith("_file.log")]
+    logfiles = [f for f in aux_dir.iterdir() if f.name.endswith("_file.log")]
     if not logfiles:
         raise FileNotFoundError(f"No log file found in {aux_dir}")
     if len(logfiles) > 1:
         raise FileExistsError(f"Multiple log files found in {aux_dir}")
 
-    return os.path.join(aux_dir, logfiles[0])
+    return logfiles[0]
 
 
 def fahrenheit_to_celsius(temp: float) -> float:
