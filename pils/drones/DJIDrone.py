@@ -5,7 +5,7 @@ import re
 import struct
 from functools import reduce
 from pathlib import Path
-from typing import Dict, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -14,9 +14,10 @@ import polars.selectors as cs
 from scipy.interpolate import interp1d
 from scipy.stats import norm
 
+from ..utils.logging_config import get_logger
 from ..utils.tools import drop_nan_and_zero_cols
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Message type definitions with their struct formats and field mappings
 MESSAGE_DEFINITIONS = {
@@ -74,8 +75,26 @@ MESSAGE_DEFINITIONS = {
 
 
 class DJIDrone:
-    def __init__(self, path, source_format=None):
+    """DJI Drone data loader supporting CSV and DAT binary formats.
 
+    Handles loading and processing of DJI drone flight logs from both
+    CSV exports and encrypted DAT binary files.
+
+    Attributes:
+        path: Path to drone data file
+        data: Loaded drone data (DataFrame or dict of DataFrames)
+        sync_params: Synchronization parameters (slope, intercept)
+        source_format: Format of source data ('csv' or 'dat')
+        aligned_df: Aligned DataFrame after GPS synchronization
+    """
+
+    def __init__(self, path: str | Path, source_format: Optional[str] = None) -> None:
+        """Initialize DJIDrone loader.
+
+        Args:
+            path: Path to DJI drone data file (CSV or DAT)
+            source_format: Optional format specification ('csv' or 'dat')
+        """
         self.path = path
         self.data: Union[Dict[str, pl.DataFrame], pl.DataFrame] = {}  # Dictionary or DataFrame
         self.sync_params: Optional[Tuple[float, float]] = (
@@ -86,22 +105,14 @@ class DJIDrone:
 
     def load_data(
         self,
-        cols=[
-            "Clock:offsetTime",
-            "GPS:dateTimeStamp",
-            "RTKdata:GpsState",
-            "RTKdata:Lat_P",
-            "RTKdata:Lon_P",
-            "RTKdata:Hmsl_P",
-        ],
+        cols: Optional[List[str]] = None,
         use_dat: bool = True,
         remove_duplicate: bool = False,
         correct_timestamp: bool = True,
         polars_interpolation: bool = True,
         align: bool = True,
-    ):
-        """
-        Load and filter drone data from a CSV or DAT file.
+    ) -> None:
+        """Load and filter drone data from a CSV or DAT file.
 
         The function:
         - Loads only specified columns (for CSV).
@@ -110,18 +121,16 @@ class DJIDrone:
         - Drops any columns that are fully NaN or zero using `drop_nan_and_zero_cols`.
         - Removes consecutive duplicate position samples.
 
-        Parameters
-        ----------
-        cols : list of str, optional
-            List of columns to load (for CSV files). Defaults to key RTK and timestamp fields.
-        use_dat : bool, optional
-            If True, try to load from DAT file instead of CSV.
-            If None (default), auto-detect based on file extension.
+        Args:
+            cols: List of columns to load (for CSV files). Defaults to key RTK and timestamp fields.
+            use_dat: If True, try to load from DAT file instead of CSV.
+            remove_duplicate: If True, remove consecutive duplicate position samples.
+            correct_timestamp: If True, correct timestamps.
+            polars_interpolation: If True, use polars for interpolation.
+            align: If True, align DAT file data with GPS.
 
-        Returns
-        -------
-        None
-            Filtered data is stored in `self.data`.
+        Returns:
+            None - Filtered data is stored in `self.data`.
         """
         # Auto-detect file format if not specified
         # if use_dat is None:
@@ -130,10 +139,10 @@ class DJIDrone:
 
         if use_dat:
             self._load_from_dat()
-            self.source_format = "DAT"
+            self.source_format = "dat"
         else:
             self._load_from_csv(cols)
-            self.source_format = "CSV"
+            self.source_format = "csv"
 
         # Remove consecutive duplicate position samples
         if remove_duplicate:
@@ -172,8 +181,12 @@ class DJIDrone:
                 if aligned is not None:
                     self.data = aligned
 
-    def _load_from_csv(self, cols):
-        """Load drone data from CSV file."""
+    def _load_from_csv(self, cols: Optional[List[str]]) -> None:
+        """Load drone data from CSV file.
+
+        Args:
+            cols: List of columns to load, or None to load all columns.
+        """
         # Load CSV file
         data = pl.read_csv(self.path, columns=cols) if cols else pl.read_csv(self.path)
 
@@ -204,8 +217,9 @@ class DJIDrone:
                             .alias("datetime")
                         ]
                     )
-                except:
+                except Exception as e:
                     # If parsing with timezone fails, try without timezone
+                    logger.warning(f"Failed to parse datetime with timezone: {e}")
                     data = data.with_columns(
                         [
                             pl.col("GPS:dateTimeStamp")
@@ -234,9 +248,8 @@ class DJIDrone:
         # Store as 'CSV' dataset in dictionary
         self.data = data
 
-    def _remove_consecutive_duplicates(self):
-        """
-        Remove consecutive duplicate position samples from all loaded data.
+    def _remove_consecutive_duplicates(self) -> None:
+        """Remove consecutive duplicate position samples from all loaded data.
 
         Removes rows where ALL position columns are identical to the previous row,
         eliminating static position artifacts from the data.
@@ -321,8 +334,13 @@ class DJIDrone:
             else:
                 logger.debug(f"No consecutive duplicates found in {data_key} data")
 
-    def _load_from_dat(self):
-        """Load and decode drone data from DJI DAT file."""
+    def _load_from_dat(self) -> None:
+        """Load and decode drone data from DJI DAT file.
+
+        Raises:
+            FileNotFoundError: If DAT file not found.
+            Exception: If DAT file cannot be parsed.
+        """
         try:
             with open(self.path, "rb") as f:
                 file_data = f.read()
@@ -373,9 +391,8 @@ class DJIDrone:
             logger.error(f"Failed to load DAT file: {e}")
             raise
 
-    def _parse_and_decode_message(self, msg_data):
-        """
-        Parse and decode a single message.
+    def _parse_and_decode_message(self, msg_data: bytes) -> List[Dict[str, Any]]:
+        """Parse and decode a single message.
 
         Message structure:
         - Byte 0: 0x55 (marker)
@@ -385,6 +402,12 @@ class DJIDrone:
         - Byte 6: XOR key
         - Bytes 8-11: Tick (timestamp in ticks, little-endian uint32)
         - Bytes 12+: Encrypted payload
+
+        Args:
+            msg_data: Raw message bytes to parse.
+
+        Returns:
+            List containing decoded message dictionary, or empty list if parsing fails.
         """
         if len(msg_data) < 12:
             return []
@@ -427,28 +450,22 @@ class DJIDrone:
             logger.debug(f"Failed to parse message: {e}")
             return []
 
-    def _decode_message_data(self, decrypted_payload, msg_type, tick_val, msg_def):
-        """
-        Unified message decoder using message definition template.
+    def _decode_message_data(
+        self, decrypted_payload: bytes, msg_type: int, tick_val: int, msg_def: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Unified message decoder using message definition template.
 
         Decodes message by unpacking each field from its byte offset
         using the specified format code.
 
-        Parameters
-        ----------
-        decrypted_payload : bytes
-            The decrypted message payload
-        msg_type : int
-            The message type identifier
-        tick_val : int
-            The timestamp value in ticks
-        msg_def : dict
-            Message definition containing field mappings with offsets and format codes
+        Args:
+            decrypted_payload: The decrypted message payload.
+            msg_type: The message type identifier.
+            tick_val: The timestamp value in ticks.
+            msg_def: Message definition containing field mappings with offsets and format codes.
 
-        Returns
-        -------
-        dict or None
-            Decoded message as dictionary, or None if decoding fails
+        Returns:
+            Decoded message as dictionary, or None if decoding fails.
         """
         try:
             result = {"msg_type": msg_type}
@@ -493,13 +510,20 @@ class DJIDrone:
             return result
 
         except Exception as e:
-            print(f"Failed to decode message: {e}")
-            logger.debug(f"Failed to decode message: {e}")
+            logger.error(f"Failed to decode message: {e}")
             return None
 
     @staticmethod
-    def _format_date_time(date, time):
-        """Convert date and time fields into a human-readable datetime string."""
+    def _format_date_time(date: int, time: int) -> Optional[str]:
+        """Convert date and time fields into a human-readable datetime string.
+
+        Args:
+            date: Date as integer (YYYYMMDD format).
+            time: Time as integer (HHMMSS format).
+
+        Returns:
+            Formatted datetime string, or None if date/time are zero or invalid.
+        """
         try:
             # Return None if date/time are zero or invalid
             if date == 0 or time == 0:
@@ -522,25 +546,18 @@ class DJIDrone:
             return None
 
     @staticmethod
-    def _unwrap_tick(df, wrap_threshold=1e8):
-        """
-        Unwrap tick values that wrap around due to uint32 overflow.
+    def _unwrap_tick(df: pl.DataFrame, wrap_threshold: float = 1e8) -> pl.DataFrame:
+        """Unwrap tick values that wrap around due to uint32 overflow.
 
         Only unwraps when tick wraps from high value to near zero (< wrap_threshold).
         Ignores other negative jumps which are likely data corruption.
 
-        Parameters
-        ----------
-        df : pl.DataFrame
-            DataFrame with 'tick' column
-        wrap_threshold : float, optional
-            Maximum value after wraparound to be considered valid. Default: 1e8 (100 million)
-            Real wraparounds go from ~4.3B to near 0, not to other large values.
+        Args:
+            df: DataFrame with 'tick' column.
+            wrap_threshold: Maximum value after wraparound to be considered valid. Default: 1e8.
 
-        Returns
-        -------
-        pl.DataFrame
-            DataFrame with unwrapped tick values
+        Returns:
+            DataFrame with unwrapped tick values.
         """
         if "tick" not in df.columns or len(df) < 2:
             return df
@@ -617,8 +634,15 @@ class DJIDrone:
         self.sync_params = (float(m), time_offset)
         return time_offset
 
-    def _parse_gps_datetime(self, payload):
-        """Parse GPS datetime from message payload (deprecated - using decoded data now)."""
+    def _parse_gps_datetime(self, payload: bytes) -> Optional[datetime.datetime]:
+        """Parse GPS datetime from message payload.
+
+        Args:
+            payload: Binary payload containing GPS date and time fields.
+
+        Returns:
+            Parsed datetime object, or None if parsing fails.
+        """
         if len(payload) < 8:
             return None
 
@@ -639,10 +663,20 @@ class DJIDrone:
 
     def align_datfile(
         self,
-        correct_timestamp=True,
+        correct_timestamp: bool = True,
         sampling_freq: float = 5.0,
-        polars_interpolation=False,
+        polars_interpolation: bool = False,
     ) -> Optional[pl.DataFrame]:
+        """Align DAT file data using GPS synchronization.
+
+        Args:
+            correct_timestamp: If True, correct timestamps using GPS synchronization.
+            sampling_freq: Target sampling frequency in Hz.
+            polars_interpolation: If True, use Polars for interpolation.
+
+        Returns:
+            Aligned DataFrame, or None if alignment fails.
+        """
         # Ensure self.data is a dict for DAT format
         assert isinstance(self.data, dict), "Expected dict for DAT format"
 

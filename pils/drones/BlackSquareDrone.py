@@ -1,9 +1,15 @@
 from collections import defaultdict
 from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any, Dict, List
 
 import numpy as np
 import polars as pl
 from astropy.utils.iers import LeapSeconds
+
+from ..utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 """https://ardupilot.org/copter/docs/logmessages.html"""
 
@@ -65,7 +71,17 @@ FLIGHTMODES = {
 }
 
 
-def messages_to_df(messages, columns, format_str):
+def messages_to_df(messages: List[List[str]], columns: List[str], format_str: str) -> pl.DataFrame:
+    """Convert ArduPilot log messages to Polars DataFrame.
+
+    Args:
+        messages: List of message rows (each row is list of string values).
+        columns: Column names for the DataFrame.
+        format_str: Format string specifying data types (ArduPilot format codes).
+
+    Returns:
+        Polars DataFrame with converted message data.
+    """
     dtypes = []
     for col, f in zip(columns, format_str):
         np_dtype = ARDUTYPES.get(f, object)
@@ -78,7 +94,18 @@ def messages_to_df(messages, columns, format_str):
     return pl.DataFrame(data_dict)
 
 
-def read_msgs(path):
+def read_msgs(path: str | Path) -> Dict[str, pl.DataFrame]:
+    """Read ArduPilot log file and parse messages into DataFrames.
+
+    Args:
+        path: Path to ArduPilot log file.
+
+    Returns:
+        Dictionary mapping message types to DataFrames.
+
+    Raises:
+        FileNotFoundError: If log file not found.
+    """
     with open(path, "r") as f:
         lines = (line.strip() for line in f)
 
@@ -112,12 +139,20 @@ def read_msgs(path):
             df = messages_to_df(messages, columns, format_str)
             dfs[msg_type] = df
         except Exception as e:
-            print(f"Warning: Failed to parse message type '{msg_type}': {e}")
+            logger.warning(f"Failed to parse message type '{msg_type}': {e}")
 
     return dfs
 
 
-def generate_log_file(lines):
+def generate_log_file(lines: List[str]) -> Dict[str, Any]:
+    """Generate log file from lines.
+
+    Args:
+        lines: List of log file lines.
+
+    Returns:
+        Dictionary with log file information.
+    """
     msgs = []
     for line in lines:
         msg = line.strip().split(",")
@@ -134,7 +169,16 @@ def generate_log_file(lines):
         f.write(decoded_str)
 
 
-def get_leapseconds(year, month):
+def get_leapseconds(year: int, month: int) -> int:
+    """Calculate number of leap seconds for given date.
+
+    Args:
+        year: Year (e.g., 2024).
+        month: Month (1-12).
+
+    Returns:
+        Number of leap seconds to subtract from GPS time.
+    """
     # Load and prepare DataFrame
     ls_pd = LeapSeconds.auto_open().to_pandas()
     ls_df = pl.from_pandas(ls_pd)
@@ -157,7 +201,17 @@ def get_leapseconds(year, month):
 
 
 class BlackSquareDrone:
-    def __init__(self, path):
+    """Loader for BlackSquare drone ArduPilot log files.
+
+    Parses ArduPilot binary log format and provides access to sensor data.
+    """
+
+    def __init__(self, path: str | Path) -> None:
+        """Initialize BlackSquareDrone loader.
+
+        Args:
+            path: Path to ArduPilot log file.
+        """
 
         self.path = path
 
@@ -176,7 +230,11 @@ class BlackSquareDrone:
 
         self.datetime = None
 
-    def load_data(self):
+    def load_data(self) -> None:
+        """Load all sensor data from ArduPilot log file.
+
+        Populates instance attributes with DataFrames for each sensor type.
+        """
         self.data = read_msgs(self.path)
         self.imu = self.data["IMU"]
         self.barometer = self.data["BARO"]
@@ -196,7 +254,11 @@ class BlackSquareDrone:
         if "MNT" in self.data.keys():
             self.gimbal = self.data["MNT"]
 
-    def compute_datetime(self):
+    def compute_datetime(self) -> None:
+        """Compute datetime from GPS week and milliseconds.
+
+        Converts GPS time to UTC by subtracting leap seconds.
+        """
         gps = self.gps
         # GPS epoch is 1980-01-06, calculate datetime from GWk (week) and GMS (milliseconds)
         gps_epoch = datetime(1980, 1, 6)
