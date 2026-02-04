@@ -20,20 +20,13 @@ Usage:
     flights = loader.load_flights_by_date(start_date='2025-01-01', end_date='2025-01-15')
 """
 
-import importlib
-import logging
-import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from pils.config import DRONE_MAP, SENSOR_MAP
+from pils.utils.logging_config import get_logger
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class PathLoader:
@@ -48,17 +41,16 @@ class PathLoader:
         base_data_path: Base path where all campaign data is stored
     """
 
-    def __init__(self, base_data_path):
+    def __init__(self, base_data_path: str | Path | None):
         """
-        Initialize the StoutDataLoader.
+        Initialize the PathLoader.
 
         Args:
-            use_stout: If True, uses stout services to query database.
-                      If False, queries filesystem directly.
-            base_data_path: Base path for data storage. If None, uses stout config.
+            base_data_path: Base path for data storage. Accepts string or Path object.
         """
-
-        self.base_data_path = base_data_path
+        self.base_data_path: Optional[Path] = (
+            Path(base_data_path) if base_data_path is not None else None
+        )
 
     def load_all_flights(self) -> List[Dict[str, Any]]:
         """
@@ -71,44 +63,43 @@ class PathLoader:
         """
         logger.info("Loading all flights from all campaigns...")
 
-        flights = []
+        flights: List[Dict[str, Any]] = []
         if self.base_data_path is None:
             logger.warning("Base data path not set")
             return flights
-        campaigns_dir = os.path.join(self.base_data_path, "campaigns")
+        campaigns_dir = self.base_data_path / "campaigns"
 
-        if not os.path.exists(campaigns_dir):
+        if not campaigns_dir.exists():
             logger.warning(f"Campaigns directory not found: {campaigns_dir}")
             return flights
 
-        print(os.listdir(campaigns_dir))
-        print("###########")
+        logger.debug(f"Scanning campaigns directory: {campaigns_dir}")
+
         # Traverse: campaigns -> date folders -> flight folders
-        for campaign_name in os.listdir(campaigns_dir):
-            print(f"{campaign_name}")
-            print("================================")
+        for campaign_path in campaigns_dir.iterdir():
+            if not campaign_path.is_dir():
+                continue
+
+            campaign_name = campaign_path.name
+            logger.debug(f"Processing campaign: {campaign_name}")
+
             if campaign_name == "telescope_data":
-                print("Skip Telescope Data")
+                logger.debug("Skip Telescope Data")
                 continue
 
-            campaign_path = os.path.join(campaigns_dir, campaign_name)
-            if not os.path.isdir(campaign_path):
-                continue
-
-            for date_folder in os.listdir(campaign_path):
-                date_path = os.path.join(campaign_path, date_folder)
-                if not os.path.isdir(date_path):
+            for date_path in campaign_path.iterdir():
+                if not date_path.is_dir():
                     continue
 
-                for flight_name in os.listdir(date_path):
+                for flight_path in date_path.iterdir():
+                    flight_name = flight_path.name
                     if flight_name in ["base", "calibration"]:
                         continue
-                    flight_path = os.path.join(date_path, flight_name)
-                    if not os.path.isdir(flight_path):
+                    if not flight_path.is_dir():
                         continue
 
                     flight_dict = self._build_flight_dict_from_filesystem(
-                        campaign_name, date_folder, flight_name, flight_path
+                        campaign_name, date_path.name, flight_name, flight_path
                     )
                     if flight_dict:
                         flights.append(flight_dict)
@@ -170,7 +161,7 @@ class PathLoader:
         return None
 
     def _build_flight_dict_from_filesystem(
-        self, campaign_name: str, date_folder: str, flight_name: str, flight_path: str
+        self, campaign_name: str, date_folder: str, flight_name: str, flight_path: Path
     ) -> Optional[Dict[str, Any]]:
         """Build flight dictionary from filesystem structure."""
         try:
@@ -185,9 +176,9 @@ class PathLoader:
                 "flight_date": date_folder,
                 "takeoff_datetime": takeoff_date.isoformat(),
                 "landing_datetime": takeoff_date.isoformat(),  # Not available from filesystem
-                "drone_data_folder_path": os.path.join(flight_path, "drone"),
-                "aux_data_folder_path": os.path.join(flight_path, "aux"),
-                "processed_data_folder_path": os.path.join(flight_path, "proc"),
+                "drone_data_folder_path": str(flight_path / "drone"),
+                "aux_data_folder_path": str(flight_path / "aux"),
+                "processed_data_folder_path": str(flight_path / "proc"),
             }
             return flight_dict
         except Exception as e:
