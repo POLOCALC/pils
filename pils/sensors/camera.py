@@ -1,41 +1,77 @@
-import glob
-import os
 from datetime import timedelta
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-import polars as pl
 
 from ..utils.tools import get_logpath_from_datapath, read_log_time
 
 
 class Camera:
-    def __init__(self, path, logpath=None, time_index=None):
-        """
-        path: either a video file or a directory containing images
-        time_index: optional dict mapping image filenames → timestamps
-                    Example: {"img_0001.jpg": datetime, ...}
+    """Camera sensor for video files and image sequences.
+
+    Attributes:
+        path: Path to video file or image directory.
+        logpath: Path to log file for timestamp extraction.
+        capture: OpenCV VideoCapture object (for videos).
+        fps: Frames per second.
+        tstart: Start timestamp from log file.
+        is_image_sequence: Whether path is an image sequence directory.
+        images: List of image file paths (for image sequences).
+        time_index: Optional timestamp mapping for images.
+    """
+
+    def __init__(
+        self,
+        path: str | Path,
+        logpath: Optional[str | Path] = None,
+        time_index: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Initialize Camera sensor.
+
+        Args:
+            path: Path to video file or directory containing images.
+            logpath: Optional path to log file. If None, will be inferred.
+            time_index: Optional dict mapping image filenames to timestamps.
+                       Example: {"img_0001.jpg": datetime, ...}
         """
         self.path = path
         self.logpath = logpath if logpath is not None else get_logpath_from_datapath(self.path)
 
         # Video attributes
-        self.capture = None
-        self.fps = None
-        self.tstart = None
+        self.capture: Optional[Any] = None
+        self.fps: Optional[float] = None
+        self.tstart: Optional[Any] = None
 
         # Image-sequence attributes
-        self.is_image_sequence = False
-        self.images = []  # list of filepaths
-        self.time_index = time_index  # optional timestamps for images
+        self.is_image_sequence: bool = False
+        self.images: list = []  # list of filepaths
+        self.time_index: Optional[Dict[str, Any]] = time_index  # optional timestamps for images
 
-    def load_data(self):
+    def load_data(self) -> None:
+        """Load camera data from video file or image sequence.
+
+        For video files (.mp4, .avi, .mov):
+            - Initializes cv2.VideoCapture
+            - Extracts FPS and frame count
+            - Reads start timestamp from log file
+
+        For image sequences:
+            - Lists all images in directory
+            - Estimates FPS from time_index if provided
+            - Sorts images by filename
+
+        Raises:
+            FileNotFoundError: If image directory is empty.
+        """
         # ------------------------------
         # Case 1: VIDEO FILE
         # ------------------------------
-        if self.path.lower().endswith((".mp4", ".avi", ".mov")):
-            self.capture = cv2.VideoCapture(self.path)
+        path_str = str(self.path)
+        if path_str.lower().endswith((".mp4", ".avi", ".mov")):
+            self.capture = cv2.VideoCapture(path_str)
             self.tstart, _ = read_log_time("INFO:Camera Sony starts recording", self.logpath)
 
             frame_count = self.capture.get(cv2.CAP_PROP_FRAME_COUNT)
@@ -53,11 +89,13 @@ class Camera:
         # ------------------------------
         else:
             self.is_image_sequence = True
-            # get all images in folder / glob pattern
-            self.images = sorted(
-                glob.glob(os.path.join(self.path, "*.*")),
-                key=lambda x: os.path.basename(x),
+            # get all images in folder using pathlib
+            path_obj = Path(self.path)
+            image_paths = sorted(
+                path_obj.glob("*.*"),
+                key=lambda x: x.name,
             )
+            self.images = [str(p) for p in image_paths]
 
             if len(self.images) == 0:
                 raise FileNotFoundError(f"No images found in {self.path}")
@@ -74,10 +112,22 @@ class Camera:
 
             # Optional: parse "tstart" from first timestamp if available
             if self.time_index is not None:
-                first_image = os.path.basename(self.images[0])
+                first_image = Path(self.images[0]).name
                 self.tstart = self.time_index.get(first_image)
 
-    def get_frame(self, frame_number) -> np.ndarray:
+    def get_frame(self, frame_number: int) -> np.ndarray:
+        """Get frame at specified index.
+
+        Args:
+            frame_number: Frame index to retrieve.
+
+        Returns:
+            Frame as numpy array (BGR format for OpenCV).
+
+        Raises:
+            ValueError: If video capture not initialized or frame read fails.
+            IndexError: If frame_number is out of range for image sequence.
+        """
         # -------------------
         # VIDEO
         # -------------------
@@ -101,11 +151,20 @@ class Camera:
             raise ValueError(f"Failed to read image {self.images[frame_number]}")
         return frame
 
-    def get_timestamp(self, frame_number):
-        """
-        Returns the timestamp associated with a frame.
-        For videos → tstart + frame_number / fps
-        For image sequences → from time_index if available, else None
+    def get_timestamp(self, frame_number: int) -> Optional[Any]:
+        """Get timestamp for specified frame.
+
+        For videos:
+            Returns tstart + frame_number / fps
+
+        For image sequences:
+            Returns timestamp from time_index if available, else None.
+
+        Args:
+            frame_number: Frame index.
+
+        Returns:
+            Timestamp (datetime) or None if not available.
         """
         if not self.is_image_sequence:
             if self.tstart is None or self.fps is None:
@@ -114,12 +173,21 @@ class Camera:
 
         # Image sequence case
         if self.time_index is not None:
-            fname = os.path.basename(self.images[frame_number])
+            fname = Path(self.images[frame_number]).name
             return self.time_index.get(fname, None)
         else:
             return None
 
-    def plot_frame(self, frame_number, color="rgb"):
+    def plot_frame(self, frame_number: int, color: str = "rgb") -> None:
+        """Plot frame at specified index.
+
+        Args:
+            frame_number: Frame index to plot.
+            color: Color space for display ("rgb", "hsv", "gray", or "bgr").
+
+        Raises:
+            KeyError: If color space not recognized.
+        """
         frame = self.get_frame(frame_number)
 
         if color == "rgb":

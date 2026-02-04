@@ -1,9 +1,7 @@
-import os
 from pathlib import Path
+from typing import Optional
 
 import polars as pl
-
-from ..utils.tools import get_path_from_keyword
 
 SENSOR_COLUMNS = {
     "baro": ["timestamp", "pressure", "temperature"],
@@ -14,12 +12,34 @@ SENSOR_COLUMNS = {
 
 
 class IMUSensor:
-    def __init__(self, path, type):
+    """Individual IMU sensor (barometer, accelerometer, gyroscope, or magnetometer).
+
+    Attributes:
+        path: Path to sensor data file.
+        type: Sensor type (baro, accelero, gyro, magneto).
+        data: Polars DataFrame with sensor data (None until load_data is called).
+    """
+
+    def __init__(self, path: str | Path, type: str) -> None:
+        """Initialize IMU sensor.
+
+        Args:
+            path: Path to sensor binary file.
+            type: Sensor type (baro, accelero, gyro, magneto).
+        """
         self.path = path
         self.type = type
-        self.data = None
+        self.data: Optional[pl.DataFrame] = None
 
-    def load_data(self):
+    def load_data(self) -> None:
+        """Load sensor data from binary file.
+
+        Reads space-separated data and converts timestamp to datetime.
+        Sets the `data` attribute with a polars DataFrame containing:
+        - timestamp column (microseconds)
+        - sensor-specific columns (defined in SENSOR_COLUMNS)
+        - datetime column (converted from timestamp)
+        """
         self.data = pl.read_csv(
             self.path,
             has_header=False,
@@ -32,14 +52,38 @@ class IMUSensor:
 
 
 class IMU:
-    def __init__(self, dirpath: Path):
+    """IMU sensor container with barometer, accelerometer, gyroscope, and magnetometer.
+
+    Attributes:
+        dirpath: Directory containing IMU sensor files.
+        barometer: Barometer sensor instance.
+        accelerometer: Accelerometer sensor instance.
+        gyroscope: Gyroscope sensor instance.
+        magnetometer: Magnetometer sensor instance.
+    """
+
+    def __init__(self, dirpath: Path) -> None:
+        """Initialize IMU with all four sensors.
+
+        Args:
+            dirpath: Directory containing sensor binary files:
+                - barometer.bin
+                - accelerometer.bin
+                - gyroscope.bin
+                - magnetometer.bin
+        """
         self.dirpath = dirpath
         self.barometer = IMUSensor(dirpath / "barometer.bin", "baro")
         self.accelerometer = IMUSensor(dirpath / "accelerometer.bin", "accelero")
         self.gyroscope = IMUSensor(dirpath / "gyroscope.bin", "gyro")
         self.magnetometer = IMUSensor(dirpath / "magnetometer.bin", "magneto")
 
-    def load_all(self):
+    def load_all(self) -> None:
+        """Load data for all IMU sensors.
+
+        Calls load_data() on each sensor (barometer, accelerometer,
+        gyroscope, magnetometer).
+        """
         for sensor in vars(self).values():
             if isinstance(sensor, IMUSensor):
                 sensor.load_data()

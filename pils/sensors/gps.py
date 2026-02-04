@@ -1,8 +1,7 @@
-import glob
-from datetime import datetime, timedelta
+from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
-import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
 from pyubx2 import UBX_PROTOCOL, UBXReader
@@ -11,7 +10,22 @@ from ..utils.tools import get_logpath_from_datapath, read_log_time
 
 
 class GPS:
-    def __init__(self, path, logpath=None):
+    """GPS sensor for reading UBX binary data.
+
+    Attributes:
+        data_path: Path to GPS binary file (*.gps.bin).
+        logpath: Path to log file for timestamp extraction.
+        tstart: Start timestamp from log file (set after load_data).
+        data: Polars DataFrame with GPS data (None until load_data is called).
+    """
+
+    def __init__(self, path: Path, logpath: Optional[Path] = None) -> None:
+        """Initialize GPS sensor.
+
+        Args:
+            path: Directory containing GPS binary file.
+            logpath: Optional path to log file. If None, will be inferred.
+        """
 
         files = list(path.glob("*"))
 
@@ -23,26 +37,30 @@ class GPS:
         else:
             self.logpath = get_logpath_from_datapath(self.data_path)
 
-        self.tstart = None
-        self.data = None
+        self.tstart: Optional[datetime] = None
+        self.data: Optional[pl.DataFrame] = None
 
-    def load_data(self, freq_interpolation=None):
-        """
-        Reads a GPS file written in binary format and returns its content as a polars DataFrame.
+    def load_data(self, freq_interpolation: Optional[float] = None) -> None:
+        """Load GPS data from UBX binary file.
 
-        Parameters
-        ----------
-        gps_path : str
-            Path to the GPS file to be read.
-        logfile : str
-            Path to the log file to be read.
+        Reads GPS data in UBX protocol format and parses NAV messages.
+        Merges different NAV message types (POSLLH, VELNED, STATUS, etc.)
+        onto a common time grid with optional interpolation.
 
-        Returns
-        -------
-        gps_data : polars.DataFrame
-            DataFrame with columns from all NAV messages (POSLLH, VELNED, STATUS, etc.)
-            merged by iTOW, plus datetime and timestamp columns.
+        Args:
+            freq_interpolation: Optional frequency for interpolation in Hz.
+                              If None, uses mean time difference from data.
+                              If provided, resamples data to this frequency.
 
+        Sets:
+            self.data: Polars DataFrame with:
+                - unix_time_ms: Unix timestamp in milliseconds
+                - datetime: UTC datetime
+                - timestamp: Unix timestamp in seconds
+                - NAV message columns (prefixed by message type)
+
+        Note:
+            Requires log file with "Sensor ZED-F9P started" entry for date extraction.
         """
 
         # Dictionary to collect records from different NAV message types
@@ -159,21 +177,17 @@ class GPS:
 
     def _merge_nav_dataframes(
         self, nav_dataframes: dict, freq: Optional[float] = None
-    ) -> pl.DataFrame | None:
-        """
-        Merge NAV dataframes onto a common time grid with interpolation.
+    ) -> Optional[pl.DataFrame]:
+        """Merge NAV dataframes onto a common time grid with interpolation.
 
-        Parameters
-        ----------
-        nav_dataframes : dict
-            Dictionary of NAV message type -> polars DataFrame.
-        freq_ms : int
-            Time grid frequency in milliseconds (default 100ms = 10Hz).
+        Args:
+            nav_dataframes: Dictionary of NAV message type -> polars DataFrame.
+                          Each DataFrame must have unix_time_ms column.
+            freq: Time grid frequency in Hz. If None, uses mean time difference.
 
-        Returns
-        -------
-        merged_df : polars.DataFrame
-            Merged DataFrame with interpolated values on a common time grid.
+        Returns:
+            Merged DataFrame with interpolated values on common time grid,
+            or None if no valid dataframes found.
         """
         if not nav_dataframes:
             return None
