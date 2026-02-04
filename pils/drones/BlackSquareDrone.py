@@ -244,7 +244,12 @@ class BlackSquareDrone:
         self.attitude = self.data["ATT"]
         self.pwm = self.data["RCOU"]
         self.position = self.data["POS"]
-        self.gpa = self.data["GPA"]
+        
+        # GPA may not always be present
+        if "GPA" in self.data:
+            self.gpa = self.data["GPA"]
+        else:
+            self.gpa = None
 
         self.params = self.data["PARM"]
         self.params = self.params.with_columns(
