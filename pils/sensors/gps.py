@@ -1,12 +1,13 @@
-import polars as pl
-from pyubx2 import UBXReader, UBX_PROTOCOL
-import matplotlib.pyplot as plt
-from datetime import timedelta, datetime
-from typing import Optional
-import numpy as np
 import glob
+from datetime import datetime, timedelta
+from typing import Optional
 
-from ..utils.tools import read_log_time, get_logpath_from_datapath
+import matplotlib.pyplot as plt
+import numpy as np
+import polars as pl
+from pyubx2 import UBX_PROTOCOL, UBXReader
+
+from ..utils.tools import get_logpath_from_datapath, read_log_time
 
 
 class GPS:
@@ -99,9 +100,7 @@ class GPS:
                 nav_dataframes[msg_type] = df
 
         # Get the date from log file to compute GPS week
-        time_start, date = read_log_time(
-            keyphrase="Sensor ZED-F9P started", logfile=self.logpath
-        )
+        time_start, date = read_log_time(keyphrase="Sensor ZED-F9P started", logfile=self.logpath)
 
         if date is None:
             self.data = pl.DataFrame()
@@ -154,9 +153,7 @@ class GPS:
         gps_data = gps_data.with_columns(
             (pl.from_epoch(pl.col("unix_time_ms"), time_unit="ms")).alias("datetime")
         )
-        gps_data = gps_data.with_columns(
-            (pl.col("unix_time_ms") / 1000.0).alias("timestamp")
-        )
+        gps_data = gps_data.with_columns((pl.col("unix_time_ms") / 1000.0).alias("timestamp"))
 
         self.data = gps_data
 
@@ -240,16 +237,11 @@ class GPS:
 
             # Include datetime_relative if present (take from first dataframe that has it)
             cols_to_join = ["unix_time_ms"] + numeric_cols
-            if (
-                "datetime_relative" in df.columns
-                and "datetime_relative" not in merged_df.columns
-            ):
+            if "datetime_relative" in df.columns and "datetime_relative" not in merged_df.columns:
                 cols_to_join.append("datetime_relative")
 
             # Join with time grid using asof join (nearest previous value)
             df_to_join = df.select(cols_to_join)
-            merged_df = merged_df.join_asof(
-                df_to_join, on="unix_time_ms", strategy="nearest"
-            )
+            merged_df = merged_df.join_asof(df_to_join, on="unix_time_ms", strategy="nearest")
 
         return merged_df

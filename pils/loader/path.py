@@ -20,14 +20,14 @@ Usage:
     flights = loader.load_flights_by_date(start_date='2025-01-01', end_date='2025-01-15')
 """
 
-import os
-from datetime import datetime, timezone, timedelta
-from pathlib import Path
-from typing import List, Dict, Optional, Any
-import logging
 import importlib
+import logging
+import os
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from pils.config import SENSOR_MAP, DRONE_MAP
+from pils.config import DRONE_MAP, SENSOR_MAP
 
 # Configure logging
 logging.basicConfig(
@@ -157,9 +157,7 @@ class PathLoader:
         if not flight_id and not flight_name:
             raise ValueError("Either flight_id or flight_name must be provided")
 
-        logger.info(
-            f"Loading single flight: flight_id={flight_id}, flight_name={flight_name}"
-        )
+        logger.info(f"Loading single flight: flight_id={flight_id}, flight_name={flight_name}")
 
         all_flights = self.load_all_flights()
 
@@ -193,7 +191,5 @@ class PathLoader:
             }
             return flight_dict
         except Exception as e:
-            logger.warning(
-                f"Could not build flight dict for {flight_name} {flight_path}: {e}"
-            )
+            logger.warning(f"Could not build flight dict for {flight_name} {flight_path}: {e}")
             return None

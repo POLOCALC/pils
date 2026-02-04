@@ -1,7 +1,8 @@
-from typing import List, Dict, Optional, Any
-from pils.loader.stout import StoutLoader
-from pils.loader.path import PathLoader
+from typing import Any, Dict, List, Optional
+
 from pils.flight import Flight
+from pils.loader.path import PathLoader
+from pils.loader.stout import StoutLoader
 
 
 class PILS:
@@ -47,9 +48,7 @@ class PILS:
 
         for flight in self.flights:
 
-            flight.add_drone_data(
-                dji_dat_loader=dji_dat_loader, drone_model=drone_model
-            )
+            flight.add_drone_data(dji_dat_loader=dji_dat_loader, drone_model=drone_model)
 
     def load_sensor_data(self, sensor_name: List[str]):
 

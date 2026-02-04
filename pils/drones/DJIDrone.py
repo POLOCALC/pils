@@ -1,20 +1,20 @@
-from typing import Union, Dict, Optional, Tuple
-
+import datetime
 import glob as gl
-import polars as pl
-import polars.selectors as cs
-from functools import reduce
-import struct
 import logging
 import re
-import datetime
-import numpy as np
+import struct
+from functools import reduce
 from pathlib import Path
-from scipy.stats import norm
-from scipy.interpolate import interp1d
-from ..utils.tools import drop_nan_and_zero_cols
+from typing import Dict, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
+import numpy as np
+import polars as pl
+import polars.selectors as cs
+from scipy.interpolate import interp1d
+from scipy.stats import norm
+
+from ..utils.tools import drop_nan_and_zero_cols
 
 logger = logging.getLogger(__name__)
 
@@ -77,9 +77,7 @@ class DJIDrone:
     def __init__(self, path, source_format=None):
 
         self.path = path
-        self.data: Union[Dict[str, pl.DataFrame], pl.DataFrame] = (
-            {}
-        )  # Dictionary or DataFrame
+        self.data: Union[Dict[str, pl.DataFrame], pl.DataFrame] = {}  # Dictionary or DataFrame
         self.sync_params: Optional[Tuple[float, float]] = (
             None  # Store (slope, intercept) from Gaussian sync
         )
@@ -145,9 +143,7 @@ class DJIDrone:
             logger.info("Converting timestamps to milliseconds")
             if self.source_format == "CSV":
                 # For CSV format, self.data is a DataFrame
-                assert isinstance(
-                    self.data, pl.DataFrame
-                ), "Expected DataFrame for CSV format"
+                assert isinstance(self.data, pl.DataFrame), "Expected DataFrame for CSV format"
                 # Calculate mean offset from actual data, not expressions
                 timestamp_vals = self.data.get_column("timestamp").to_numpy()
                 tags = np.where(np.diff(timestamp_vals) > 0.5)[0] + 1
@@ -190,11 +186,7 @@ class DJIDrone:
             if data["GPS:dateTimeStamp"].dtype == pl.Datetime:
                 # Already parsed, just use it
                 data = data.with_columns(
-                    [
-                        pl.col("GPS:dateTimeStamp")
-                        .dt.replace_time_zone(None)
-                        .alias("datetime")
-                    ]
+                    [pl.col("GPS:dateTimeStamp").dt.replace_time_zone(None).alias("datetime")]
                 )
             elif (
                 data["GPS:dateTimeStamp"].dtype == pl.String
@@ -217,9 +209,7 @@ class DJIDrone:
                     data = data.with_columns(
                         [
                             pl.col("GPS:dateTimeStamp")
-                            .str.to_datetime(
-                                format="%Y-%m-%d %H:%M:%S%.f", strict=False
-                            )
+                            .str.to_datetime(format="%Y-%m-%d %H:%M:%S%.f", strict=False)
                             .alias("GPS:dateTimeStamp")
                         ]
                     )
@@ -526,9 +516,7 @@ class DJIDrone:
             if year < 2000 or month < 1 or month > 12 or day < 1 or day > 31:
                 return None
 
-            return (
-                f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
-            )
+            return f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
         except Exception as e:
             logger.debug(f"Failed to format datetime: {e}")
             return None
@@ -714,9 +702,7 @@ class DJIDrone:
 
                 for col in numeric_cols:
                     if col not in exclude_cols:
-                        tmp = tmp.with_columns(
-                            pl.col(col).interpolate_by("tick").alias(col)
-                        )
+                        tmp = tmp.with_columns(pl.col(col).interpolate_by("tick").alias(col))
 
                 aligned_df = tmp
 
@@ -735,12 +721,7 @@ class DJIDrone:
                 rtk_min = rtk_df.get_column("tick").min()
                 rtk_max = rtk_df.get_column("tick").max()
 
-                if (
-                    gps_min is None
-                    or gps_max is None
-                    or rtk_min is None
-                    or rtk_max is None
-                ):
+                if gps_min is None or gps_max is None or rtk_min is None or rtk_max is None:
                     logger.warning("Could not determine tick range for alignment.")
                     return None
 
@@ -869,9 +850,7 @@ class DJIDrone:
 
             for col in numeric_cols:
                 if col not in exclude_cols:
-                    tmp = tmp.with_columns(
-                        pl.col(col).interpolate_by("tick").alias(col)
-                    )
+                    tmp = tmp.with_columns(pl.col(col).interpolate_by("tick").alias(col))
 
             aligned_df = tmp
 
@@ -889,9 +868,7 @@ class DJIDrone:
             mean_offset = float(np.mean(timestamp_vals - offset_vals))
 
             aligned_df = aligned_df.with_columns(
-                ((pl.col("offset") + mean_offset).cast(pl.Float64)).alias(
-                    "correct_timestamp"
-                )
+                ((pl.col("offset") + mean_offset).cast(pl.Float64)).alias("correct_timestamp")
             )
 
         return aligned_df

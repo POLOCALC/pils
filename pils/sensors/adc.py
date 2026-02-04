@@ -1,10 +1,11 @@
-import polars as pl
-import numpy as np
-import struct
-import os
 import glob
-import matplotlib.pyplot as plt
+import os
+import struct
 from datetime import datetime
+
+import matplotlib.pyplot as plt
+import numpy as np
+import polars as pl
 
 # Check if yaml is available for config file reading
 try:
@@ -14,7 +15,7 @@ try:
 except ImportError:
     YAML_AVAILABLE = False
 
-from ..utils.tools import is_ascii_file, get_logpath_from_datapath
+from ..utils.tools import get_logpath_from_datapath, is_ascii_file
 
 ADS1015_VALUE_GAIN = {
     1: 4.096,
@@ -113,9 +114,7 @@ def decode_adc_file_ascii(adc_path, gain_config=16):
     adc_data = adc_data.with_columns(
         [
             (pl.col("amplitude") * gain / 2048 * 1e3).alias("amplitude"),
-            (pl.col("timestamp") / 1e6).alias(
-                "timestamp"
-            ),  # convert from us to seconds
+            (pl.col("timestamp") / 1e6).alias("timestamp"),  # convert from us to seconds
         ]
     )
 

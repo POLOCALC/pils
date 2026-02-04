@@ -1,19 +1,19 @@
-import polars as pl
-import numpy as np
-import matplotlib.pyplot as plt
-import os
 import glob
-from typing import Optional, Literal, Union
+import os
 from datetime import timedelta
 from pathlib import Path
+from typing import Literal, Optional, Union
 
-from ..utils.tools import (
-    drop_nan_and_zero_cols,
-    read_log_time,
-    get_logpath_from_datapath,
-)
+import matplotlib.pyplot as plt
+import numpy as np
+import polars as pl
 
 from ..decoders import KERNEL_utils as kernel
+from ..utils.tools import (
+    drop_nan_and_zero_cols,
+    get_logpath_from_datapath,
+    read_log_time,
+)
 
 # Check if yaml is available for config file reading
 try:
@@ -347,9 +347,7 @@ class KernelInclinometer:
                     self.tstart = tstart
                     break
             except:
-                print(
-                    "Couldn't find start time from logfile. Skipping datetime conversion."
-                )
+                print("Couldn't find start time from logfile. Skipping datetime conversion.")
 
     def load_data(self):
         """
@@ -393,28 +391,18 @@ class KernelInclinometer:
                 # Calculate datetime for each row
                 timestamps = inclino_data["counter_timestamp"].to_list()
                 datetimes = [tstart + timedelta(seconds=t) for t in timestamps]
+                inclino_data = inclino_data.with_columns([pl.Series("datetime", datetimes)])
                 inclino_data = inclino_data.with_columns(
-                    [pl.Series("datetime", datetimes)]
-                )
-                inclino_data = inclino_data.with_columns(
-                    [
-                        (pl.col("datetime").dt.epoch(time_unit="ns") / 1e9).alias(
-                            "timestamp"
-                        )
-                    ]
+                    [(pl.col("datetime").dt.epoch(time_unit="ns") / 1e9).alias("timestamp")]
                 )
 
         # Rename Euler angles to match drone convention
-        inclino_data = inclino_data.rename(
-            {"Roll": "pitch", "Pitch": "roll", "Heading": "yaw"}
-        )
+        inclino_data = inclino_data.rename({"Roll": "pitch", "Pitch": "roll", "Heading": "yaw"})
         inclino_data = inclino_data.with_columns([(-pl.col("pitch")).alias("pitch")])
 
         # Drop helper columns
         cols_to_drop = ["new_counter", "ind_good"]
-        inclino_data = inclino_data.drop(
-            [c for c in cols_to_drop if c in inclino_data.columns]
-        )
+        inclino_data = inclino_data.drop([c for c in cols_to_drop if c in inclino_data.columns])
 
         inclino_data = drop_nan_and_zero_cols(inclino_data)
 

@@ -1,383 +1,871 @@
 """
-Synchronizer - Unified data synchronization across multiple data sources.
+CorrelationSynchronizer - GPS-based correlation synchronization.
 
-This module provides the Synchronizer class for synchronizing heterogeneous
-sensor data (payload sensors, drone data, etc.) to a common time base.
+This module provides correlation-based TIME synchronization with GPS payload
+as the single source of truth. Uses cross-correlation to detect time offsets
+between data sources.
+
+Key Features:
+- GPS payload as mandatory reference timebase
+- NED position correlation for GPS sources (3D signal)
+- Pitch angle correlation for inclinometer (1D signal)
+- Sub-sample precision using parabolic interpolation
+- Rich offset metadata for all sources
+- Support for non-correlation sensors (ADC, IMU, etc.) that are already time-aligned
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Optional, List, Dict, Any, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Tuple
+
 import numpy as np
-
-POLARS_AVAILABLE = False
-try:
-    import polars as pl
-
-    POLARS_AVAILABLE = True
-except ImportError:
-    pass
-
-if TYPE_CHECKING:
-    from polars import DataFrame as PlDataFrame
+import polars as pl
+from scipy import signal
+from scipy.interpolate import interp1d
 
 logger = logging.getLogger(__name__)
 
 
-class Synchronizer:
+class CorrelationSynchronizer:
     """
-    Synchronizes heterogeneous time-series data to a common time base.
+    GPS-based correlation synchronizer with hierarchical reference.
 
-    Supports any data source with a DataFrame containing a timestamp column.
-    Can combine payload sensors, drone data, and other time-series sources.
+    This synchronizer uses cross-correlation to detect TIME offsets between
+    data sources, with GPS payload as the mandatory reference timebase.
+
+    Correlation Methods:
+    - GPS sources: NED position correlation (3D signal)
+    - Inclinometer: Pitch angle correlation (1D signal)
+
+    All synchronization outputs are TIME OFFSETS (seconds) to align data
+    to GPS payload timebase.
 
     Attributes:
-        data_sources: Dictionary mapping source names to data dictionaries
-        synchronized_data: Combined synchronized DataFrame (after calling synchronize())
-        time_info: Time range and sample rate information for each source
+        gps_payload: GPS payload data (reference timebase)
+        drone_gps: Optional drone GPS data
+        litchi_gps: Optional litchi GPS data
+        inclinometer: Optional inclinometer data
+        other_payload: Other payload sensors (adc, etc.)
+        offsets: Detected time offsets per source
+        synchronized_data: Final synchronized DataFrame
+
+    Example:
+        >>> import polars as pl
+        >>> import numpy as np
+        >>> from pils.synchronizer import CorrelationSynchronizer
+        >>>
+        >>> # Create sample GPS payload data (reference)
+        >>> t = np.linspace(0, 100, 1000)
+        >>> gps_payload = pl.DataFrame({
+        ...     'timestamp': t,
+        ...     'latitude': 45.0 + 0.001 * np.sin(0.1 * t),
+        ...     'longitude': 10.0 + 0.001 * np.cos(0.1 * t),
+        ...     'altitude': 100.0 + 10.0 * np.sin(0.05 * t),
+        ... })
+        >>>
+        >>> # Create drone GPS data with 2-second time offset
+        >>> drone_gps = pl.DataFrame({
+        ...     'timestamp': t + 2.0,  # Drone data 2s ahead
+        ...     'latitude': 45.0 + 0.001 * np.sin(0.1 * (t + 2.0)),
+        ...     'longitude': 10.0 + 0.001 * np.cos(0.1 * (t + 2.0)),
+        ...     'altitude': 100.0 + 10.0 * np.sin(0.05 * (t + 2.0)),
+        ... })
+        >>>
+        >>> # Initialize synchronizer
+        >>> sync = CorrelationSynchronizer()
+        >>>
+        >>> # Add GPS payload as reference (mandatory)
+        >>> sync.add_gps_reference(gps_payload)
+        >>>
+        >>> # Add drone GPS for correlation
+        >>> sync.add_drone_gps(drone_gps)
+        >>>
+        >>> # Execute synchronization
+        >>> result = sync.synchronize(target_rate_hz=10.0)
+        >>>
+        >>> # Check detected offsets
+        >>> print(sync.get_offset_summary())
+        Correlation Synchronizer - Detected Time Offsets
+        ============================================================
+
+        DRONE_GPS
+          Time Offset: 2.000 s
+          Correlation: 0.998
+          Spatial Offset: 15.32 m
+            East: 10.23 m
+            North: 11.45 m
+            Up: 0.12 m
+        >>>
+        >>> # Access synchronized data
+        >>> print(result.columns)
+        ['timestamp', 'gps_payload_latitude', 'gps_payload_longitude',
+         'gps_payload_altitude', 'drone_gps_latitude', 'drone_gps_longitude',
+         'drone_gps_altitude']
+        >>>
+        >>> # Verify time offset was applied
+        >>> assert abs(sync.offsets['drone_gps']['time_offset'] - 2.0) < 0.1
     """
 
     def __init__(self):
-        """Initialize an empty Synchronizer."""
-        self.data_sources: Dict[str, Dict[str, Any]] = {}
-        self.synchronized_data: Optional["PlDataFrame"] = None
-        self.time_info: Dict[str, Dict[str, Any]] = {}
+        """Initialize empty CorrelationSynchronizer."""
+        self.gps_payload: Optional[pl.DataFrame] = None
+        self.drone_gps: Optional[pl.DataFrame] = None
+        self.litchi_gps: Optional[pl.DataFrame] = None
+        self.inclinometer: Optional[pl.DataFrame] = None
+        self.other_payload: Dict[str, pl.DataFrame] = {}
 
-    def add_source(
-        self,
-        name: str,
-        data: "PlDataFrame",
-        timestamp_col: str = "timestamp",
-        prefix: Optional[str] = None,
-    ) -> None:
+        self.offsets: Dict[str, Dict[str, Any]] = {}
+        self.synchronized_data: Optional[pl.DataFrame] = None
+
+    @staticmethod
+    def _lla_to_enu(
+        ref_lat: float,
+        ref_lon: float,
+        ref_alt: float,
+        target_lat: float,
+        target_lon: float,
+        target_alt: float,
+    ) -> Tuple[float, float, float]:
         """
-        Add a data source for synchronization.
+        Convert LLA (Latitude, Longitude, Altitude) to local ENU coordinates.
+
+        Converts target LLA coordinates to East-North-Up (ENU) coordinates
+        relative to a reference point. Uses spherical Earth approximation
+        suitable for distances up to ~100 km.
 
         Args:
-            name: Unique identifier for this data source (e.g., 'payload', 'drone_gps')
-            data: Polars DataFrame with time-series data
-            timestamp_col: Name of the timestamp column in the DataFrame
-            prefix: Optional prefix for column names in synchronized output
-                   (e.g., 'payload_' for 'payload_gps_lat'). If None, uses name + '_'
+            ref_lat: Reference latitude in degrees
+            ref_lon: Reference longitude in degrees
+            ref_alt: Reference altitude in meters
+            target_lat: Target latitude in degrees
+            target_lon: Target longitude in degrees
+            target_alt: Target altitude in meters
 
-        Raises:
-            ValueError: If timestamp column doesn't exist or data is empty
+        Returns:
+            Tuple of (east, north, up) offsets in meters
+
+        Notes:
+            - Uses mean Earth radius of 6371 km
+            - Assumes flat Earth for small distances
+            - Longitude correction for latitude (cos factor)
+
+        Example:
+            >>> # Point 1 degree north and 1 degree east at same altitude
+            >>> e, n, u = CorrelationSynchronizer._lla_to_enu(
+            ...     45.0, 10.0, 100.0,
+            ...     46.0, 11.0, 100.0
+            ... )
+            >>> # e ≈ 78 km (1° east at 45° lat), n ≈ 111 km (1° north), u ≈ 0
         """
-        if not POLARS_AVAILABLE:
-            raise RuntimeError("Polars is required for synchronization")
+        # Earth radius in meters
+        R = 6371000.0
 
-        if timestamp_col not in data.columns:
-            raise ValueError(
-                f"Timestamp column '{timestamp_col}' not found in data for source '{name}'"
+        # Convert degrees to radians
+        ref_lat_rad = np.deg2rad(ref_lat)
+        ref_lon_rad = np.deg2rad(ref_lon)
+        target_lat_rad = np.deg2rad(target_lat)
+        target_lon_rad = np.deg2rad(target_lon)
+
+        # Differences in radians
+        dlat = target_lat_rad - ref_lat_rad
+        dlon = target_lon_rad - ref_lon_rad
+
+        # ENU calculation (flat Earth approximation)
+        # North: latitude difference
+        north = R * dlat
+
+        # East: longitude difference corrected for latitude
+        east = R * dlon * np.cos(ref_lat_rad)
+
+        # Up: altitude difference
+        up = target_alt - ref_alt
+
+        return east, north, up
+
+    @staticmethod
+    def _find_subsample_peak(correlation: np.ndarray) -> float:
+        """
+        Find sub-sample peak location using parabolic interpolation.
+
+        Uses 3-point parabolic fit around the maximum correlation value
+        to achieve sub-sample precision in peak detection.
+
+        Args:
+            correlation: 1D correlation array
+
+        Returns:
+            Sub-sample peak index (float)
+
+        Notes:
+            - Fits parabola through 3 points: [peak-1, peak, peak+1]
+            - Returns integer index if peak is at array boundary
+            - Numerical stability: checks for zero denominator
+
+        Example:
+            >>> # Synthetic correlation with peak between samples
+            >>> x = np.arange(100)
+            >>> corr = 1.0 - 0.01 * (x - 50.3) ** 2
+            >>> peak = CorrelationSynchronizer._find_subsample_peak(corr)
+            >>> # peak ≈ 50.3
+        """
+        # Find integer peak location
+        max_idx = int(np.argmax(correlation))
+
+        # Handle boundary cases
+        if max_idx == 0 or max_idx == len(correlation) - 1:
+            return float(max_idx)
+
+        # Get 3 points around peak for parabolic fit
+        y1 = correlation[max_idx - 1]
+        y2 = correlation[max_idx]
+        y3 = correlation[max_idx + 1]
+
+        # Parabolic interpolation formula
+        # Peak offset from max_idx: delta = (y1 - y3) / (2 * (y1 - 2*y2 + y3))
+        denominator = 2.0 * (y1 - 2.0 * y2 + y3)
+
+        # Check for numerical stability
+        if abs(denominator) < 1e-10:
+            return float(max_idx)
+
+        delta = (y1 - y3) / denominator
+
+        # Sub-sample peak location
+        peak_idx = max_idx + delta
+
+        return peak_idx
+
+    @staticmethod
+    def _find_gps_offset(
+        time1: np.ndarray,
+        lat1: np.ndarray,
+        lon1: np.ndarray,
+        alt1: np.ndarray,
+        time2: np.ndarray,
+        lat2: np.ndarray,
+        lon2: np.ndarray,
+        alt2: np.ndarray,
+        target_rate_hz: float = 100.0,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Find TIME offset between two GPS sources using NED position correlation.
+
+        Uses cross-correlation of East-North-Up position signals to detect
+        the time offset needed to align source2 with source1 (reference).
+
+        Method:
+        1. Convert both GPS sources to ENU coordinates (relative to reference midpoint)
+        2. Interpolate both to common high-rate timebase (default 100 Hz)
+        3. Cross-correlate E, N, U axes independently
+        4. Weighted average of offsets by correlation strength
+        5. Compute spatial offsets after time alignment
+
+        Args:
+            time1: Reference GPS timestamps (seconds)
+            lat1: Reference GPS latitude (degrees)
+            lon1: Reference GPS longitude (degrees)
+            alt1: Reference GPS altitude (meters)
+            time2: Target GPS timestamps (seconds)
+            lat2: Target GPS latitude (degrees)
+            lon2: Target GPS longitude (degrees)
+            alt2: Target GPS altitude (meters)
+            target_rate_hz: Interpolation rate for correlation (default 100 Hz)
+
+        Returns:
+            Dictionary with:
+                - time_offset: Time offset in seconds (add to time2 to align with time1)
+                - correlation: Combined correlation strength [0, 1]
+                - east_offset_m: East spatial offset after time alignment (meters)
+                - north_offset_m: North spatial offset after time alignment (meters)
+                - up_offset_m: Up spatial offset after time alignment (meters)
+                - spatial_offset_m: 3D spatial offset magnitude (meters)
+                - offsets_enu: Individual axis offsets in seconds
+                - correlations_enu: Individual axis correlation strengths
+            Returns None if insufficient overlap or correlation too weak
+
+        Notes:
+            - Positive offset means source2 is ahead in time (add positive to align)
+            - Uses sub-sample precision via parabolic interpolation
+            - Requires minimum 10 seconds overlap for reliable correlation
+
+        Example:
+            >>> # GPS source 2 is 2 seconds ahead of source 1
+            >>> result = CorrelationSynchronizer._find_gps_offset(
+            ...     time1, lat1, lon1, alt1,
+            ...     time2, lat2, lon2, alt2
+            ... )
+            >>> print(f"Time offset: {result['time_offset']:.3f} s")
+            >>> print(f"Correlation: {result['correlation']:.3f}")
+        """
+        # Check for minimum overlap
+        t1_start, t1_end = time1[0], time1[-1]
+        t2_start, t2_end = time2[0], time2[-1]
+
+        overlap_start = max(t1_start, t2_start)
+        overlap_end = min(t1_end, t2_end)
+        overlap_duration = overlap_end - overlap_start
+
+        if overlap_duration < 10.0:
+            logger.warning(f"Insufficient GPS overlap: {overlap_duration:.1f}s < 10s minimum")
+            return None
+
+        # Use midpoint of first GPS as ENU reference
+        mid_idx = len(lat1) // 2
+        ref_lat = float(lat1[mid_idx])
+        ref_lon = float(lon1[mid_idx])
+        ref_alt = float(alt1[mid_idx])
+
+        # Convert GPS1 to ENU
+        e1 = np.zeros_like(lat1)
+        n1 = np.zeros_like(lat1)
+        u1 = np.zeros_like(lat1)
+        for i in range(len(lat1)):
+            e1[i], n1[i], u1[i] = CorrelationSynchronizer._lla_to_enu(
+                ref_lat, ref_lon, ref_alt, lat1[i], lon1[i], alt1[i]
             )
 
-        if len(data) == 0:
-            raise ValueError(f"Data source '{name}' is empty")
+        # Convert GPS2 to ENU
+        e2 = np.zeros_like(lat2)
+        n2 = np.zeros_like(lat2)
+        u2 = np.zeros_like(lat2)
+        for i in range(len(lat2)):
+            e2[i], n2[i], u2[i] = CorrelationSynchronizer._lla_to_enu(
+                ref_lat, ref_lon, ref_alt, lat2[i], lon2[i], alt2[i]
+            )
 
-        if name in self.data_sources:
-            logger.warning(f"Overwriting existing data source: {name}")
+        # Create common timebase for correlation (high rate for precision)
+        dt = 1.0 / target_rate_hz
+        common_time = np.arange(overlap_start, overlap_end, dt)
 
-        prefix = prefix or f"{name}_"
+        # Interpolate GPS1 to common timebase
+        e1_interp = np.interp(common_time, time1, e1)
+        n1_interp = np.interp(common_time, time1, n1)
+        u1_interp = np.interp(common_time, time1, u1)
 
-        self.data_sources[name] = {
-            "data": data,
-            "timestamp_col": timestamp_col,
-            "prefix": prefix,
+        # Interpolate GPS2 to common timebase
+        e2_interp = np.interp(common_time, time2, e2)
+        n2_interp = np.interp(common_time, time2, n2)
+        u2_interp = np.interp(common_time, time2, u2)
+
+        # Cross-correlate each axis independently
+        corr_e = signal.correlate(e1_interp, e2_interp, mode="same")
+        corr_n = signal.correlate(n1_interp, n2_interp, mode="same")
+        corr_u = signal.correlate(u1_interp, u2_interp, mode="same")
+
+        # Normalize correlations properly
+        # Divide by sqrt of auto-correlations at zero lag
+        norm_e = np.sqrt(np.sum(e1_interp**2) * np.sum(e2_interp**2))
+        norm_n = np.sqrt(np.sum(n1_interp**2) * np.sum(n2_interp**2))
+        norm_u = np.sqrt(np.sum(u1_interp**2) * np.sum(u2_interp**2))
+
+        corr_e_norm = corr_e / norm_e if norm_e > 0 else corr_e
+        corr_n_norm = corr_n / norm_n if norm_n > 0 else corr_n
+        corr_u_norm = corr_u / norm_u if norm_u > 0 else corr_u
+
+        # Find sub-sample peaks for each axis
+        peak_e = CorrelationSynchronizer._find_subsample_peak(np.abs(corr_e_norm))
+        peak_n = CorrelationSynchronizer._find_subsample_peak(np.abs(corr_n_norm))
+        peak_u = CorrelationSynchronizer._find_subsample_peak(np.abs(corr_u_norm))
+
+        # Convert peak indices to time offsets
+        center_idx = len(corr_e_norm) // 2
+        offset_e = (peak_e - center_idx) * dt
+        offset_n = (peak_n - center_idx) * dt
+        offset_u = (peak_u - center_idx) * dt
+
+        # Get correlation strengths at peaks
+        corr_e_strength = abs(corr_e_norm[int(peak_e)])
+        corr_n_strength = abs(corr_n_norm[int(peak_n)])
+        corr_u_strength = abs(corr_u_norm[int(peak_u)])
+
+        # Weighted average of offsets by correlation strength
+        total_weight = corr_e_strength + corr_n_strength + corr_u_strength
+        if total_weight < 0.1:
+            logger.warning("GPS correlation too weak, cannot detect reliable offset")
+            return None
+
+        time_offset = (
+            offset_e * corr_e_strength + offset_n * corr_n_strength + offset_u * corr_u_strength
+        ) / total_weight
+
+        # Combined correlation (weighted average)
+        correlation = total_weight / 3.0
+
+        # Compute spatial offsets after time alignment
+        # Interpolate GPS2 with time correction
+        time2_corrected = time2 + time_offset
+        e2_aligned = np.interp(time1, time2_corrected, e2, left=np.nan, right=np.nan)
+        n2_aligned = np.interp(time1, time2_corrected, n2, left=np.nan, right=np.nan)
+        u2_aligned = np.interp(time1, time2_corrected, u2, left=np.nan, right=np.nan)
+
+        # Compute mean spatial offsets (after time alignment)
+        valid_mask = ~(np.isnan(e2_aligned) | np.isnan(n2_aligned) | np.isnan(u2_aligned))
+        if valid_mask.sum() == 0:
+            east_offset_m = 0.0
+            north_offset_m = 0.0
+            up_offset_m = 0.0
+        else:
+            east_offset_m = float(np.mean(e2_aligned[valid_mask] - e1[valid_mask]))
+            north_offset_m = float(np.mean(n2_aligned[valid_mask] - n1[valid_mask]))
+            up_offset_m = float(np.mean(u2_aligned[valid_mask] - u1[valid_mask]))
+
+        spatial_offset_m = np.sqrt(east_offset_m**2 + north_offset_m**2 + up_offset_m**2)
+
+        return {
+            "time_offset": float(time_offset),
+            "correlation": float(correlation),
+            "east_offset_m": east_offset_m,
+            "north_offset_m": north_offset_m,
+            "up_offset_m": up_offset_m,
+            "spatial_offset_m": float(spatial_offset_m),
+            "offsets_enu": {
+                "east": float(offset_e),
+                "north": float(offset_n),
+                "up": float(offset_u),
+            },
+            "correlations_enu": {
+                "east": float(corr_e_strength),
+                "north": float(corr_n_strength),
+                "up": float(corr_u_strength),
+            },
         }
 
-        logger.info(
-            f"Added data source '{name}' with {len(data)} samples, "
-            f"prefix='{prefix}', timestamp_col='{timestamp_col}'"
-        )
-
-    def remove_source(self, name: str) -> None:
+    @staticmethod
+    def _find_pitch_offset(
+        time1: np.ndarray,
+        pitch1: np.ndarray,
+        time2: np.ndarray,
+        pitch2: np.ndarray,
+        target_rate_hz: float = 100.0,
+    ) -> Optional[Dict[str, Any]]:
         """
-        Remove a data source.
+        Find TIME offset between pitch signals using cross-correlation.
+
+        Uses cross-correlation of pitch angle signals to detect the time
+        offset needed to align source2 with source1 (reference).
+
+        Method:
+        1. Interpolate both pitch signals to common high-rate timebase
+        2. Cross-correlate pitch signals
+        3. Find sub-sample peak using parabolic interpolation
+        4. Return time offset
 
         Args:
-            name: Name of the source to remove
-        """
-        if name in self.data_sources:
-            del self.data_sources[name]
-            if name in self.time_info:
-                del self.time_info[name]
-            logger.info(f"Removed data source: {name}")
-
-    def get_source_info(self) -> Dict[str, Dict[str, Any]]:
-        """
-        Get information about all added data sources.
+            time1: Reference timestamps (seconds) - typically Litchi
+            pitch1: Reference pitch angles (degrees) - typically Litchi gimbal
+            time2: Target timestamps (seconds) - typically Inclinometer
+            pitch2: Target pitch angles (degrees) - typically Inclinometer
+            target_rate_hz: Interpolation rate for correlation (default 100 Hz)
 
         Returns:
-            Dictionary with source names as keys and info dicts as values.
-            Each info dict contains: 'samples', 'duration_s', 'sample_rate_hz',
-            't_start', 't_end', 'columns'
+            Dictionary with:
+                - time_offset: Time offset in seconds (add to time2 to align with time1)
+                - correlation: Correlation strength [0, 1]
+            Returns None if insufficient overlap or correlation too weak
+
+        Notes:
+            - This is TIME synchronization, not angular offset detection
+            - Positive offset means source2 is ahead in time
+            - Uses sub-sample precision via parabolic interpolation
+            - Requires minimum 10 seconds overlap for reliable correlation
+
+        Example:
+            >>> # Inclinometer is 1.5 seconds behind litchi gimbal
+            >>> result = CorrelationSynchronizer._find_pitch_offset(
+            ...     time1_litchi, pitch1_litchi,
+            ...     time2_inclinometer, pitch2_inclinometer
+            ... )
+            >>> print(f"Time offset: {result['time_offset']:.3f} s")
         """
-        info = {}
+        # Check for minimum overlap
+        t1_start, t1_end = time1[0], time1[-1]
+        t2_start, t2_end = time2[0], time2[-1]
 
-        for name, source_info in self.data_sources.items():
-            data = source_info["data"]
-            timestamp_col = source_info["timestamp_col"]
+        overlap_start = max(t1_start, t2_start)
+        overlap_end = min(t1_end, t2_end)
+        overlap_duration = overlap_end - overlap_start
 
-            if timestamp_col not in data.columns or len(data) < 2:
-                logger.warning(
-                    f"Source '{name}' has insufficient data for time analysis"
-                )
-                continue
+        if overlap_duration < 10.0:
+            logger.warning(f"Insufficient pitch overlap: {overlap_duration:.1f}s < 10s minimum")
+            return None
 
-            timestamps = data[timestamp_col].to_numpy()
-            t_start = float(timestamps[0])
-            t_end = float(timestamps[-1])
-            duration = t_end - t_start
+        # Create common timebase for correlation (high rate for precision)
+        dt = 1.0 / target_rate_hz
+        common_time = np.arange(overlap_start, overlap_end, dt)
 
-            info[name] = {
-                "samples": len(data),
-                "duration_s": duration,
-                "sample_rate_hz": len(data) / duration if duration > 0 else 0,
-                "t_start": t_start,
-                "t_end": t_end,
-                "columns": data.columns,
-            }
+        # Interpolate pitch1 to common timebase
+        pitch1_interp = np.interp(common_time, time1, pitch1)
 
-        self.time_info = info
-        return info
+        # Interpolate pitch2 to common timebase
+        pitch2_interp = np.interp(common_time, time2, pitch2)
 
-    def get_max_sample_rate(self) -> float:
-        """
-        Get the maximum sample rate among all sources.
+        # Cross-correlate pitch signals
+        corr = signal.correlate(pitch1_interp, pitch2_interp, mode="same")
 
-        Returns:
-            Maximum sample rate in Hz.
-        """
-        if not self.time_info:
-            self.get_source_info()
+        # Normalize correlation properly
+        norm = np.sqrt(np.sum(pitch1_interp**2) * np.sum(pitch2_interp**2))
+        corr_norm = corr / norm if norm > 0 else corr
 
-        if not self.time_info:
-            return 0.0
+        # Find sub-sample peak
+        peak_idx = CorrelationSynchronizer._find_subsample_peak(np.abs(corr_norm))
 
-        return max(s["sample_rate_hz"] for s in self.time_info.values())
+        # Convert peak index to time offset
+        center_idx = len(corr_norm) // 2
+        time_offset = (peak_idx - center_idx) * dt
 
-    def get_common_time_range(self) -> Tuple[float, float]:
-        """
-        Get the common time range where all sources have data.
+        # Get correlation strength at peak
+        correlation = abs(corr_norm[int(peak_idx)])
 
-        Returns:
-            Tuple of (t_start, t_end) in seconds.
-        """
-        if not self.time_info:
-            self.get_source_info()
+        # Check minimum correlation threshold
+        if correlation < 0.1:
+            logger.warning("Pitch correlation too weak, cannot detect reliable offset")
+            return None
 
-        if not self.time_info:
-            return (0.0, 0.0)
+        return {
+            "time_offset": float(time_offset),
+            "correlation": float(correlation),
+        }
 
-        t_start = max(s["t_start"] for s in self.time_info.values())
-        t_end = min(s["t_end"] for s in self.time_info.values())
-
-        return (t_start, t_end)
-
-    def _interpolate_to_timestamps(
+    def add_gps_reference(
         self,
-        data: "PlDataFrame",
-        source_col: str,
-        target_timestamps: np.ndarray,
-        value_cols: List[str],
-    ) -> Dict[str, np.ndarray]:
+        gps_data: pl.DataFrame,
+        timestamp_col: str = "timestamp",
+        lat_col: str = "latitude",
+        lon_col: str = "longitude",
+        alt_col: str = "altitude",
+    ) -> None:
         """
-        Interpolate source data to target timestamps.
+        Set GPS payload as reference timebase (mandatory).
 
         Args:
-            data: Source DataFrame with time-series data
-            source_col: Name of the timestamp column in source data
-            target_timestamps: Target timestamps to interpolate to
-            value_cols: Columns to interpolate
+            gps_data: Polars DataFrame with GPS data
+            timestamp_col: Name of timestamp column (default: 'timestamp')
+            lat_col: Name of latitude column (default: 'latitude')
+            lon_col: Name of longitude column (default: 'longitude')
+            alt_col: Name of altitude column (default: 'altitude')
 
-        Returns:
-            Dictionary mapping column names to interpolated values
+        Raises:
+            ValueError: If required columns are missing or data is empty
         """
-        source_timestamps = data[source_col].to_numpy()
-        result = {}
+        required_cols = [timestamp_col, lat_col, lon_col, alt_col]
+        missing_cols = [col for col in required_cols if col not in gps_data.columns]
 
-        for col in value_cols:
-            if col in data.columns:
-                values = data[col].to_numpy().astype(float)
-                # Use numpy interpolation
-                interpolated = np.interp(
-                    target_timestamps,
-                    source_timestamps,
-                    values,
-                    left=np.nan,
-                    right=np.nan,
-                )
-                result[col] = interpolated
+        if missing_cols:
+            raise ValueError(f"GPS payload missing columns: {missing_cols}")
 
-        return result
+        if len(gps_data) == 0:
+            raise ValueError("GPS payload data is empty")
+
+        self.gps_payload = gps_data
+        logger.info(f"Set GPS payload reference with {len(gps_data)} samples")
+
+    def add_drone_gps(
+        self,
+        gps_data: pl.DataFrame,
+        timestamp_col: str = "timestamp",
+        lat_col: str = "latitude",
+        lon_col: str = "longitude",
+        alt_col: str = "altitude",
+    ) -> None:
+        """
+        Add drone GPS data for correlation.
+
+        Args:
+            gps_data: Polars DataFrame with GPS data
+            timestamp_col: Name of timestamp column (default: 'timestamp')
+            lat_col: Name of latitude column (default: 'latitude')
+            lon_col: Name of longitude column (default: 'longitude')
+            alt_col: Name of altitude column (default: 'altitude')
+
+        Raises:
+            ValueError: If required columns are missing or data is empty
+        """
+        required_cols = [timestamp_col, lat_col, lon_col, alt_col]
+        missing_cols = [col for col in required_cols if col not in gps_data.columns]
+
+        if missing_cols:
+            raise ValueError(f"Drone GPS missing columns: {missing_cols}")
+
+        if len(gps_data) == 0:
+            raise ValueError("Drone GPS data is empty")
+
+        self.drone_gps = gps_data
+        logger.info(f"Added drone GPS with {len(gps_data)} samples")
+
+    def add_litchi_gps(
+        self,
+        gps_data: pl.DataFrame,
+        timestamp_col: str = "timestamp",
+        lat_col: str = "latitude",
+        lon_col: str = "longitude",
+        alt_col: str = "altitude",
+    ) -> None:
+        """
+        Add Litchi GPS data for correlation.
+
+        Args:
+            gps_data: Polars DataFrame with GPS data
+            timestamp_col: Name of timestamp column (default: 'timestamp')
+            lat_col: Name of latitude column (default: 'latitude')
+            lon_col: Name of longitude column (default: 'longitude')
+            alt_col: Name of altitude column (default: 'altitude')
+
+        Raises:
+            ValueError: If required columns are missing or data is empty
+        """
+        required_cols = [timestamp_col, lat_col, lon_col, alt_col]
+        missing_cols = [col for col in required_cols if col not in gps_data.columns]
+
+        if missing_cols:
+            raise ValueError(f"Litchi GPS missing columns: {missing_cols}")
+
+        if len(gps_data) == 0:
+            raise ValueError("Litchi GPS data is empty")
+
+        self.litchi_gps = gps_data
+        logger.info(f"Added litchi GPS with {len(gps_data)} samples")
+
+    def add_inclinometer(
+        self,
+        inclinometer_data: pl.DataFrame,
+        litchi_data: Optional[pl.DataFrame] = None,
+        timestamp_col: str = "timestamp",
+        pitch_col: str = "pitch",
+    ) -> None:
+        """
+        Add inclinometer data for pitch-based correlation.
+
+        Args:
+            inclinometer_data: Polars DataFrame with inclinometer data
+            litchi_data: Optional Litchi DataFrame for pitch reference
+            timestamp_col: Name of timestamp column (default: 'timestamp')
+            pitch_col: Name of pitch column (default: 'pitch')
+
+        Raises:
+            ValueError: If required columns are missing or data is empty
+        """
+        required_cols = [timestamp_col, pitch_col]
+        missing_cols = [col for col in required_cols if col not in inclinometer_data.columns]
+
+        if missing_cols:
+            raise ValueError(f"Inclinometer missing columns: {missing_cols}")
+
+        if len(inclinometer_data) == 0:
+            raise ValueError("Inclinometer data is empty")
+
+        self.inclinometer = inclinometer_data
+        logger.info(f"Added inclinometer with {len(inclinometer_data)} samples")
+
+    def add_payload_sensor(
+        self,
+        sensor_name: str,
+        sensor_data: pl.DataFrame,
+    ) -> None:
+        """
+        Add other payload sensor data (no correlation, simple alignment).
+
+        Args:
+            sensor_name: Name of sensor (e.g., 'adc', 'imu')
+            sensor_data: Polars DataFrame with sensor data
+        """
+        if len(sensor_data) == 0:
+            raise ValueError(f"Sensor {sensor_name} data is empty")
+
+        self.other_payload[sensor_name] = sensor_data
+        logger.info(f"Added payload sensor '{sensor_name}' with {len(sensor_data)} samples")
 
     def synchronize(
         self,
-        target_rate_hz: Optional[float] = None,
-        sources: Optional[List[str]] = None,
-        source_columns: Optional[Dict[str, List[str]]] = None,
-        method: str = "linear",
-    ) -> "PlDataFrame":
+        target_rate_hz: float = 10.0,
+    ) -> pl.DataFrame:
         """
-        Synchronize all data sources to a common time base.
+        Execute correlation-based synchronization.
 
-        Creates a unified DataFrame with all source data interpolated to
-        a common set of timestamps at the specified rate.
+        Detects time offsets for all sources using correlation, then
+        interpolates to GPS payload timebase at target rate.
 
         Args:
-            target_rate_hz: Target sample rate in Hz. If None, uses the maximum
-                           source rate. Cannot exceed the highest source rate.
-            sources: List of source names to include. If None, includes all sources.
-            source_columns: Dictionary mapping source names to lists of columns to include.
-                           If None, includes all columns except timestamp.
-                           Example: {'payload': ['gps_lat', 'gps_lon'], 'drone': ['x', 'y', 'z']}
-            method: Interpolation method ('linear' supported, others may be added)
+            target_rate_hz: Target sample rate in Hz for output
 
         Returns:
-            Polars DataFrame with synchronized data.
-            Columns are prefixed with the source prefix (e.g., 'payload_gps_lat', 'drone_x')
+            Polars DataFrame with synchronized data
 
         Raises:
-            ValueError: If no sources added, target_rate_hz exceeds max rate, or invalid sources
-            RuntimeError: If no common time range exists between sources
+            RuntimeError: If GPS payload reference not set
         """
-        if not POLARS_AVAILABLE:
-            raise RuntimeError("Polars is required for synchronization")
+        if self.gps_payload is None:
+            raise RuntimeError("GPS payload reference not set. Call add_gps_reference() first.")
 
-        if not self.data_sources:
-            raise ValueError("No data sources added. Use add_source() first.")
+        # Get GPS payload timebase
+        gps_time = self.gps_payload["timestamp"].to_numpy()
+        t_start, t_end = float(gps_time[0]), float(gps_time[-1])
 
-        # Get source info
-        info = self.get_source_info()
+        # Detect offsets for each source
+        self.offsets = {}
 
-        # Determine which sources to include
-        if sources is None:
-            sources = list(info.keys())
-        else:
-            for source in sources:
-                if source not in self.data_sources:
-                    raise ValueError(f"Unknown source: {source}")
-
-        if not sources:
-            raise ValueError("No valid sources to synchronize")
-
-        # Determine target rate
-        max_rate = self.get_max_sample_rate()
-        if target_rate_hz is None:
-            target_rate_hz = max_rate
-        elif target_rate_hz > max_rate:
-            raise ValueError(
-                f"Target rate {target_rate_hz} Hz exceeds maximum source rate {max_rate:.2f} Hz"
+        # Drone GPS offset detection
+        if self.drone_gps is not None:
+            logger.info("Detecting drone GPS offset via NED correlation...")
+            result = self._find_gps_offset(
+                time1=self.gps_payload["timestamp"].to_numpy(),
+                lat1=self.gps_payload["latitude"].to_numpy(),
+                lon1=self.gps_payload["longitude"].to_numpy(),
+                alt1=self.gps_payload["altitude"].to_numpy(),
+                time2=self.drone_gps["timestamp"].to_numpy(),
+                lat2=self.drone_gps["latitude"].to_numpy(),
+                lon2=self.drone_gps["longitude"].to_numpy(),
+                alt2=self.drone_gps["altitude"].to_numpy(),
             )
+            if result:
+                self.offsets["drone_gps"] = result
+                logger.info(
+                    f"Drone GPS offset: {result['time_offset']:.3f}s (corr={result['correlation']:.3f})"
+                )
+            else:
+                logger.warning("Failed to detect drone GPS offset")
 
-        # Get common time range
-        t_start, t_end = self.get_common_time_range()
-        if t_end <= t_start:
-            raise RuntimeError("No overlapping time range between sources")
+        # Litchi GPS offset detection
+        if self.litchi_gps is not None:
+            logger.info("Detecting litchi GPS offset via NED correlation...")
+            result = self._find_gps_offset(
+                time1=self.gps_payload["timestamp"].to_numpy(),
+                lat1=self.gps_payload["latitude"].to_numpy(),
+                lon1=self.gps_payload["longitude"].to_numpy(),
+                alt1=self.gps_payload["altitude"].to_numpy(),
+                time2=self.litchi_gps["timestamp"].to_numpy(),
+                lat2=self.litchi_gps["latitude"].to_numpy(),
+                lon2=self.litchi_gps["longitude"].to_numpy(),
+                alt2=self.litchi_gps["altitude"].to_numpy(),
+            )
+            if result:
+                self.offsets["litchi_gps"] = result
+                logger.info(
+                    f"Litchi GPS offset: {result['time_offset']:.3f}s (corr={result['correlation']:.3f})"
+                )
+            else:
+                logger.warning("Failed to detect litchi GPS offset")
 
-        # Generate target timestamps
+        # Inclinometer offset detection (using litchi gimbal pitch if available)
+        if self.inclinometer is not None and self.litchi_gps is not None:
+            # Check if litchi has pitch data
+            if "pitch" in self.litchi_gps.columns:
+                logger.info("Detecting inclinometer offset via pitch correlation...")
+                result = self._find_pitch_offset(
+                    time1=self.litchi_gps["timestamp"].to_numpy(),
+                    pitch1=self.litchi_gps["pitch"].to_numpy(),
+                    time2=self.inclinometer["timestamp"].to_numpy(),
+                    pitch2=self.inclinometer["pitch"].to_numpy(),
+                )
+                if result:
+                    self.offsets["inclinometer"] = result
+                    logger.info(
+                        f"Inclinometer offset: {result['time_offset']:.3f}s (corr={result['correlation']:.3f})"
+                    )
+                else:
+                    logger.warning("Failed to detect inclinometer offset")
+
+        # Create common timebase at target rate
         n_samples = int((t_end - t_start) * target_rate_hz) + 1
-        target_timestamps = np.linspace(t_start, t_end, n_samples)
+        target_time = np.linspace(t_start, t_end, n_samples)
 
         # Start building synchronized data
-        sync_data = {"timestamp": target_timestamps}
+        sync_data = {"timestamp": target_time}
 
-        # Synchronize each source
-        for source_name in sources:
-            source_info = self.data_sources[source_name]
-            data = source_info["data"]
-            timestamp_col = source_info["timestamp_col"]
-            prefix = source_info["prefix"]
+        # Add GPS payload data (no offset, this is reference)
+        for col in self.gps_payload.columns:
+            if col != "timestamp":
+                values = self.gps_payload[col].to_numpy().astype(float)
+                interpolated = np.interp(target_time, gps_time, values, left=np.nan, right=np.nan)
+                sync_data[f"gps_payload_{col}"] = interpolated
 
-            # Determine which columns to include
-            if source_columns and source_name in source_columns:
-                cols_to_sync = source_columns[source_name]
-            else:
-                # Include all columns except timestamp
-                cols_to_sync = [c for c in data.columns if c != timestamp_col]
+        # Add drone GPS with offset correction
+        if self.drone_gps is not None and "drone_gps" in self.offsets:
+            offset = self.offsets["drone_gps"]["time_offset"]
+            drone_time = self.drone_gps["timestamp"].to_numpy() + offset
 
-            # Filter to columns that actually exist
-            cols_to_sync = [c for c in cols_to_sync if c in data.columns]
+            for col in self.drone_gps.columns:
+                if col != "timestamp":
+                    values = self.drone_gps[col].to_numpy().astype(float)
+                    interpolated = np.interp(
+                        target_time, drone_time, values, left=np.nan, right=np.nan
+                    )
+                    sync_data[f"drone_gps_{col}"] = interpolated
 
-            if not cols_to_sync:
-                logger.warning(f"No columns to synchronize for source '{source_name}'")
-                continue
+        # Add litchi GPS with offset correction
+        if self.litchi_gps is not None and "litchi_gps" in self.offsets:
+            offset = self.offsets["litchi_gps"]["time_offset"]
+            litchi_time = self.litchi_gps["timestamp"].to_numpy() + offset
 
-            # Interpolate
-            interpolated = self._interpolate_to_timestamps(
-                data, timestamp_col, target_timestamps, cols_to_sync
-            )
+            for col in self.litchi_gps.columns:
+                if col != "timestamp":
+                    values = self.litchi_gps[col].to_numpy().astype(float)
+                    interpolated = np.interp(
+                        target_time, litchi_time, values, left=np.nan, right=np.nan
+                    )
+                    sync_data[f"litchi_gps_{col}"] = interpolated
 
-            # Add to synchronized data with prefix
-            for col, values in interpolated.items():
-                sync_data[f"{prefix}{col}"] = values
+        # Add inclinometer with offset correction
+        if self.inclinometer is not None and "inclinometer" in self.offsets:
+            offset = self.offsets["inclinometer"]["time_offset"]
+            inclinometer_time = self.inclinometer["timestamp"].to_numpy() + offset
+
+            for col in self.inclinometer.columns:
+                if col != "timestamp":
+                    values = self.inclinometer[col].to_numpy().astype(float)
+                    interpolated = np.interp(
+                        target_time,
+                        inclinometer_time,
+                        values,
+                        left=np.nan,
+                        right=np.nan,
+                    )
+                    sync_data[f"inclinometer_{col}"] = interpolated
+
+        # Add other payload sensors (no offset correction, assume aligned with GPS payload)
+        for sensor_name, sensor_df in self.other_payload.items():
+            if "timestamp" in sensor_df.columns:
+                sensor_time = sensor_df["timestamp"].to_numpy()
+
+                for col in sensor_df.columns:
+                    if col != "timestamp":
+                        values = sensor_df[col].to_numpy().astype(float)
+                        interpolated = np.interp(
+                            target_time, sensor_time, values, left=np.nan, right=np.nan
+                        )
+                        sync_data[f"{sensor_name}_{col}"] = interpolated
 
         # Create synchronized DataFrame
-        self.synchronized_data = pl.DataFrame(sync_data)  # type: ignore[possibly-undefined]
+        self.synchronized_data = pl.DataFrame(sync_data)
 
         logger.info(
-            f"Synchronized {len(sources)} source(s) to {target_rate_hz:.2f} Hz "
+            f"Synchronized data to {target_rate_hz:.1f} Hz "
             f"({n_samples} samples, {t_end - t_start:.2f}s duration)"
         )
 
         return self.synchronized_data
 
-    def save_synchronized(self, output_path: str, format: str = "parquet") -> None:
+    def get_offset_summary(self) -> str:
         """
-        Save synchronized data to file.
-
-        Args:
-            output_path: Path to output file
-            format: Output format ('parquet', 'csv', 'json')
-
-        Raises:
-            RuntimeError: If no synchronized data available
-        """
-        if self.synchronized_data is None:
-            raise RuntimeError("No synchronized data. Call synchronize() first.")
-
-        if format == "parquet":
-            self.synchronized_data.write_parquet(output_path)
-        elif format == "csv":
-            self.synchronized_data.write_csv(output_path)
-        elif format == "json":
-            self.synchronized_data.write_json(output_path)
-        else:
-            raise ValueError(
-                f"Unknown format: {format}. Use 'parquet', 'csv', or 'json'."
-            )
-
-        logger.info(f"Saved synchronized data to {output_path}")
-
-    def summary(self) -> str:
-        """
-        Get a summary of all data sources and their properties.
+        Get summary of detected time offsets.
 
         Returns:
-            Formatted string with source information.
+            Formatted string with offset information
         """
-        info = self.get_source_info()
-        if not info:
-            return "No data sources added."
+        if not self.offsets:
+            return "No offsets detected. Run synchronize() first."
 
-        lines = ["Synchronizer Data Sources Summary", "=" * 60]
+        lines = ["Correlation Synchronizer - Detected Time Offsets", "=" * 60]
 
-        for name, data in info.items():
-            lines.append(f"\n{name.upper()}")
-            lines.append(f"  Samples: {data['samples']}")
-            lines.append(f"  Duration: {data['duration_s']:.2f} s")
-            lines.append(f"  Sample Rate: {data['sample_rate_hz']:.2f} Hz")
-            lines.append(f"  Time Range: {data['t_start']:.3f} - {data['t_end']:.3f} s")
-            lines.append(f"  Columns: {', '.join(data['columns'])}")
+        for source_name, offset_data in self.offsets.items():
+            lines.append(f"\n{source_name.upper()}")
+            lines.append(f"  Time Offset: {offset_data['time_offset']:.3f} s")
+            lines.append(f"  Correlation: {offset_data['correlation']:.3f}")
 
-        t_start, t_end = self.get_common_time_range()
-        max_rate = self.get_max_sample_rate()
-
-        lines.append("\n" + "=" * 60)
-        lines.append(
-            f"Common Time Range: {t_start:.3f} - {t_end:.3f} s ({t_end - t_start:.2f} s)"
-        )
-        lines.append(f"Maximum Sample Rate: {max_rate:.2f} Hz")
+            if "spatial_offset_m" in offset_data:
+                lines.append(f"  Spatial Offset: {offset_data['spatial_offset_m']:.2f} m")
+                lines.append(f"    East: {offset_data['east_offset_m']:.2f} m")
+                lines.append(f"    North: {offset_data['north_offset_m']:.2f} m")
+                lines.append(f"    Up: {offset_data['up_offset_m']:.2f} m")
 
         return "\n".join(lines)

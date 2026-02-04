@@ -1,21 +1,97 @@
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import polars as pl
 import glob
+import json
+from datetime import datetime
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Union
-from pils.utils.tools import get_path_from_keyword
-from pils.drones.DJIDrone import DJIDrone
-from pils.drones.BlackSquareDrone import BlackSquareDrone
-from pils.drones.litchi import Litchi
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
+import h5py
+import polars as pl
+
+from pils.drones.BlackSquareDrone import BlackSquareDrone
+from pils.drones.DJIDrone import DJIDrone
+from pils.drones.litchi import Litchi
 from pils.sensors.sensors import sensor_config
+from pils.synchronizer import CorrelationSynchronizer
+from pils.utils.tools import get_path_from_keyword
+
+
+def _get_current_timestamp() -> str:
+    """
+    Get current timestamp in rev_YYYYMMDD_hhmmss format.
+
+    Returns:
+        str: Timestamp string with seconds precision
+    """
+    return datetime.now().strftime("rev_%Y%m%d_%H%M%S")
+
+
+def _get_package_version() -> str:
+    """
+    Get PILS package version.
+
+    Returns:
+        str: Version string or 'unknown'
+    """
+    try:
+        import pils
+
+        return getattr(pils, "__version__", "unknown")
+    except Exception:
+        return "unknown"
+
+
+def _serialize_for_hdf5(obj: Any) -> Any:
+    """
+    Convert Python objects to HDF5-compatible types for attrs.
+
+    Args:
+        obj: Object to serialize
+
+    Returns:
+        HDF5-compatible object
+    """
+    if obj is None:
+        return "None"
+    elif isinstance(obj, (str, int, float, bool)):
+        return obj
+    elif isinstance(obj, dict):
+        return json.dumps(obj)
+    elif isinstance(obj, (list, tuple)):
+        return json.dumps(list(obj))
+    else:
+        return str(obj)
+
+
+def _deserialize_from_hdf5(value: Any, hint: Optional[str] = None) -> Any:
+    """
+    Deserialize values from HDF5 attrs.
+
+    Args:
+        value: Value to deserialize
+        hint: Type hint (e.g., 'dict', 'list')
+
+    Returns:
+        Deserialized object
+    """
+    if value == "None":
+        return None
+    if isinstance(value, (str, int, float, bool)):
+        if hint == "dict" and isinstance(value, str):
+            try:
+                return json.loads(value)
+            except Exception:
+                return value
+        elif hint == "list" and isinstance(value, str):
+            try:
+                return json.loads(value)
+            except Exception:
+                return value
+        return value
+    return value
 
 
 class Flight:
     """
-    Flight data container stored in RAM for maximum speed.
 
     This class provides a hierarchical structure to store and access drone flight data
     and sensor payloads. Data is stored in RAM for fast access using both attribute
@@ -84,7 +160,224 @@ class Flight:
         self.set_metadata()
 
         self.raw_data = RawData()
+        self.synchronized_data = RawData()
         self.adc_gain_config = None
+
+    @classmethod
+    def from_hdf5(
+        cls,
+        filepath: Union[str, Path],
+        sync_version: Union[str, None, bool] = None,
+        load_raw: bool = True,
+    ) -> "Flight":
+        """
+        Load flight data from HDF5 file.
+
+        Loads metadata and raw_data hierarchy. Optionally loads a specific
+        synchronized data version or the latest available version.
+
+        Args:
+            filepath (Union[str, Path]): Path to HDF5 file
+            sync_version (Optional[str]): Specific sync version to load (e.g., 'rev_20260202_1430').
+                                         If None and synchronized data exists, loads latest version.
+                                         Set to False to skip loading synchronized data.
+            load_raw (bool): If True, loads raw_data. If False, only loads metadata and sync data.
+                           Defaults to True.
+
+        Returns:
+            Flight: Reconstructed Flight object with loaded data
+
+        Raises:
+            ImportError: If h5py is not installed
+            FileNotFoundError: If HDF5 file doesn't exist
+            ValueError: If requested sync version not found
+
+        Examples:
+            >>> # Load entire flight (raw + latest sync)
+            >>> flight = Flight.from_hdf5('flight_001.h5')
+            >>>
+            >>> # Load specific sync version
+            >>> flight = Flight.from_hdf5('flight_001.h5', sync_version='rev_20260202_1430')
+            >>>
+            >>> # Load only metadata and raw data
+            >>> flight = Flight.from_hdf5('flight_001.h5', sync_version=False)
+        """
+
+        filepath = Path(filepath)
+        if not filepath.exists():
+            raise FileNotFoundError(f"HDF5 file not found: {filepath}")
+
+        # Create Flight object with minimal flight_info
+        flight = cls(
+            {
+                "drone_data_folder_path": str(filepath.parent),
+                "aux_data_folder_path": str(filepath.parent),
+            }
+        )
+
+        with h5py.File(str(filepath), "r") as f:
+            # Load metadata
+            if "metadata" in f:
+                metadata_group = f["metadata"]
+                assert isinstance(metadata_group, h5py.Group)
+                cls._load_metadata_from_hdf5(metadata_group, flight)
+
+            # Load raw data
+            if load_raw and "raw_data" in f:
+                raw_data_group = f["raw_data"]
+                assert isinstance(raw_data_group, h5py.Group)
+                cls._load_raw_data_from_hdf5(raw_data_group, flight)
+
+            # Load synchronized data
+            if sync_version is not False and "synchronized_data" in f:
+                sync_group = f["synchronized_data"]
+                assert isinstance(sync_group, h5py.Group)
+                available_versions = sorted(list(sync_group.keys()))
+
+                if available_versions:
+                    # Determine which version to load
+                    if sync_version is None:
+                        # Load latest version
+                        sync_version = available_versions[-1]
+                    elif sync_version not in available_versions:
+                        raise ValueError(
+                            f"Sync version '{sync_version}' not found. "
+                            f"Available versions: {available_versions}"
+                        )
+
+                    # Load the specified version
+                    version_group = sync_group[sync_version]
+                    assert isinstance(version_group, h5py.Group)
+                    cls._load_synchronized_data_from_hdf5(version_group, flight)
+
+        return flight
+
+    @staticmethod
+    def _load_metadata_from_hdf5(metadata_group: "h5py.Group", flight: "Flight") -> None:
+        """
+        Load metadata from HDF5 group.
+
+        Args:
+            metadata_group (h5py.Group): Metadata group
+            flight (Flight): Flight object to populate
+        """
+        # Reconstruct flight_info from attrs
+        flight_info = {}
+        flight_metadata = {}
+
+        for key, value in metadata_group.attrs.items():
+            if key.startswith("flight_info_"):
+                info_key = key.replace("flight_info_", "")
+                flight_info[info_key] = _deserialize_from_hdf5(value)
+            elif key.startswith("flight_metadata_"):
+                meta_key = key.replace("flight_metadata_", "")
+                flight_metadata[meta_key] = _deserialize_from_hdf5(value)
+
+        if flight_info:
+            flight.flight_info.update(flight_info)
+        if flight_metadata:
+            flight.metadata.update(flight_metadata)
+
+    @staticmethod
+    def _load_raw_data_from_hdf5(raw_group: "h5py.Group", flight: "Flight") -> None:
+        """
+        Load raw data hierarchy from HDF5 group.
+
+        Args:
+            raw_group (h5py.Group): raw_data group
+            flight (Flight): Flight object to populate
+        """
+
+        # Load drone data
+        if "drone_data" in raw_group:
+            drone_group = raw_group["drone_data"]
+            assert isinstance(drone_group, h5py.Group)
+            drone_df = None
+            litchi_df = None
+
+            if "drone" in drone_group:
+                drone_data = drone_group["drone"]
+                assert isinstance(drone_data, h5py.Group)
+                drone_df = Flight._load_dataframe_from_hdf5(drone_data)
+
+            if "litchi" in drone_group:
+                litchi_data = drone_group["litchi"]
+                assert isinstance(litchi_data, h5py.Group)
+                litchi_df = Flight._load_dataframe_from_hdf5(litchi_data)
+
+            if drone_df is not None or litchi_df is not None:
+                flight.raw_data.drone_data = DroneData(drone_df, litchi_df)
+
+        # Load payload data
+        if "payload_data" in raw_group:
+            payload_group = raw_group["payload_data"]
+            assert isinstance(payload_group, h5py.Group)
+            flight.raw_data.payload_data = PayloadData()
+
+            for sensor_name in payload_group.keys():
+                sensor_data = payload_group[sensor_name]
+                assert isinstance(sensor_data, h5py.Group)
+                sensor_df = Flight._load_dataframe_from_hdf5(sensor_data)
+                if sensor_df is not None:
+                    setattr(flight.raw_data.payload_data, sensor_name, sensor_df)
+
+    @staticmethod
+    def _load_synchronized_data_from_hdf5(version_group: "h5py.Group", flight: "Flight") -> None:
+        """
+        Load synchronized data from HDF5 group into flight object.
+
+        Stores synchronized data as DataFrame attribute on raw_data.
+
+        Args:
+            version_group (h5py.Group): Version group containing synchronized data
+            flight (Flight): Flight object to populate
+        """
+
+        # Load synchronized dataframe
+        if "synchronized_data" in version_group:
+            sync_data = version_group["synchronized_data"]
+            assert isinstance(sync_data, h5py.Group)
+            sync_df = Flight._load_dataframe_from_hdf5(sync_data)
+            if sync_df is not None:
+                # Store synchronized data directly on raw_data as attribute
+                flight.synchronized_data = sync_df
+
+    @staticmethod
+    def _load_dataframe_from_hdf5(
+        dataset_group: "h5py.Group",
+    ) -> Optional["pl.DataFrame"]:
+        """
+        Load a Polars DataFrame from HDF5 dataset group.
+
+        Args:
+            dataset_group (h5py.Group): Group containing column datasets
+
+        Returns:
+            pl.DataFrame or None if no data found
+        """
+
+        if "columns" not in dataset_group.attrs:
+            return None
+
+        columns_attr = dataset_group.attrs["columns"]
+        # Handle different attr types
+        if isinstance(columns_attr, bytes):
+            columns = json.loads(columns_attr.decode())
+        else:
+            columns = json.loads(str(columns_attr))
+
+        data_dict = {}
+
+        for col_name in columns:
+            if col_name in dataset_group:
+                col_dataset = dataset_group[col_name]
+                assert isinstance(col_dataset, h5py.Dataset)
+                data_dict[col_name] = col_dataset[:]
+
+        if not data_dict:
+            return None
+
+        return pl.DataFrame(data_dict)
 
     def set_metadata(self, metadata: Optional[Dict[str, Any]] = None) -> None:
         """
@@ -105,7 +398,11 @@ class Flight:
             >>> print(flight.metadata['flight_time'])
             '2025-01-28 14:30:00'
         """
-        # Allow caller-provided metadata or derive from self.flight_info
+        # First, store all provided metadata fields
+        if isinstance(metadata, dict):
+            self.metadata.update(metadata)
+
+        # Then extract time-related fields for special processing
         info_source: Dict[str, Any] = {}
         if isinstance(metadata, dict):
             info_source = metadata
@@ -125,8 +422,8 @@ class Flight:
                 self.metadata["takeoff_time"] = takeoff
                 self.metadata["landing_time"] = landing
 
-        # Optional flight name
-        if "flight_name" in info_source:
+        # Optional flight name (only if not already set)
+        if "flight_name" in info_source and "flight_name" not in self.metadata:
             self.metadata["flight_name"] = info_source.get("flight_name")
 
     def _detect_drone_model(self, drone_folder: str) -> str:
@@ -147,9 +444,7 @@ class Flight:
         # filename heuristics and does not modify the database.
         try:
             drone_id = (
-                self.flight_info.get("drone_id")
-                if isinstance(self.flight_info, dict)
-                else None
+                self.flight_info.get("drone_id") if isinstance(self.flight_info, dict) else None
             )
             if drone_id:
                 try:
@@ -157,22 +452,18 @@ class Flight:
 
                     inventory = InventoryService()
                     item = inventory.get_item_by_id(drone_id)
-                    specs = (
-                        item.get("specifications")
-                        if isinstance(item.get("specifications"), dict)
-                        else {}
-                    )
-                    model_val = (
-                        specs.get("model") or item.get("name") or item.get("category")
-                    )
-                    if isinstance(model_val, str):
-                        m = model_val.lower()
-                        if "matrice" in m:
-                            return "dji"
-                        if "black" in m or "blacksquare" in m:
-                            return "blacksquare"
-                        # If we can't map to a known driver, return the raw model string
-                        return model_val
+                    if item:
+                        specs_obj = item.get("specifications") if isinstance(item, dict) else None
+                        specs = specs_obj if isinstance(specs_obj, dict) else {}
+                        model_val = specs.get("model") or item.get("name") or item.get("category")
+                        if isinstance(model_val, str):
+                            m = model_val.lower()
+                            if "matrice" in m:
+                                return "dji"
+                            if "black" in m or "blacksquare" in m:
+                                return "blacksquare"
+                            # If we can't map to a known driver, return the raw model string
+                            return m
                 except Exception:
                     # If inventory lookup fails, fall back to folder heuristics below
                     pass
@@ -182,9 +473,7 @@ class Flight:
             if dji_pattern:
                 return "dji"
 
-            blacksquare_pattern = get_path_from_keyword(
-                str(drone_folder), "blacksquare"
-            )
+            blacksquare_pattern = get_path_from_keyword(str(drone_folder), "blacksquare")
             if blacksquare_pattern:
                 return "blacksquare"
 
@@ -232,27 +521,23 @@ class Flight:
 
         # Resolve drone folder
         if not isinstance(self.flight_info, dict):
-            raise ValueError(
-                "flight_info must be a dict containing 'drone_data_folder_path'"
-            )
+            raise ValueError("flight_info must be a dict containing 'drone_data_folder_path'")
 
         drone_folder = self.flight_info.get("drone_data_folder_path")
+        if not drone_folder:
+            raise ValueError("drone_data_folder_path not found in flight_info")
 
         if not drone_model:
-            drone_model = self._detect_drone_model(drone_folder)
+            drone_model = self._detect_drone_model(str(drone_folder))
 
         # Find candidate files
         available_files = glob.glob(str(drone_folder) + "/*")
         drone_data_path = None
-        litchi_path = None
+        litchi_data_path = None
 
         for file in available_files:
             fname = file.lower()
-            if (
-                fname.endswith("drone.dat")
-                and dji_dat_loader
-                and "dji" in drone_model.lower()
-            ):
+            if fname.endswith("drone.dat") and dji_dat_loader and "dji" in drone_model.lower():
                 drone_data_path = file
             elif fname.endswith("drone.csv"):
                 drone_data_path = file
@@ -284,14 +569,14 @@ class Flight:
 
         else:
             try:
-                drone = DJIDrone(drone_data_path or drone_folder)
+                drone = DJIDrone(drone_data_path or str(drone_folder))
                 drone.load_data(use_dat=dji_dat_loader)
                 drone_data = drone.data
-                litchi_loader = Litchi(litchi_path or drone_folder)
+                litchi_loader = Litchi(litchi_data_path or str(drone_folder))
                 litchi_loader.load_data()
                 litchi_data = litchi_loader.data
             except Exception:
-                drone = BlackSquareDrone(drone_folder)
+                drone = BlackSquareDrone(str(drone_folder))
                 drone.load_data()
                 drone_data = drone.data
                 litchi_data = None
@@ -369,6 +654,151 @@ class Flight:
             sensor_data = self._read_sensor_data(sensor, sensor_path)
             setattr(self.raw_data.payload_data, sensor, sensor_data)
 
+    def to_hdf5(
+        self,
+        filepath: Union[str, Path],
+    ) -> str:
+        """
+        Save flight data to HDF5 file.
+
+        Saves metadata and raw_data hierarchy.
+
+        Args:
+            filepath (Union[str, Path]): Path to output HDF5 file
+
+        Returns:
+            str: Timestamp string for the save operation
+
+        Raises:
+            ImportError: If h5py is not installed
+            ValueError: If no data to save
+
+        Examples:
+            >>> # Save raw data
+            >>> flight.to_hdf5('flight_001.h5')
+            >>>
+            >>> # For synchronization, use CorrelationSynchronizer separately:
+            >>> from pils.synchronizer import CorrelationSynchronizer
+            >>> sync = CorrelationSynchronizer()
+            >>> sync.add_gps_reference(flight.raw_data.payload_data.gps)
+            >>> # ... add other sources ...
+            >>> result = sync.synchronize(target_rate_hz=10.0)
+        """
+
+        filepath = Path(filepath)
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+
+        with h5py.File(str(filepath), "a") as f:
+            # Save metadata
+            self._save_metadata_to_hdf5(f)
+
+            # Save raw data
+            self._save_raw_data_to_hdf5(f)
+
+        return _get_current_timestamp()
+
+    def _save_metadata_to_hdf5(self, h5file: "h5py.File") -> None:
+        """
+        Save metadata to HDF5 file.
+
+        Args:
+            h5file (h5py.File): Open HDF5 file handle
+        """
+        if "metadata" not in h5file:
+            metadata_group = h5file.create_group("metadata")
+        else:
+            metadata_group = h5file["metadata"]
+
+        # Save flight_info as attrs
+        if self.flight_info:
+            for key, value in self.flight_info.items():
+                try:
+                    metadata_group.attrs[f"flight_info_{key}"] = _serialize_for_hdf5(value)
+                except Exception as e:
+                    print(f"Warning: Could not save flight_info[{key}]: {e}")
+
+        # Save flight_metadata as attrs
+        if self.metadata:
+            for key, value in self.metadata.items():
+                try:
+                    metadata_group.attrs[f"flight_metadata_{key}"] = _serialize_for_hdf5(value)
+                except Exception as e:
+                    print(f"Warning: Could not save metadata[{key}]: {e}")
+
+    def _save_raw_data_to_hdf5(self, h5file: "h5py.File") -> None:
+        """
+        Save raw data hierarchy to HDF5 file.
+
+        Args:
+            h5file (h5py.File): Open HDF5 file handle
+        """
+
+        if "raw_data" not in h5file:
+            raw_data_group = h5file.create_group("raw_data")
+        else:
+            raw_data_group = h5file["raw_data"]
+            assert isinstance(raw_data_group, h5py.Group)
+
+        # Save drone data
+        if self.raw_data.drone_data:
+            if "drone_data" not in raw_data_group:
+                drone_group = raw_data_group.create_group("drone_data")
+            else:
+                drone_group = raw_data_group["drone_data"]
+                assert isinstance(drone_group, h5py.Group)
+
+            if self.raw_data.drone_data.drone is not None:
+                drone_data = self.raw_data.drone_data.drone
+                # Handle case where drone could be Dict or DataFrame
+                if not isinstance(drone_data, dict):
+                    self._save_dataframe_to_hdf5(drone_group, "drone", drone_data)
+
+            if self.raw_data.drone_data.litchi is not None:
+                self._save_dataframe_to_hdf5(drone_group, "litchi", self.raw_data.drone_data.litchi)
+
+        # Save payload data
+        if self.raw_data.payload_data:
+            if "payload_data" not in raw_data_group:
+                payload_group = raw_data_group.create_group("payload_data")
+            else:
+                payload_group = raw_data_group["payload_data"]
+                assert isinstance(payload_group, h5py.Group)
+
+            for sensor_name in self.raw_data.payload_data.list_loaded_sensors():
+                sensor_data = getattr(self.raw_data.payload_data, sensor_name)
+                if sensor_data is not None:
+                    self._save_dataframe_to_hdf5(payload_group, sensor_name, sensor_data)
+
+    def _save_dataframe_to_hdf5(
+        self, parent_group: "h5py.Group", name: str, df: "pl.DataFrame"
+    ) -> None:
+        """
+        Save a Polars DataFrame to HDF5.
+
+        Args:
+            parent_group (h5py.Group): Parent HDF5 group
+            name (str): Dataset name
+            df (pl.DataFrame): DataFrame to save
+        """
+
+        # Convert to arrow and save as HDF5 dataset
+        if name in parent_group:
+            del parent_group[name]
+
+        # Create group for columns
+        column_group = parent_group.create_group(name)
+
+        for col_name in df.columns:
+            col_data = df[col_name].to_numpy()
+            if col_name in column_group:
+                del column_group[col_name]
+            column_group.create_dataset(col_name, data=col_data)
+
+        # Save column order and dtypes as attrs
+        column_group.attrs["columns"] = json.dumps(df.columns)
+        column_group.attrs["dtypes"] = json.dumps([str(dtype) for dtype in df.dtypes])
+        column_group.attrs["n_rows"] = len(df)
+
     def __getitem__(self, key):
         """
         Dictionary-style access to flight data.
@@ -425,8 +855,8 @@ class RawData:
 
     def __init__(self):
         """Initialize empty RawData container."""
-        self.drone_data = None
-        self.payload_data = None
+        self.drone_data: Optional["DroneData"] = None
+        self.payload_data: Optional["PayloadData"] = None
 
     def __getitem__(self, key):
         """
@@ -499,8 +929,8 @@ class DroneData:
                 Can be a single DataFrame or a dict of DataFrames keyed by sensor name.
             litchi_df (Optional[pl.DataFrame]): Litchi flight log DataFrame
         """
-        self.drone = drone_df
-        self.litchi = litchi_df
+        self.drone: Union[Dict[str, "pl.DataFrame"], "pl.DataFrame", None] = drone_df
+        self.litchi: Optional["pl.DataFrame"] = litchi_df
 
     def __getitem__(self, key):
         """

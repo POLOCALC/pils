@@ -2,8 +2,8 @@
 Utility functions for file handling, log parsing, and data processing.
 """
 
-import os
 import datetime
+import os
 from typing import List, Optional, Union
 
 import polars as pl
@@ -84,9 +84,7 @@ def drop_nan_and_zero_cols(df: pl.DataFrame) -> pl.DataFrame:
     return df.select(cols_to_keep)
 
 
-def get_path_from_keyword(
-    dirpath: str, keyword: str
-) -> Optional[Union[str, List[str]]]:
+def get_path_from_keyword(dirpath: str, keyword: str) -> Optional[Union[str, List[str]]]:
     """
     Find file(s) in directory tree matching a keyword.
 

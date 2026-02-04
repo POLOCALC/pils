@@ -20,14 +20,14 @@ Usage:
     flights = loader.load_flights_by_date(start_date='2025-01-01', end_date='2025-01-15')
 """
 
-import os
-from datetime import datetime, timezone, timedelta
-from pathlib import Path
-from typing import List, Dict, Optional, Any
-import logging
 import importlib
+import logging
+import os
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from pils.config import SENSOR_MAP, DRONE_MAP
+from pils.config import DRONE_MAP, SENSOR_MAP
 
 # Configure logging
 logging.basicConfig(
@@ -61,18 +61,14 @@ class StoutLoader:
         self.campaign_service = None
 
         try:
-            from stout.services.campaigns import CampaignService  # type: ignore
             from stout.config import Config  # type: ignore
+            from stout.services.campaigns import CampaignService  # type: ignore
 
             self.campaign_service = CampaignService()
             self.base_data_path = Config.MAIN_DATA_PATH
-            logger.info(
-                f"Initialized with stout database, base path: {self.base_data_path}"
-            )
+            logger.info(f"Initialized with stout database, base path: {self.base_data_path}")
         except ImportError as e:
-            logger.warning(
-                f"Could not import stout: {e}. Falling back to filesystem queries."
-            )
+            logger.warning(f"Could not import stout: {e}. Falling back to filesystem queries.")
             self.use_stout = False
 
     def load_all_flights(self) -> List[Dict[str, Any]]:
@@ -112,9 +108,7 @@ class StoutLoader:
         if not campaign_id and not campaign_name:
             raise ValueError("Either flight_id or flight_name must be provided")
 
-        logger.info(
-            f"Loading single flight: flight_id={campaign_id}, flight_name={campaign_name}"
-        )
+        logger.info(f"Loading single flight: flight_id={campaign_id}, flight_name={campaign_name}")
 
         if self.campaign_service is None:
             raise RuntimeError("Campaign service not initialized")
@@ -147,16 +141,12 @@ class StoutLoader:
         if not flight_id and not flight_name:
             raise ValueError("Either flight_id or flight_name must be provided")
 
-        logger.info(
-            f"Loading single flight: flight_id={flight_id}, flight_name={flight_name}"
-        )
+        logger.info(f"Loading single flight: flight_id={flight_id}, flight_name={flight_name}")
 
         if self.campaign_service is None:
             raise RuntimeError("Campaign service not initialized")
         try:
-            flight = self.campaign_service.get_flight(
-                flight_name=flight_name, flight_id=flight_id
-            )
+            flight = self.campaign_service.get_flight(flight_name=flight_name, flight_id=flight_id)
             if flight:
                 logger.info(f"Loaded flight: {flight.get('flight_name')}")
             return flight
@@ -179,12 +169,10 @@ class StoutLoader:
             List of flight dictionaries matching the date range.
         """
         try:
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d").replace(
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            end_dt = (datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)).replace(
                 tzinfo=timezone.utc
             )
-            end_dt = (
-                datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
-            ).replace(tzinfo=timezone.utc)
         except ValueError as e:
             raise ValueError(f"Invalid date format. Use 'YYYY-MM-DD': {e}")
 
@@ -356,9 +344,7 @@ class StoutLoader:
         """Build flight dictionary from filesystem structure."""
         try:
             # Extract date from folder name (YYYYMMDD format)
-            takeoff_date = datetime.strptime(date_folder, "%Y%m%d").replace(
-                tzinfo=timezone.utc
-            )
+            takeoff_date = datetime.strptime(date_folder, "%Y%m%d").replace(tzinfo=timezone.utc)
 
             flight_dict = {
                 "campaign_name": campaign_name,
@@ -560,13 +546,9 @@ class StoutLoader:
             drones = ["dji"]
 
         # Load flight metadata
-        flight_info = self.load_single_flight(
-            flight_id=flight_id, flight_name=flight_name
-        )
+        flight_info = self.load_single_flight(flight_id=flight_id, flight_name=flight_name)
         if not flight_info:
-            raise ValueError(
-                f"Flight not found: flight_id={flight_id}, flight_name={flight_name}"
-            )
+            raise ValueError(f"Flight not found: flight_id={flight_id}, flight_name={flight_name}")
 
         result: Dict[str, Any] = {"flight_info": flight_info}
 
@@ -577,13 +559,9 @@ class StoutLoader:
                     f"Unknown sensor type: {sensor_type}. Available: {list(SENSOR_MAP.keys())}"
                 )
                 continue
-            df = self._load_sensor_dataframe(
-                flight_info, sensor_type, freq_interpolation
-            )
+            df = self._load_sensor_dataframe(flight_info, sensor_type, freq_interpolation)
             result[sensor_type] = df
-            logger.info(
-                f"Loaded {sensor_type} data: {df.shape if df is not None else 'None'}"
-            )
+            logger.info(f"Loaded {sensor_type} data: {df.shape if df is not None else 'None'}")
 
         # Load requested drones
         for drone_type in drones:
@@ -603,9 +581,7 @@ class StoutLoader:
                 align_drone,
             )
             result[drone_type] = df
-            logger.info(
-                f"Loaded {drone_type} data: {'OK' if df is not None else 'None'}"
-            )
+            logger.info(f"Loaded {drone_type} data: {'OK' if df is not None else 'None'}")
 
         return result
 

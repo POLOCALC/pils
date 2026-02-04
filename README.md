@@ -728,6 +728,205 @@ The synchronizer uses numpy linear interpolation to resample data:
 
 ---
 
+## � PPK Analysis (Post-Processed Kinematic GPS)
+
+### Overview
+
+The **`PPKAnalysis`** class provides standalone RTKLIB-based post-processing of GPS data with smart execution logic, versioned storage, and HDF5 persistence. PPK analysis is **completely separate** from the Flight class, allowing independent GPS post-processing workflows.
+
+### Key Features
+
+- **Smart Re-run Logic**: Only executes RTKLIB if config changed (SHA256 hash comparison)
+- **Auto-timestamp Versioning**: `rev_YYYYMMDD_HHMMSS` format for each analysis
+- **HDF5 Storage**: All versions persisted in `ppk_solution.h5`
+- **Per-revision Folders**: Each version stored in `proc/ppk/{version_name}/`
+- **Complete Separation**: No integration with Flight class - independent workflow
+- **RTKLIB Integration**: Subprocess execution via `rnx2rtkp` binary
+- **Temporal Overlap Check**: Validates rover/base observation alignment
+- **Version Management**: List, get, delete versions programmatically
+
+### Usage Example
+
+```python
+from pils.analyze.ppk import PPKAnalysis
+from pathlib import Path
+
+# Initialize PPK analysis for a flight
+flight_path = Path("/path/to/flight_20260204_1430")
+ppk = PPKAnalysis(flight_path)
+
+# Run RTKLIB processing - only executes if config changed
+version = ppk.run_analysis(
+    config_path="rtklib.conf",
+    rover_obs="rover.obs",
+    base_obs="base.obs",
+    nav_file="nav.nav",
+    force=False  # Set True to force re-run
+)
+
+if version:
+    print(f"Analysis: {version.version_name}")
+    print(f"Epochs: {len(version.pos_data)}")
+    
+    # Access position data (Polars DataFrame)
+    pos_df = version.pos_data
+    print(pos_df.columns)  # timestamp, lat, lon, height, Q, ns, sdn, sde, sdu, ...
+    
+    # Filter by solution quality (Q=1: Fixed, Q=2: Float)
+    fixed = pos_df.filter(pl.col("Q") == 1)
+    print(f"Fixed solutions: {len(fixed)} ({len(fixed)/len(pos_df)*100:.1f}%)")
+    
+    # Access statistics data
+    if version.stat_data:
+        stat_df = version.stat_data
+        print(f"Statistics: {len(stat_df)} records")
+```
+
+### Smart Execution
+
+```python
+# First run - executes RTKLIB
+v1 = ppk.run_analysis(config, rover, base, nav)
+print(f"Version: {v1.version_name}")  # rev_20260204_143022
+
+# Second run with same config - skips execution
+v2 = ppk.run_analysis(config, rover, base, nav)
+print(f"Same? {v1.version_name == v2.version_name}")  # True
+
+# Modify config file and run again - executes RTKLIB
+# (edit rtklib.conf here)
+v3 = ppk.run_analysis(config, rover, base, nav)
+print(f"New version? {v3.version_name != v1.version_name}")  # True
+```
+
+### Version Management
+
+```python
+# Load existing analysis from HDF5
+ppk = PPKAnalysis.from_hdf5("/path/to/flight")
+
+# List all versions
+versions = ppk.list_versions()
+print(f"Total versions: {len(versions)}")  # ['rev_20260204_143022', 'rev_20260204_150015', ...]
+
+# Get latest version
+latest = ppk.get_latest_version()
+print(f"Latest: {latest.version_name}")
+print(f"Config: {latest.metadata['config_params']}")
+
+# Get specific version
+v = ppk.get_version("rev_20260204_143022")
+print(v.pos_data)
+
+# Delete old version (removes from HDF5 and filesystem)
+ppk.delete_version("rev_20260203_120000")
+```
+
+### Directory Structure
+
+```
+flight_20260204_1430/
+├── drone/              # Drone telemetry
+├── aux/                # Sensor data
+│   └── sensors/
+│       ├── rover.obs   # Rover RINEX
+│       ├── base.obs    # Base RINEX
+│       └── nav.nav     # Navigation file
+└── proc/
+    └── ppk/            # PPK analysis directory
+        ├── ppk_solution.h5         # All versions in HDF5
+        ├── rev_20260204_143022/    # Version 1 folder
+        │   ├── rtklib.conf         # Config copy
+        │   ├── solution.pos        # RTKLIB position output
+        │   └── solution.pos.stat   # RTKLIB statistics
+        └── rev_20260204_150015/    # Version 2 folder
+            ├── rtklib.conf
+            ├── solution.pos
+            └── solution.pos.stat
+```
+
+### API Reference
+
+#### `PPKAnalysis` Class
+
+**Initialization:**
+```python
+ppk = PPKAnalysis(flight_path: Union[str, Path])
+```
+- Creates `proc/ppk/` directory structure
+- Initializes `ppk_solution.h5` HDF5 file
+
+**Methods:**
+
+- `run_analysis(config_path, rover_obs, base_obs, nav_file, force=False, rnx2rtkp_path="rnx2rtkp")` - Execute RTKLIB processing
+  - Returns: `PPKVersion` or `None` if failed
+  - Smart execution: only runs if config changed or `force=True`
+  - Creates versioned folder with `.pos` and `.pos.stat` files
+
+- `get_latest_version()` - Get most recent version
+  - Returns: `PPKVersion` or `None`
+
+- `list_versions()` - List all version names (sorted)
+  - Returns: `List[str]`
+
+- `get_version(version_name: str)` - Get specific version
+  - Returns: `PPKVersion` or `None`
+
+- `delete_version(version_name: str)` - Remove version
+  - Deletes from HDF5 and filesystem
+
+- `from_hdf5(flight_path)` - Classmethod to load from HDF5
+  - Returns: `PPKAnalysis` instance with all versions loaded
+
+#### `PPKVersion` Dataclass
+
+**Attributes:**
+- `version_name: str` - Version identifier (rev_YYYYMMDD_HHMMSS)
+- `pos_data: pl.DataFrame` - Position solutions from RTKLIB
+- `stat_data: Optional[pl.DataFrame]` - Statistics from RTKLIB
+- `metadata: Dict[str, Any]` - Config hash, params, file paths, timestamp
+- `revision_path: Path` - Path to version folder
+
+### Position Data Columns
+
+The `pos_data` DataFrame contains RTKLIB position solutions:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `timestamp` | float | GPS time in seconds |
+| `latitude` | float | Latitude in degrees |
+| `longitude` | float | Longitude in degrees |
+| `height` | float | Ellipsoidal height in meters |
+| `Q` | int | Solution quality (1=Fixed, 2=Float, 5=Single) |
+| `ns` | int | Number of satellites |
+| `sdn` | float | North position standard deviation (m) |
+| `sde` | float | East position standard deviation (m) |
+| `sdu` | float | Up position standard deviation (m) |
+| `sdne` | float | North-East covariance |
+| `sdeu` | float | East-Up covariance |
+| `sdun` | float | Up-North covariance |
+| `age` | float | Age of differential (s) |
+| `ratio` | float | Ambiguity ratio |
+
+### Requirements
+
+- **RTKLIB**: `rnx2rtkp` binary must be in PATH or specify full path
+- **RINEX Files**: Rover observation, base observation, navigation files
+- **Config File**: RTKLIB configuration (`.conf` format)
+
+### Examples
+
+See `examples/ppk_analysis_example.py` for comprehensive usage examples including:
+- Basic PPK analysis
+- Smart execution demonstration
+- Version management
+- Position quality analysis
+- Complete flight workflow with PPK
+- Batch processing multiple flights
+- Custom RTKLIB binary paths
+
+---
+
 ## 🔄 Version History
 
 - **0.1.0** - Initial release with core functionality
@@ -738,6 +937,7 @@ The synchronizer uses numpy linear interpolation to resample data:
   - Polars-based data processing
   - Payload synchronization with interpolation
   - **NEW**: Separate `Synchronizer` class for flexible data source merging
+  - **NEW**: Standalone PPK analysis with RTKLIB integration
 
 ---
 

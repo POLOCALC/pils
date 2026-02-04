@@ -1,7 +1,9 @@
-import polars as pl
-from ..utils.tools import get_path_from_keyword
 import os
 from pathlib import Path
+
+import polars as pl
+
+from ..utils.tools import get_path_from_keyword
 
 SENSOR_COLUMNS = {
     "baro": ["timestamp", "pressure", "temperature"],
@@ -32,18 +34,10 @@ class IMUSensor:
 class IMU:
     def __init__(self, dirpath: Path):
         self.dirpath = dirpath
-        self.barometer = IMUSensor(
-            dirpath / "barometer.bin", "baro"
-        )
-        self.accelerometer = IMUSensor(
-            dirpath / "accelerometer.bin", "accelero"
-        )
-        self.gyroscope = IMUSensor(
-            dirpath / "gyroscope.bin", "gyro"
-        )
-        self.magnetometer = IMUSensor(
-            dirpath / "magnetometer.bin", "magneto"
-        )
+        self.barometer = IMUSensor(dirpath / "barometer.bin", "baro")
+        self.accelerometer = IMUSensor(dirpath / "accelerometer.bin", "accelero")
+        self.gyroscope = IMUSensor(dirpath / "gyroscope.bin", "gyro")
+        self.magnetometer = IMUSensor(dirpath / "magnetometer.bin", "magneto")
 
     def load_all(self):
         for sensor in vars(self).values():

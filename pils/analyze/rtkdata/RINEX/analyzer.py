@@ -3,11 +3,12 @@ RINEX Quality Analyzer v5 - Polars Core (Feature Complete)
 High-performance GNSS analysis with 100% geodetic logic fidelity.
 """
 
+import os
+import warnings
+from datetime import datetime, timedelta
+
 import numpy as np
 import polars as pl
-import os
-from datetime import datetime, timedelta
-import warnings
 
 # =============================================================================
 # CONSTANTS & MAPPING
@@ -188,9 +189,7 @@ class RINEXAnalyzer:
                         pass
 
         self.df = pl.DataFrame(records)
-        print(
-            f"  ✓ Unified {len(self.df)} observations across {len(self.epochs)} epochs"
-        )
+        print(f"  ✓ Unified {len(self.df)} observations across {len(self.epochs)} epochs")
         return self
 
     def parse_nav_file(self, nav_filepath):
@@ -344,9 +343,7 @@ class RINEXAnalyzer:
 
             for t in self.epochs:
                 # Find closest ephemeris (within 4 hours)
-                closest = min(
-                    eph_list, key=lambda e: abs((e["epoch"] - t).total_seconds())
-                )
+                closest = min(eph_list, key=lambda e: abs((e["epoch"] - t).total_seconds()))
                 dt = (t - closest["epoch"]).total_seconds()
                 if abs(dt) > 14400:
                     continue
@@ -369,15 +366,9 @@ class RINEXAnalyzer:
                         )
                         phi = v + closest["omega"]
 
-                        du = closest["cus"] * np.sin(2 * phi) + closest["cuc"] * np.cos(
-                            2 * phi
-                        )
-                        dr = closest["crs"] * np.sin(2 * phi) + closest["crc"] * np.cos(
-                            2 * phi
-                        )
-                        di = closest["cis"] * np.sin(2 * phi) + closest["cic"] * np.cos(
-                            2 * phi
-                        )
+                        du = closest["cus"] * np.sin(2 * phi) + closest["cuc"] * np.cos(2 * phi)
+                        dr = closest["crs"] * np.sin(2 * phi) + closest["crc"] * np.cos(2 * phi)
+                        di = closest["cis"] * np.sin(2 * phi) + closest["cic"] * np.cos(2 * phi)
 
                         u = phi + du
                         r = a * (1 - e * np.cos(E)) + dr
@@ -396,21 +387,9 @@ class RINEXAnalyzer:
                             y_op * np.sin(i),
                         )
                     else:  # GLONASS Simplified Linear
-                        x = (
-                            closest["x"]
-                            + closest["vx"] * dt
-                            + 0.5 * closest["ax"] * dt**2
-                        )
-                        y = (
-                            closest["y"]
-                            + closest["vy"] * dt
-                            + 0.5 * closest["ay"] * dt**2
-                        )
-                        z = (
-                            closest["z"]
-                            + closest["vz"] * dt
-                            + 0.5 * closest["az"] * dt**2
-                        )
+                        x = closest["x"] + closest["vx"] * dt + 0.5 * closest["ax"] * dt**2
+                        y = closest["y"] + closest["vy"] * dt + 0.5 * closest["ay"] * dt**2
+                        z = closest["z"] + closest["vz"] * dt + 0.5 * closest["az"] * dt**2
                         # Earth rotation correction for GLO
                         angle = OMEGA_E * dt
                         x_rot = x * np.cos(angle) + y * np.sin(angle)
@@ -441,9 +420,7 @@ class RINEXAnalyzer:
 
                     az = np.rad2deg(np.arctan2(e_enu, n_enu)) % 360
                     el = np.rad2deg(np.arctan2(u_val, np.sqrt(e_enu**2 + n_enu**2)))
-                    azel_list.append(
-                        {"time": t, "satellite": sat, "azimuth": az, "elevation": el}
-                    )
+                    azel_list.append({"time": t, "satellite": sat, "azimuth": az, "elevation": el})
                 except:
                     pass
 
@@ -463,9 +440,7 @@ class RINEXAnalyzer:
                     el = -el
                 if el > 90:
                     el = 180 - el
-                azel_list.append(
-                    {"time": t, "satellite": sat, "azimuth": az, "elevation": el}
-                )
+                azel_list.append({"time": t, "satellite": sat, "azimuth": az, "elevation": el})
         self.azel_df = pl.DataFrame(azel_list)
 
     # STATISTICS
@@ -503,9 +478,9 @@ class RINEXAnalyzer:
             mp_sum = mp_rms.group_by(["constellation", "frequency"]).agg(
                 pl.col("MP_RMS").mean().alias("mean_MP_RMS")
             )
-            return snr_summary.join(
-                mp_sum, on=["constellation", "frequency"], how="left"
-            ).sort(["constellation", "frequency"])
+            return snr_summary.join(mp_sum, on=["constellation", "frequency"], how="left").sort(
+                ["constellation", "frequency"]
+            )
         return snr_summary.with_columns(pl.lit(None).alias("mean_MP_RMS")).sort(
             ["constellation", "frequency"]
         )
@@ -528,9 +503,7 @@ class RINEXAnalyzer:
             return pl.DataFrame()
 
         # Pivot obs_type to columns. Ensure unique rows first.
-        pivoted = obs.unique(
-            subset=["time", "satellite", "frequency", "obs_type"]
-        ).pivot(
+        pivoted = obs.unique(subset=["time", "satellite", "frequency", "obs_type"]).pivot(
             on="obs_type",
             index=["time", "satellite", "constellation", "frequency"],
             values="value",
@@ -542,9 +515,7 @@ class RINEXAnalyzer:
             return pl.DataFrame()
 
         if len(code_cols) == 2:
-            pivoted = pivoted.with_columns(
-                pl.col("P").fill_null(pl.col("C")).alias("P_val")
-            )
+            pivoted = pivoted.with_columns(pl.col("P").fill_null(pl.col("C")).alias("P_val"))
         else:
             pivoted = pivoted.with_columns(pl.col(code_cols[0]).alias("P_val"))
 
@@ -623,16 +594,13 @@ class RINEXAnalyzer:
 
         # Reference I at f1: I1 = (L1 - L2) / ((f1/f2)**2 - 1)
         dual = dual.with_columns(
-            (
-                (pl.col("L1_m") - pl.col("L2_m"))
-                / ((pl.col("f1") / pl.col("f2")) ** 2 - 1)
-            ).alias("I1")
+            ((pl.col("L1_m") - pl.col("L2_m")) / ((pl.col("f1") / pl.col("f2")) ** 2 - 1)).alias(
+                "I1"
+            )
         )
 
         # Join back to calculate raw MP for ALL frequencies in that epoch
-        res = data.join(
-            dual.select(["time", "satellite", "f1", "I1"]), on=["time", "satellite"]
-        )
+        res = data.join(dual.select(["time", "satellite", "f1", "I1"]), on=["time", "satellite"])
 
         # Raw MP_j = P_j - L_j - 2 * (f1/f_j)^2 * I1
         res = res.with_columns(
@@ -664,9 +632,7 @@ class RINEXAnalyzer:
             ]
         )
 
-        res = res.with_columns(
-            ((pl.col("dt") > 60) | (pl.col("jump") > 5.0)).alias("is_break")
-        )
+        res = res.with_columns(((pl.col("dt") > 60) | (pl.col("jump") > 5.0)).alias("is_break"))
 
         res = res.with_columns(
             pl.col("is_break")
@@ -740,8 +706,7 @@ class RINEXAnalyzer:
             comb = comb.with_columns(
                 (
                     (
-                        (f1 * pl.col("L1_cyc") * l1_wl - f2 * pl.col("L2_cyc") * l2_wl)
-                        / (f1 - f2)
+                        (f1 * pl.col("L1_cyc") * l1_wl - f2 * pl.col("L2_cyc") * l2_wl) / (f1 - f2)
                         - (f1 * pl.col("C1") + f2 * pl.col("C2")) / (f1 + f2)
                     )
                     / wl_wl
@@ -771,9 +736,7 @@ class RINEXAnalyzer:
                     ).alias("type")
                 )
                 slips.append(
-                    hit.select(["time", "type"]).with_columns(
-                        pl.lit(sat).alias("satellite")
-                    )
+                    hit.select(["time", "type"]).with_columns(pl.lit(sat).alias("satellite"))
                 )
 
         return pl.concat(slips) if slips else pl.DataFrame()
@@ -820,9 +783,7 @@ class RINEXAnalyzer:
         )
 
         total_slips = len(slips)
-        slip_rate_per_sat_hour = (
-            (total_slips / n_sats / duration_hours) if n_sats > 0 else 0
-        )
+        slip_rate_per_sat_hour = (total_slips / n_sats / duration_hours) if n_sats > 0 else 0
 
         return {"slip_rate": slip_rate_per_sat_hour, "total_slips": total_slips}
 
@@ -837,9 +798,7 @@ class RINEXAnalyzer:
         current_sky = self.azel_df.filter(pl.col("time") == latest_time)
 
         quads = (
-            current_sky.with_columns(
-                (pl.col("azimuth") // 90).cast(pl.Int32).alias("quad")
-            )["quad"]
+            current_sky.with_columns((pl.col("azimuth") // 90).cast(pl.Int32).alias("quad"))["quad"]
             .unique()
             .to_list()
         )
@@ -1010,16 +969,12 @@ class RINEXAnalyzer:
         )
         sat_quality = obs_data.group_by("satellite").agg(
             [
-                (pl.col("is_good").sum() / pl.col("is_good").count() * 100).alias(
-                    "total_score"
-                ),
+                (pl.col("is_good").sum() / pl.col("is_good").count() * 100).alias("total_score"),
                 pl.col("snr_l1").mean().alias("snr_l1"),
                 pl.col("snr_l2").mean().alias("snr_l2"),
                 pl.col("mp_l1").abs().mean().alias("mp_val"),
                 # Placeholder for slip counts in the table (LLI is already checked per-epoch)
-                (pl.col("lli_l1").sum() + pl.col("lli_l2").fill_null(0).sum()).alias(
-                    "slip_count"
-                ),
+                (pl.col("lli_l1").sum() + pl.col("lli_l2").fill_null(0).sum()).alias("slip_count"),
             ]
         )
 
@@ -1063,9 +1018,7 @@ class RINEXAnalyzer:
             "epoch_df": epoch_df,
             "sat_scores": sat_quality,
             "red_flags": (
-                [
-                    f"Critical quality drop in {len(epoch_df.filter(pl.col('score') < 55))} epochs"
-                ]
+                [f"Critical quality drop in {len(epoch_df.filter(pl.col('score') < 55))} epochs"]
                 if len(epoch_df.filter(pl.col("score") < 55)) > 0
                 else []
             ),

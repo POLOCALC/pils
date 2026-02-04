@@ -1,10 +1,11 @@
+import glob
+import os
+from datetime import timedelta
+
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
-import glob
-import os
-from datetime import timedelta
 
 from ..utils.tools import get_logpath_from_datapath, read_log_time
 
@@ -17,9 +18,7 @@ class Camera:
                     Example: {"img_0001.jpg": datetime, ...}
         """
         self.path = path
-        self.logpath = (
-            logpath if logpath is not None else get_logpath_from_datapath(self.path)
-        )
+        self.logpath = logpath if logpath is not None else get_logpath_from_datapath(self.path)
 
         # Video attributes
         self.capture = None
@@ -37,9 +36,7 @@ class Camera:
         # ------------------------------
         if self.path.lower().endswith((".mp4", ".avi", ".mov")):
             self.capture = cv2.VideoCapture(self.path)
-            self.tstart, _ = read_log_time(
-                "INFO:Camera Sony starts recording", self.logpath
-            )
+            self.tstart, _ = read_log_time("INFO:Camera Sony starts recording", self.logpath)
 
             frame_count = self.capture.get(cv2.CAP_PROP_FRAME_COUNT)
             fps = self.capture.get(cv2.CAP_PROP_FPS)
@@ -86,9 +83,7 @@ class Camera:
         # -------------------
         if not self.is_image_sequence:
             if self.capture is None:
-                raise ValueError(
-                    "Video capture not initialized. Call load_data() first."
-                )
+                raise ValueError("Video capture not initialized. Call load_data() first.")
             self.capture.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
             ret, frame = self.capture.read()
             if not ret or frame is None:

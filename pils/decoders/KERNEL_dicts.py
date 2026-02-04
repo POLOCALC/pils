@@ -32,6 +32,7 @@ USW_TABLE = {
     ],
 }
 
+
 def extract_USW(USW):
     def check_byte(byte):
         if isinstance(byte, int):

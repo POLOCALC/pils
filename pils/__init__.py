@@ -32,22 +32,19 @@ __version__ = "0.1.0"
 __author__ = "POLOCALC Team"
 __license__ = "MIT"
 
+# Subpackage imports to ensure they're resolved
+from . import decoders, drones, sensors, utils
+
 # Core imports
 # Load loader implementations from the loader subpackage. The loader
 # subpackage exposes `StoutLoader` (DB-backed) and `PathLoader` (filesystem).
-from .loader import StoutLoader, PathLoader
-from .synchronizer import Synchronizer
-
-# Subpackage imports to ensure they're resolved
-from . import sensors
-from . import drones
-from . import decoders
-from . import utils
+from .loader import PathLoader, StoutLoader
+from .synchronizer import CorrelationSynchronizer
 
 __all__ = [
     "StoutLoader",
     "PathLoader",
-    "Synchronizer",
+    "CorrelationSynchronizer",
     "sensors",
     "drones",
     "decoders",

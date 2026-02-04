@@ -2,13 +2,13 @@
 Drones module - Drone-specific data parsers and utilities.
 """
 
-import os
 import logging
-from typing import Optional
+import os
 from pathlib import Path
+from typing import Optional
 
-from pils.drones.DJIDrone import DJIDrone
 from pils.drones.BlackSquareDrone import BlackSquareDrone
+from pils.drones.DJIDrone import DJIDrone
 from pils.drones.litchi import Litchi
 
 logger = logging.getLogger(__name__)

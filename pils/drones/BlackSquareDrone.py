@@ -1,8 +1,8 @@
-import numpy as np
-import polars as pl
 from collections import defaultdict
 from datetime import datetime, timedelta
 
+import numpy as np
+import polars as pl
 from astropy.utils.iers import LeapSeconds
 
 """https://ardupilot.org/copter/docs/logmessages.html"""
@@ -203,9 +203,7 @@ class BlackSquareDrone:
 
         gps_dt = []
         for row in gps.iter_rows(named=True):
-            dt = gps_epoch + timedelta(
-                weeks=int(row["GWk"]), milliseconds=int(row["GMS"])
-            )
+            dt = gps_epoch + timedelta(weeks=int(row["GWk"]), milliseconds=int(row["GMS"]))
             gps_dt.append(dt)
 
         gps_dt_series = pl.Series("gps_datetime", gps_dt)
