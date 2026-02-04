@@ -2,18 +2,21 @@ import glob
 import os
 from datetime import timedelta
 from pathlib import Path
-from typing import Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
 
 from ..decoders import KERNEL_utils as kernel
+from ..utils.logging_config import get_logger
 from ..utils.tools import (
     drop_nan_and_zero_cols,
     get_logpath_from_datapath,
     read_log_time,
 )
+
+logger = get_logger(__name__)
 
 # Check if yaml is available for config file reading
 try:
@@ -24,19 +27,24 @@ except ImportError:
     YAML_AVAILABLE = False
 
 
-def decode_inclino(inclino_path):
+def decode_inclino(inclino_path: str | Path) -> Dict[str, List[Any]]:
     """
     Decodes inclinometer data from a binary file and returns the decoded messages as a dictionary.
 
-    Parameters
-    ----------
-    inclino_path : str
-        Path to the binary file containing inclinometer data.
+    Args:
+        inclino_path: Path to the binary file containing inclinometer data.
 
-    Returns
-    -------
-    decoded_msg : dict
-        A dictionary where keys are message field names and values are lists of field values extracted from the decoded messages.
+    Returns:
+        A dictionary where keys are message field names and values are lists of
+        field values extracted from the decoded messages.
+
+    Raises:
+        FileNotFoundError: If inclino_path does not exist.
+
+    Example:
+        >>> data = decode_inclino(Path("inclino.bin"))
+        >>> data.keys()
+        dict_keys(['Roll', 'Pitch', 'Heading', 'Counter'])
     """
 
     with open(inclino_path, "rb") as fd:
@@ -57,7 +65,8 @@ def decode_inclino(inclino_path):
 
             for j in tmp.keys():
                 decoded_msg[j].append(tmp[j])
-        except:
+        except Exception as e:
+            logger.warning(f"Failed to decode inclinometer message: {e}")
             continue
     return decoded_msg
 
@@ -123,7 +132,8 @@ def detect_inclinometer_type_from_config(dirpath: Path) -> Optional[str]:
                 # Check if there are INC files to determine type
                 return None  # Let file detection handle it
 
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to detect inclinometer type from config: {e}")
         pass
 
     return None
@@ -169,16 +179,13 @@ class IMX5Inclinometer:
     - *_INC_inl2.csv: Extended INL2 data (quaternions, biases)
     """
 
-    def __init__(self, dirpath: Path, logpath: Optional[str] = None):
+    def __init__(self, dirpath: Path, logpath: Optional[str] = None) -> None:
         """
         Initialize IMX5Inclinometer.
 
-        Parameters
-        ----------
-        dirpath : str
-            Path to the sensors directory containing IMX-5 CSV files.
-        logpath : str, optional
-            Path to log file for timing information.
+        Args:
+            dirpath: Path to the sensors directory containing IMX-5 CSV files.
+            logpath: Path to log file for timing information (optional).
         """
         self.dirpath = dirpath
         self.logpath = logpath
@@ -191,18 +198,23 @@ class IMX5Inclinometer:
         self.data = {}  # Main attitude data
 
     def _find_file(self, pattern: str) -> Optional[str]:
-        """Find a file matching the pattern in dirpath."""
+        """Find a file matching the pattern in dirpath.
+
+        Args:
+            pattern: Glob pattern to match files.
+
+        Returns:
+            Path to first matching file, or None if not found.
+        """
         files = glob.glob(os.path.join(self.dirpath, pattern))
         return files[0] if files else None
 
-    def load_ins(self):
+    def load_ins(self) -> None:
         """
         Load INS solution data (position, velocity, attitude).
 
-        Returns
-        -------
-        pl.DataFrame or None
-            INS data with columns including lat, lon, alt, roll, pitch, yaw, velocities.
+        Converts roll/pitch/yaw from radians to degrees and creates
+        timestamp and datetime columns from timestamp_ns.
         """
         if self.ins_path is None:
             return None
@@ -231,14 +243,11 @@ class IMX5Inclinometer:
         if not df.is_empty():
             self.data["INS"] = df
 
-    def load_imu(self):
+    def load_imu(self) -> None:
         """
         Load raw IMU data (accelerometer, gyroscope).
 
-        Returns
-        -------
-        pl.DataFrame or None
-            IMU data with accelerometer and gyroscope readings.
+        Creates timestamp and datetime columns from timestamp_ns.
         """
         if self.imu_path is None:
             return None
@@ -310,27 +319,32 @@ class KernelInclinometer:
     Decoder for Kernel-100 inclinometer data (binary format).
     """
 
-    def __init__(self, path: Path, logpath: Optional[str] = None):
+    def __init__(self, path: Path, logpath: Optional[str] = None) -> None:
         """
         Initialize KernelInclinometer.
 
-        Parameters
-        ----------
-        path : str
-            Path to the Kernel binary file (*_INC.bin).
-        logpath : str, optional
-            Path to log file for timing information.
+        Args:
+            path: Path to the Kernel binary file (*_INC.bin).
+            logpath: Path to log file for timing information (optional).
         """
         self.path = path
         if logpath is not None:
             self.logpath = logpath
         else:
-            self.logpath = get_logpath_from_datapath(self.path)
+            try:
+                self.logpath = get_logpath_from_datapath(self.path)
+            except FileNotFoundError:
+                self.logpath = None
 
         self.tstart = None
 
-    def read_log_time(self, logfile: Optional[str] = None):
-        """Read start time from log file."""
+    def read_log_time(self, logfile: Optional[str] = None) -> None:
+        """
+        Read start time from log file.
+
+        Args:
+            logfile: Path to log file (optional).
+        """
         if logfile is None:
             return
 
@@ -346,12 +360,19 @@ class KernelInclinometer:
                 else:
                     self.tstart = tstart
                     break
-            except:
-                print("Couldn't find start time from logfile. Skipping datetime conversion.")
+            except Exception as e:
+                logger.warning(
+                    f"Couldn't find start time from logfile. Skipping datetime conversion. Error: {e}"
+                )
+                break
 
-    def load_data(self):
+    def load_data(self) -> None:
         """
         Load and decode Kernel inclinometer data.
+
+        The data is processed to handle counter wrap-arounds and filtered
+        to keep only valid measurements. Euler angles are renamed to match
+        drone convention (roll/pitch/yaw).
         """
         # Load data from binary decoder
         decoded = decode_inclino(self.path)
@@ -429,7 +450,7 @@ class Inclinometer:
         path: Path,
         logpath: Optional[str] = None,
         sensor_type: Optional[Literal["kernel", "imx5"]] = None,
-    ):
+    ) -> None:
         self._lookout_path = path
 
         if sensor_type is None:
@@ -437,7 +458,7 @@ class Inclinometer:
         else:
             self.sensor_type = sensor_type
 
-        print(f"Sensor Type {self.sensor_type}")
+        logger.info(f"Inclinometer sensor type: {self.sensor_type}")
 
         self.logpath = logpath
         self._decoder: Optional[KernelInclinometer | IMX5Inclinometer] = None
@@ -445,7 +466,7 @@ class Inclinometer:
         # Initialize the appropriate decoder
         self._init_decoder()
 
-    def _auto_detect(self):
+    def _auto_detect(self) -> None:
         """Auto-detect inclinometer type from config.yml file."""
         # First try config-based detection (primary method)
         config_type = detect_inclinometer_type_from_config(self._lookout_path)
@@ -456,7 +477,7 @@ class Inclinometer:
             inc_type = detect_inclinometer_type_from_files(self._lookout_path)
             self.sensor_type = inc_type if inc_type != "unknown" else None
 
-    def _init_decoder(self):
+    def _init_decoder(self) -> None:
         """Initialize the appropriate decoder based on sensor type."""
         if self.sensor_type == "kernel":
             self._decoder = KernelInclinometer(self._lookout_path, self.logpath)
@@ -491,8 +512,12 @@ class Inclinometer:
             return self._decoder.data["INL2"]
         return None
 
-    def load_data(self):
-        """Load inclinometer data using the detected decoder."""
+    def load_data(self) -> None:
+        """Load inclinometer data using the detected decoder.
+
+        Raises:
+            ValueError: If no inclinometer data found at path.
+        """
         if self._decoder is None:
             raise ValueError(
                 f"No inclinometer data found at {self._lookout_path}. "
@@ -502,8 +527,12 @@ class Inclinometer:
         self._decoder.load_data()
         self.data = self._decoder.data
 
-    def plot(self):
-        """Plot roll, pitch, yaw over time."""
+    def plot(self) -> None:
+        """Plot roll, pitch, yaw over time.
+
+        Raises:
+            ValueError: If data not loaded.
+        """
         if self.data is None:
             raise ValueError("Data not loaded. Run load_data() first.")
 

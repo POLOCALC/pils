@@ -1,7 +1,8 @@
 import glob
 import os
 import struct
-from datetime import datetime
+from pathlib import Path
+from typing import Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -15,7 +16,10 @@ try:
 except ImportError:
     YAML_AVAILABLE = False
 
+from ..utils.logging_config import get_logger
 from ..utils.tools import get_logpath_from_datapath, is_ascii_file
+
+logger = get_logger(__name__)
 
 ADS1015_VALUE_GAIN = {
     1: 4.096,
@@ -26,18 +30,14 @@ ADS1015_VALUE_GAIN = {
 }
 
 
-def decode_adc_file_struct(adc_path):
+def decode_adc_file_struct(adc_path: str | Path) -> pl.DataFrame:
     """
     Decodes the old ADC file written in a structured binary format and returns its content as a polars DataFrame.
 
-    Parameters
-    ----------
-    adc_path : str
-        Path to the ADC file to be decoded.
+    Args:
+        adc_path: Path to the ADC file to be decoded.
 
-    Returns
-    -------
-    adc_data : polars.DataFrame
+    Returns:
         DataFrame with columns ["time", "reading_time", "amplitude", "datetime"].
         Time is the timestamp in seconds since the epoch, reading_time is the time
         it took to take the measurement, amplitude is the measurement itself, and
@@ -61,18 +61,15 @@ def decode_adc_file_struct(adc_path):
     return adc_data
 
 
-def decode_adc_file_ascii(adc_path, gain_config=16):
+def decode_adc_file_ascii(adc_path: str | Path, gain_config: int = 16) -> pl.DataFrame:
     """
     Decodes the last version of ADC file written in ASCII format and returns its content as a polars DataFrame.
 
-    Parameters
-    ----------
-    adc_path : str
-        Path to the ADC file to be decoded.
+    Args:
+        adc_path: Path to the ADC file to be decoded.
+        gain_config: ADC gain configuration (1, 2, 4, 8, or 16). Defaults to 16.
 
-    Returns
-    -------
-    adc_data : polars.DataFrame
+    Returns:
         DataFrame containing tuples of (timestamp, value) where timestamp is the
         time in seconds since the epoch and value is the corresponding measurement.
     """
@@ -104,10 +101,10 @@ def decode_adc_file_ascii(adc_path, gain_config=16):
             timestamps.append(timestamp)
             amplitudes.append(value)
         except ValueError as e:
-            print(f"Warning: Line {line_num} could not be parsed as integers: {e}")
+            logger.warning(f"Line {line_num} could not be parsed as integers: {e}")
             continue
         except Exception as e:
-            print(f"Error decoding line {line_num}: {e}")
+            logger.error(f"Error decoding line {line_num}: {e}")
             continue
 
     adc_data = pl.DataFrame({"timestamp": timestamps, "amplitude": amplitudes})
@@ -122,13 +119,15 @@ def decode_adc_file_ascii(adc_path, gain_config=16):
 
 
 class ADC:
-    def __init__(self, path, logpath=None, gain_config=None):
+    def __init__(
+        self, path: Path, logpath: Optional[str] = None, gain_config: Optional[int] = None
+    ) -> None:
         """
         Initialize ADC sensor.
 
         Args:
-            path: Path to ADC data file
-            logpath: Path to log file (optional)
+            path: Path to ADC data file directory.
+            logpath: Path to log file (optional).
             gain_config: ADC gain configuration (1, 2, 4, 8, or 16).
                         If None, attempts to read from config.yml in the same folder.
                         Defaults to 16 if not found.
@@ -140,13 +139,16 @@ class ADC:
                 self.data_path = f
 
         self.data = None
+        self.tstart = None
 
+        # Handle logpath
         if logpath is not None:
             self.logpath = logpath
         else:
-            self.logpath = get_logpath_from_datapath(self.data_path)
-
-        self.tstart = None
+            try:
+                self.logpath = get_logpath_from_datapath(self.data_path)
+            except FileNotFoundError:
+                self.logpath = None
 
         with open(self.data_path, "rb") as f:
             data = f.read()
@@ -165,7 +167,7 @@ class ADC:
         Read ADC gain from config.yml file in the same directory.
 
         Returns:
-            Gain configuration value (defaults to 16 if not found)
+            Gain configuration value (defaults to 16 if not found).
         """
         if not YAML_AVAILABLE:
             return 16
@@ -200,13 +202,19 @@ class ADC:
 
         return 16  # Default gain
 
-    def load_data(self):
+    def load_data(self) -> None:
+        """Load ADC data from file (auto-detects ASCII or binary format)."""
         if self.is_ascii:
             self.data = decode_adc_file_ascii(self.data_path, self.gain_config)
         else:
             self.data = decode_adc_file_struct(self.data_path)
 
-    def plot(self):
+    def plot(self) -> None:
+        """Plot ADC amplitude vs time.
+
+        Raises:
+            ValueError: If no data loaded.
+        """
         if self.data is None:
             raise ValueError("No data loaded. Call load_data() first.")
         plt.figure(figsize=(10, 5))
