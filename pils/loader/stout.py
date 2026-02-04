@@ -22,7 +22,6 @@ Usage:
 
 import importlib
 import logging
-import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -273,30 +272,30 @@ class StoutLoader:
         if self.base_data_path is None:
             logger.warning("Base data path not set")
             return flights
-        campaigns_dir = os.path.join(self.base_data_path, "campaigns")
+        campaigns_dir = Path(self.base_data_path) / "campaigns"
 
-        if not os.path.exists(campaigns_dir):
+        if not campaigns_dir.exists():
             logger.warning(f"Campaigns directory not found: {campaigns_dir}")
             return flights
 
         # Traverse: campaigns -> date folders -> flight folders
-        for campaign_name in os.listdir(campaigns_dir):
-            campaign_path = os.path.join(campaigns_dir, campaign_name)
-            if not os.path.isdir(campaign_path):
+        for campaign_path in campaigns_dir.iterdir():
+            if not campaign_path.is_dir():
                 continue
+            campaign_name = campaign_path.name
 
-            for date_folder in os.listdir(campaign_path):
-                date_path = os.path.join(campaign_path, date_folder)
-                if not os.path.isdir(date_path):
+            for date_path in campaign_path.iterdir():
+                if not date_path.is_dir():
                     continue
+                date_folder = date_path.name
 
-                for flight_name in os.listdir(date_path):
-                    flight_path = os.path.join(date_path, flight_name)
-                    if not os.path.isdir(flight_path):
+                for flight_path in date_path.iterdir():
+                    if not flight_path.is_dir():
                         continue
+                    flight_name = flight_path.name
 
                     flight_dict = self._build_flight_dict_from_filesystem(
-                        campaign_name, date_folder, flight_name, flight_path
+                        campaign_name, date_folder, flight_name, str(flight_path)
                     )
                     if flight_dict:
                         flights.append(flight_dict)
@@ -346,15 +345,16 @@ class StoutLoader:
             # Extract date from folder name (YYYYMMDD format)
             takeoff_date = datetime.strptime(date_folder, "%Y%m%d").replace(tzinfo=timezone.utc)
 
+            flight_path_obj = Path(flight_path)
             flight_dict = {
                 "campaign_name": campaign_name,
                 "flight_name": flight_name,
                 "flight_date": date_folder,
                 "takeoff_datetime": takeoff_date.isoformat(),
                 "landing_datetime": takeoff_date.isoformat(),  # Not available from filesystem
-                "drone_data_folder_path": os.path.join(flight_path, "drone"),
-                "aux_data_folder_path": os.path.join(flight_path, "aux"),
-                "processed_data_folder_path": os.path.join(flight_path, "proc"),
+                "drone_data_folder_path": str(flight_path_obj / "drone"),
+                "aux_data_folder_path": str(flight_path_obj / "aux"),
+                "processed_data_folder_path": str(flight_path_obj / "proc"),
             }
             return flight_dict
         except Exception as e:
@@ -415,16 +415,16 @@ class StoutLoader:
 
         if data_type in folder_map:
             folder_path = folder_map[data_type]
-            if folder_path and os.path.exists(folder_path):
+            if folder_path and Path(folder_path).exists():
                 files = self._list_files_recursive(folder_path)
 
         elif data_type in sensor_map:
             # Look in drone folder for sensor-specific data
             drone_folder = folder_map.get("drone")
-            if drone_folder and os.path.exists(drone_folder):
-                sensor_folder = os.path.join(drone_folder, data_type)
-                if os.path.exists(sensor_folder):
-                    files = self._list_files_recursive(sensor_folder)
+            if drone_folder and Path(drone_folder).exists():
+                sensor_folder = Path(drone_folder) / data_type
+                if sensor_folder.exists():
+                    files = self._list_files_recursive(str(sensor_folder))
 
         return files
 
@@ -440,9 +440,10 @@ class StoutLoader:
         """
         files = []
         try:
-            for root, dirs, filenames in os.walk(directory):
-                for filename in filenames:
-                    files.append(os.path.join(root, filename))
+            dir_path = Path(directory)
+            for file_path in dir_path.rglob("*"):
+                if file_path.is_file():
+                    files.append(str(file_path))
         except Exception as e:
             logger.warning(f"Error listing files in {directory}: {e}")
 
@@ -471,16 +472,15 @@ class StoutLoader:
         campaigns = []
         if self.base_data_path is None:
             return campaigns
-        campaigns_dir = os.path.join(self.base_data_path, "campaigns")
+        campaigns_dir = Path(self.base_data_path) / "campaigns"
 
-        if os.path.exists(campaigns_dir):
-            for campaign_name in os.listdir(campaigns_dir):
-                campaign_path = os.path.join(campaigns_dir, campaign_name)
-                if os.path.isdir(campaign_path):
+        if campaigns_dir.exists():
+            for campaign_path in campaigns_dir.iterdir():
+                if campaign_path.is_dir():
                     campaigns.append(
                         {
-                            "name": campaign_name,
-                            "path": campaign_path,
+                            "name": campaign_path.name,
+                            "path": str(campaign_path),
                         }
                     )
 
@@ -607,7 +607,7 @@ class StoutLoader:
         folder_path = flight_info.get("aux_data_folder_path")
 
         logger.info(f"Loading {sensor_type} data from: {folder_path}")
-        if not folder_path or not os.path.exists(folder_path):
+        if not folder_path or not Path(folder_path).exists():
             logger.warning(f"{sensor_type}: Aux folder not found: {folder_path}")
             return None
 
@@ -669,7 +669,7 @@ class StoutLoader:
 
         # Drones are loaded from drone_data_folder_path
         folder_path = flight_info.get("drone_data_folder_path")
-        if not folder_path or not os.path.exists(folder_path):
+        if not folder_path or not Path(folder_path).exists():
             logger.warning(f"{drone_type}: Drone folder not found: {folder_path}")
             return None
 
