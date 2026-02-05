@@ -19,7 +19,7 @@ graph TD
     end
 
     subgraph Drone_Files [Drone Files]
-        C1[DJI - SRT/CSV]
+        C1[DJI - DAT/CSV]
         C2[Litchi - CSV]
         C3[BlackSquare - CSV]
     end

@@ -1,3 +1,3 @@
 # Synchronizer
 
-::: pils.synchronizer.CorrelationSynchronizer
+::: pils.synchronizer.Synchronizer

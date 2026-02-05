@@ -11,7 +11,7 @@ from pils.drones.BlackSquareDrone import BlackSquareDrone
 from pils.drones.DJIDrone import DJIDrone
 from pils.drones.litchi import Litchi
 from pils.sensors.sensors import sensor_config
-from pils.synchronizer import CorrelationSynchronizer
+from pils.synchronizer import Synchronizer
 from pils.utils.tools import get_path_from_keyword
 
 
@@ -176,7 +176,6 @@ class Flight:
         self.set_metadata()
 
         self.raw_data = RawData()
-        self.synchronized_data = RawData()
         self.sync_data: Optional[pl.DataFrame] = None
         self.adc_gain_config = None
 
@@ -380,7 +379,7 @@ class Flight:
             sync_df = Flight._load_dataframe_from_hdf5(sync_data)
             if sync_df is not None:
                 # Store synchronized data directly on raw_data as attribute
-                flight.synchronized_data = sync_df
+                flight.sync_data = sync_df
 
     @staticmethod
     def _load_dataframe_from_hdf5(
@@ -538,7 +537,7 @@ class Flight:
         self,
         dji_dat_loader: bool = True,
         drone_model: Optional[str] = None,
-    ) -> "DroneData":
+    ):
         """
         Load drone telemetry data based on auto-detected drone model.
 
@@ -588,6 +587,8 @@ class Flight:
         if not drone_model:
             drone_model = self._detect_drone_model(str(drone_folder))
 
+        self.__drone_model = drone_model
+
         # Find candidate files
         available_files = glob.glob(str(drone_folder) + "/*")
         drone_data_path = None
@@ -595,16 +596,20 @@ class Flight:
 
         for file in available_files:
             fname = file.lower()
-            if fname.endswith("drone.dat") and dji_dat_loader and "dji" in drone_model.lower():
+            if (
+                fname.endswith("drone.dat")
+                and dji_dat_loader
+                and "dji" in self.__drone_model.lower()
+            ):
                 drone_data_path = file
             elif fname.endswith("drone.csv"):
                 drone_data_path = file
-            if fname.endswith("litchi.csv") and "dji" in drone_model.lower():
+            if fname.endswith("litchi.csv") and "dji" in self.__drone_model.lower():
                 litchi_data_path = file
 
         # Load according to detected model
         litchi_data = None
-        if isinstance(drone_model, str) and "dji" in drone_model.lower():
+        if isinstance(self.__drone_model, str) and "dji" in self.__drone_model.lower():
             if drone_data_path is None:
                 # try passing folder to DJIDrone which may discover files
                 drone = DJIDrone(drone_folder)
@@ -619,8 +624,8 @@ class Flight:
                 litchi_loader.load_data()
                 litchi_data = litchi_loader.data
 
-        elif isinstance(drone_model, str) and (
-            "black" in drone_model.lower() or "blacksquare" in drone_model.lower()
+        elif isinstance(self.__drone_model, str) and (
+            "black" in self.__drone_model.lower() or "blacksquare" in self.__drone_model.lower()
         ):
             drone = BlackSquareDrone(drone_folder)
             drone.load_data()
@@ -642,7 +647,6 @@ class Flight:
                 litchi_data = None
 
         self.raw_data.drone_data = DroneData(drone_data, litchi_data)
-        return self.raw_data.drone_data
 
     def _read_sensor_data(self, sensor_name: str, sensor_folder: Path) -> Optional[Any]:
         """
@@ -670,6 +674,9 @@ class Flight:
 
         if config:
             sensor = config["class"](sensor_folder)
+
+            if sensor_name == "inclinometer":
+                self.__inclinometer = sensor.sensor_type
 
             getattr(sensor, config["load_method"])()
             result = sensor.data
@@ -718,7 +725,9 @@ class Flight:
             sensor_data = self._read_sensor_data(sensor, sensor_path)
             setattr(self.raw_data.payload_data, sensor, sensor_data)
 
-    def sync(self, target_rate_hz: float = 10.0, **kwargs) -> pl.DataFrame:
+    def sync(
+        self, target_rate_hz: float = 10.0, use_rtk_data: bool = True, **kwargs
+    ) -> pl.DataFrame:
         """
         Synchronize flight data using GPS-based correlation.
 
@@ -729,6 +738,8 @@ class Flight:
         ----------
         target_rate_hz : float, default=10.0
             Target sample rate in Hz
+        use_rtk_data : bool, default=True
+            For DJI drones: if True, use RTK data; if False, use standard GPS
         **kwargs : dict
             Additional arguments passed to Synchronizer.synchronize()
 
@@ -744,14 +755,15 @@ class Flight:
 
         Examples
         --------
-        >>> # Basic synchronization
+        >>> # Basic synchronization with RTK data
         >>> flight.add_sensor_data(['gps', 'imu', 'adc'])
         >>> flight.add_drone_data()
-        >>> sync_df = flight.sync(target_rate_hz=10.0)
+        >>> sync_df = flight.sync(target_rate_hz=10.0, use_rtk_data=True)
+        >>> # Use standard GPS instead of RTK
+        >>> sync_df = flight.sync(target_rate_hz=10.0, use_rtk_data=False)
         >>> # Synchronization is stored in flight.sync_data
         >>> print(flight.sync_data.shape)
         """
-        from pils.synchronizer import CorrelationSynchronizer
 
         # Check if GPS payload data is available
         if not self.raw_data.payload_data or "gps" not in self.raw_data.payload_data:
@@ -761,23 +773,50 @@ class Flight:
             )
 
         # Create synchronizer
-        sync = CorrelationSynchronizer()
+        sync = Synchronizer()
 
         # Add GPS payload as reference (mandatory)
         gps_sensor = self.raw_data.payload_data["gps"]
         gps_data = gps_sensor.data if hasattr(gps_sensor, "data") else gps_sensor
-        sync.add_gps_reference(gps_data)
+        sync.add_gps_reference(
+            gps_data,
+            timestamp_col="timestamp",
+            alt_col="posllh_height",
+            lat_col="posllh_lat",
+            lon_col="posllh_lon",
+        )
 
         # Add drone GPS if available
         if self.raw_data.drone_data and self.raw_data.drone_data.drone is not None:
             drone_df = self.raw_data.drone_data.drone
-            # Check if drone data has GPS columns
-            if (
-                isinstance(drone_df, pl.DataFrame)
-                and "latitude" in drone_df.columns
-                and "longitude" in drone_df.columns
-            ):
-                sync.add_drone_gps(drone_df)
+
+
+            if "dji" in self.__drone_model.lower():
+
+                timestamp_col = "correct_timestamp"
+
+                if use_rtk_data:
+                    lat_col = "RTK:lat_p"
+                    lon_col = "RTK:lon_p"
+                    alt_col = "RTK:hmsl_p"
+                else:
+                    lat_col = "GPS:Latitude"
+                    lon_col = "GPS:Longitude"
+                    alt_col = "GPS:heightMSL"
+
+            else:
+                timestamp_col = "timestamp"
+                lat_col = "Latitude"
+                lon_col = "Longitude"
+                alt_col = "heightMSL"
+
+            sync.add_drone_gps(
+                drone_df,
+                timestamp_col=timestamp_col,
+                lat_col=lat_col,
+                lon_col=lon_col,
+                alt_col=alt_col,
+            )
 
         # Add litchi GPS if available
         if self.raw_data.drone_data and self.raw_data.drone_data.litchi is not None:
@@ -793,7 +832,9 @@ class Flight:
         if self.raw_data.payload_data and "inclinometer" in self.raw_data.payload_data:
             incl_sensor = self.raw_data.payload_data["inclinometer"]
             incl_data = incl_sensor.data if hasattr(incl_sensor, "data") else incl_sensor
-            sync.add_inclinometer(incl_data)
+            if self.__inclinometer == "imx5":
+                incl_data = incl_data["INS"]
+            sync.add_inclinometer(incl_data, self.__inclinometer)
 
         # Add other payload sensors
         if self.raw_data.payload_data:
@@ -1259,6 +1300,27 @@ class PayloadData:
             return getattr(self, key)
         else:
             raise KeyError(f"Sensor '{key}' not found")
+
+    def __contains__(self, key: str) -> bool:
+        """
+        Check if a sensor exists in payload data.
+
+        Parameters
+        ----------
+        key : str
+            Sensor name to check
+
+        Returns
+        -------
+        bool
+            True if sensor exists, False otherwise
+
+        Examples
+        --------
+        >>> if 'gps' in payload_data:
+        ...     print("GPS sensor available")
+        """
+        return hasattr(self, key)
 
     def list_loaded_sensors(self) -> List[str]:
         """

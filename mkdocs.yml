@@ -49,16 +49,6 @@ nav:
     - Installation: getting-started/installation.md
     - Quick Start: getting-started/quickstart.md
     - First Flight: getting-started/first-flight.md
-  - User Guide:
-    - user-guide/index.md
-    - Loading Flights: user-guide/loading-flights.md
-    - Working with Sensors: user-guide/sensors.md
-    - Drone Platforms: user-guide/drones.md
-    - Time Synchronization: user-guide/synchronization.md
-    - Analysis:
-      - user-guide/analysis.md 
-      - PPK Analysis: user-guide/analysis/ppk-analysis.md
-    - Data Export: user-guide/data-export.md
   - API Reference:
     - api/index.md
     - Core:
@@ -88,21 +78,11 @@ nav:
       - api/utilities/index.md
       - Tools: api/utilities/tools.md
       - Decoders: api/utilities/decoders.md
-  - Data Formats:
-    - data-formats/index.md
-    - DataFrame Schemas:
-      - data-formats/schemas/index.md
-      - GPS: data-formats/schemas/gps.md
-      - IMU: data-formats/schemas/imu.md
-      - ADC: data-formats/schemas/adc.md
-      - Drone: data-formats/schemas/drone.md
-      - PPK: data-formats/schemas/ppk.md
-    - File Formats:
-      - data-formats/files/index.md
-      - Binary: data-formats/files/binary.md
-      - Text: data-formats/files/text.md
-      - HDF5: data-formats/files/hdf5.md
-    - Directory Structure: data-formats/directory-structure.md
+  - User Guide:
+    - user-guide/index.md
+    - Directory Structure: user-guide/directory-structure.md
+    - Time Synchronization: user-guide/synchronization.md
+    - Drone: user-guide/dji-drone.md
   - Development:
     - development/index.md
     - Architecture: development/architecture.md

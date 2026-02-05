@@ -22,13 +22,13 @@ Welcome to PILS, a Python library for loading, processing, and analyzing drone f
 
     [:octicons-arrow-right-24: API Docs](api/index.md)
 
--   :material-database:{ .lg .middle } __Data Formats__
+-   :material-database:{ .lg .middle } __User Guide__
 
     ---
 
-    Detailed schemas for all DataFrame types and file formats
+    User Guide for PILS
 
-    [:octicons-arrow-right-24: Data Formats](data-formats/index.md)
+    [:octicons-arrow-right-24: User Guide](user-guide/index.md)
 
 -   :material-cog:{ .lg .middle } __Development__
 
@@ -106,7 +106,5 @@ print(gps_df.head())
 
 | Metric | Value |
 |--------|-------|
-| Tests Passing | 283/284 (99.6%) |
-| Code Coverage | 63% |
 | Python Version | 3.10+ |
 | License | MIT |

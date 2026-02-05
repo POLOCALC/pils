@@ -185,6 +185,7 @@ class GPS:
             (pl.from_epoch(pl.col("unix_time_ms"), time_unit="ms")).alias("datetime")
         )
         gps_data = gps_data.with_columns((pl.col("unix_time_ms") / 1000.0).alias("timestamp"))
+        gps_data = gps_data.with_columns((pl.col("posllh_height") / 1000.0))
 
         self.data = gps_data
 

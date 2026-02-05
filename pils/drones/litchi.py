@@ -72,10 +72,15 @@ class Litchi:
         litchi_data = litchi_data.with_columns(
             [
                 pl.col("datetime(utc)")
-                .str.to_datetime(format="%Y-%m-%dT%H:%M:%S%.fZ", time_zone="UTC")
+                .str.to_datetime(format="%Y-%m-%d %H:%M:%S%.f", time_zone="UTC")
                 .alias("datetime")
             ]
         )
         litchi_data = litchi_data.drop("datetime(utc)")
         litchi_data = drop_nan_and_zero_cols(litchi_data)
+        litchi_data = litchi_data.with_columns(
+            (pl.col("datetime").dt.timestamp("ms")).alias("unix_time_ms")
+        )
+        litchi_data = litchi_data.with_columns((pl.col("unix_time_ms") / 1000.0).alias("timestamp"))
+        litchi_data = litchi_data.with_columns((pl.col("gimbalPitchRaw") / 10.0).alias("gimbalPitch"))
         self.data = litchi_data

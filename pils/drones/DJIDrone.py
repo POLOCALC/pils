@@ -157,7 +157,7 @@ class DJIDrone:
 
         if correct_timestamp:
             logger.info("Converting timestamps to milliseconds")
-            if self.source_format == "CSV":
+            if self.source_format == "csv":
                 # For CSV format, self.data is a DataFrame
                 assert isinstance(self.data, pl.DataFrame), "Expected DataFrame for CSV format"
                 # Calculate mean offset from actual data, not expressions
@@ -175,7 +175,7 @@ class DJIDrone:
                         "correct_timestamp"
                     )
                 )
-            elif self.source_format == "DAT":
+            elif self.source_format == "dat":
                 # For DAT format, align_datfile returns a DataFrame
                 aligned = self.align_datfile(polars_interpolation=polars_interpolation)
                 if aligned is not None:
@@ -708,7 +708,7 @@ class DJIDrone:
         self,
         correct_timestamp: bool = True,
         sampling_freq: float = 5.0,
-        polars_interpolation: bool = False,
+        polars_interpolation: bool = True,
     ) -> Optional[pl.DataFrame]:
         """Align DAT file data using GPS synchronization.
 
@@ -731,14 +731,9 @@ class DJIDrone:
 
         if correct_timestamp:
 
-            time_offset = self.get_tick_offset()
+            _ = self.get_tick_offset()
 
             if polars_interpolation:
-
-                # base_time = self.data["GPS"].get_column("correct_timestamp")[0]
-                # base_time_wrong = self.data["GPS"].get_column("timestamp")[0]
-                # base_tick = self.data["GPS"].get_column("correct_tick")[0]
-                # base_tick_wrong = self.data["GPS"].get_column("tick")[0]
 
                 tmp = pl.DataFrame(
                     {
@@ -748,26 +743,6 @@ class DJIDrone:
                 )
 
                 for i, key in enumerate(self.data):
-
-                    # if key != "GPS":
-                    #     self.data[key] = self.data[key].with_columns(
-                    #         (pl.col("tick") - tick_offset).alias("correct_tick")
-                    #     )
-
-                    #     self.data[key] = self.data[key].with_columns(
-                    #         (
-                    #             base_time
-                    #             - time_offset
-                    #             + (pl.col("correct_tick") - base_tick) / 4_500_000.0
-                    #         ).alias("correct_timestamp")
-                    #     )
-
-                    #     self.data[key] = self.data[key].with_columns(
-                    #         (
-                    #             base_time_wrong
-                    #             - (pl.col("tick") - base_tick_wrong) / 4_500_000.0
-                    #         ).alias("correct_timestamp_wrong")
-                    #     )
 
                     tmp = tmp.join(
                         self.data[key],
@@ -790,10 +765,6 @@ class DJIDrone:
                 aligned_df = tmp
 
             else:
-
-                # self.data["RTK"] = self.data["RTK"].with_columns(
-                #     (pl.col("tick") - tick_offset).alias("correct_tick")
-                # )
 
                 gps_df: pl.DataFrame = self.data["GPS"]
                 rtk_df: pl.DataFrame = self.data["RTK"]
@@ -873,15 +844,6 @@ class DJIDrone:
                 }
                 gps_exclude = common_exclude.union({"GPS:date", "GPS:time"})
                 rtk_exclude = common_exclude.union({"RTK:date", "RTK:time"})
-
-                # # Calculate a smooth, monotonic correct_timestamp for the target ticks
-                # # Anchor to the first GPS record
-                # base_time = float(gps_df.get_column("correct_timestamp")[0])
-                # base_tick = float(gps_df.get_column("correct_tick")[0])
-
-                # aligned_data["correct_timestamp"] = (
-                #     base_time + (target_ticks - base_tick) / tick_freq
-                # )
 
                 interpolate_columns(gps_df, gps_exclude)
                 interpolate_columns(rtk_df, rtk_exclude)

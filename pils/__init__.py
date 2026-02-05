@@ -41,17 +41,14 @@ from . import decoders, drones, sensors, utils
 from .flight import Flight
 from .loader import PathLoader, StoutLoader
 from .pils import PILS
-from .synchronizer import CorrelationSynchronizer
+from .synchronizer import Synchronizer
 
-# Alias for cleaner user-facing API
-Synchronizer = CorrelationSynchronizer
 
 __all__ = [
     "Flight",
     "PILS",
     "StoutLoader",
     "PathLoader",
-    "CorrelationSynchronizer",
     "Synchronizer",
     "sensors",
     "drones",

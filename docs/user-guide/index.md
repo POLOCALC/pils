@@ -43,41 +43,23 @@ flowchart TB
 
 <div class="grid cards" markdown>
 
--   :material-folder-open:{ .lg .middle } __[Loading Flights](loading-flights.md)__
+-   :material-folder-open:{ .lg .middle } __[Directory Structure](directory-structure.md)__
 
     ---
 
-    Load flights from filesystem or database using PathLoader or StoutLoader
+    Explain the directory and file structure for PILS
 
--   :material-radar:{ .lg .middle } __[Working with Sensors](sensors.md)__
-
-    ---
-
-    Access GPS, IMU, ADC, Camera, and Inclinometer data
-
--   :material-quadcopter:{ .lg .middle } __[Drone Platforms](drones.md)__
+-   :material-radar:{ .lg .middle } __[Time Synchronization](synchronization.md)__
 
     ---
 
-    Support for DJI, ArduPilot (BlackSquare), and Litchi
+    Mathematical description of the syncrhonization process between the different dataset
 
--   :material-clock-sync:{ .lg .middle } __[Time Synchronization](synchronization.md)__
-
-    ---
-
-    Align data from multiple sources with different timestamps
-
--   :material-satellite-variant:{ .lg .middle } __[PPK Analysis](ppk-analysis.md)__
+-   :material-quadcopter:{ .lg .middle } __[DJI Data](dji-drone.md)__
 
     ---
 
-    Post-Processed Kinematic positioning with version control
-
--   :material-export:{ .lg .middle } __[Data Export](data-export.md)__
-
-    ---
-
-    Export to HDF5, CSV, Parquet, and other formats
+    Description for handling the data from the DJI Matrice 600
 
 </div>
 
