@@ -34,10 +34,14 @@ def decode_adc_file_struct(adc_path: str | Path) -> pl.DataFrame:
     """
     Decodes the old ADC file written in a structured binary format and returns its content as a polars DataFrame.
 
-    Args:
-        adc_path: Path to the ADC file to be decoded.
+    Parameters
+    ----------
+    adc_path : Union[str, Path]
+        Path to the ADC file to be decoded.
 
-    Returns:
+    Returns
+    -------
+    pl.DataFrame
         DataFrame with columns ["time", "reading_time", "amplitude", "datetime"].
         Time is the timestamp in seconds since the epoch, reading_time is the time
         it took to take the measurement, amplitude is the measurement itself, and
@@ -65,11 +69,16 @@ def decode_adc_file_ascii(adc_path: str | Path, gain_config: int = 16) -> pl.Dat
     """
     Decodes the last version of ADC file written in ASCII format and returns its content as a polars DataFrame.
 
-    Args:
-        adc_path: Path to the ADC file to be decoded.
-        gain_config: ADC gain configuration (1, 2, 4, 8, or 16). Defaults to 16.
+    Parameters
+    ----------
+    adc_path : Union[str, Path]
+        Path to the ADC file to be decoded.
+    gain_config : int, optional
+        ADC gain configuration (1, 2, 4, 8, or 16). Defaults to 16.
 
-    Returns:
+    Returns
+    -------
+    pl.DataFrame
         DataFrame containing tuples of (timestamp, value) where timestamp is the
         time in seconds since the epoch and value is the corresponding measurement.
     """
@@ -125,12 +134,16 @@ class ADC:
         """
         Initialize ADC sensor.
 
-        Args:
-            path: Path to ADC data file directory.
-            logpath: Path to log file (optional).
-            gain_config: ADC gain configuration (1, 2, 4, 8, or 16).
-                        If None, attempts to read from config.yml in the same folder.
-                        Defaults to 16 if not found.
+        Parameters
+        ----------
+        path : Path
+            Path to ADC data file directory.
+        logpath : Optional[str], optional
+            Path to log file (optional).
+        gain_config : Optional[int], optional
+            ADC gain configuration (1, 2, 4, 8, or 16).
+            If None, attempts to read from config.yml in the same folder.
+            Defaults to 16 if not found.
         """
         files = list(path.glob("*"))
 
@@ -166,7 +179,9 @@ class ADC:
         """
         Read ADC gain from config.yml file in the same directory.
 
-        Returns:
+        Returns
+        -------
+        int
             Gain configuration value (defaults to 16 if not found).
         """
         if not YAML_AVAILABLE:
@@ -212,8 +227,10 @@ class ADC:
     def plot(self) -> None:
         """Plot ADC amplitude vs time.
 
-        Raises:
-            ValueError: If no data loaded.
+        Raises
+        ------
+        ValueError
+            If no data loaded.
         """
         if self.data is None:
             raise ValueError("No data loaded. Call load_data() first.")

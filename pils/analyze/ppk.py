@@ -4,24 +4,24 @@ PPK Analysis - Standalone Post-Processed Kinematic GPS Analysis.
 This module provides standalone PPK analysis using RTKLIB with smart
 execution logic, versioned storage, and HDF5 persistence.
 
-Key Features:
+Key Features
+------------
 - Smart re-run: Only executes if config changed or forced
 - Auto-timestamp versioning (rev_YYYYMMDD_HHMMSS)
 - Per-revision folder organization
 - HDF5 storage for all versions
 - Complete separation from Flight class
 
-Example:
-    >>> from pils.analyze.ppk import PPKAnalysis
-    >>>
-    >>> # Create new analysis
-    >>> ppk = PPKAnalysis('/path/to/flight')
-    >>> ppk.run_analysis('config.conf')  # Only runs if config changed
-    >>>
-    >>> # Load existing
-    >>> ppk = PPKAnalysis.from_hdf5('/path/to/flight')
-    >>> latest = ppk.get_latest_version()
-    >>> print(latest.pos_data)  # Polars DataFrame
+Examples
+--------
+>>> from pils.analyze.ppk import PPKAnalysis
+>>> # Create new analysis
+>>> ppk = PPKAnalysis('/path/to/flight')
+>>> ppk.run_analysis('config.conf')  # Only runs if config changed
+>>> # Load existing
+>>> ppk = PPKAnalysis.from_hdf5('/path/to/flight')
+>>> latest = ppk.get_latest_version()
+>>> print(latest.pos_data)  # Polars DataFrame
 """
 
 from __future__ import annotations
@@ -53,21 +53,28 @@ class PPKVersion:
     configuration parameters, storing position solutions, statistics,
     and metadata.
 
-    Attributes:
-        version_name: Auto-timestamp version identifier (rev_YYYYMMDD_HHMMSS)
-        pos_data: Position solution DataFrame from .pos file
-        stat_data: Processing statistics DataFrame from .pos.stat file
-        metadata: Config hash, parsed parameters, and execution metadata
-        revision_path: Path to revision folder containing .pos, .stat, .conf files
+    Attributes
+    ----------
+    version_name : str
+        Auto-timestamp version identifier (rev_YYYYMMDD_HHMMSS)
+    pos_data : pl.DataFrame
+        Position solution DataFrame from .pos file
+    stat_data : pl.DataFrame
+        Processing statistics DataFrame from .pos.stat file
+    metadata : Dict[str, Any]
+        Config hash, parsed parameters, and execution metadata
+    revision_path : Path
+        Path to revision folder containing .pos, .stat, .conf files
 
-    Example:
-        >>> version = PPKVersion(
-        ...     version_name='rev_20260204_143022',
-        ...     pos_data=pos_df,
-        ...     stat_data=stat_df,
-        ...     metadata={'config_hash': 'abc123'},
-        ...     revision_path=Path('/flight/proc/ppk/rev_20260204_143022')
-        ... )
+    Examples
+    --------
+    >>> version = PPKVersion(
+    ...     version_name='rev_20260204_143022',
+    ...     pos_data=pos_df,
+    ...     stat_data=stat_df,
+    ...     metadata={'config_hash': 'abc123'},
+    ...     revision_path=Path('/flight/proc/ppk/rev_20260204_143022')
+    ... )
     """
 
     version_name: str
@@ -91,34 +98,38 @@ class PPKAnalysis:
     - Saves all versions to a single ppk_solution.h5 HDF5 file
     - Generates auto-timestamp version names
 
-    File Structure:
-        flight_dir/proc/ppk/
-        ├── ppk_solution.h5              # HDF5 with all versions
-        └── rev_20260204_143022/         # Per-revision folder
-            ├── solution.pos              # RTKLIB position output
-            ├── solution.pos.stat         # RTKLIB statistics output
-            └── config.conf               # RTKLIB config used
+    File Structure
+    --------------
+    flight_dir/proc/ppk/
+    ├── ppk_solution.h5              # HDF5 with all versions
+    └── rev_20260204_143022/         # Per-revision folder
+        ├── solution.pos              # RTKLIB position output
+        ├── solution.pos.stat         # RTKLIB statistics output
+        └── config.conf               # RTKLIB config used
 
-    Attributes:
-        flight_path: Root flight directory
-        ppk_dir: PPK directory ({flight_path}/proc/ppk/)
-        hdf5_path: Path to ppk_solution.h5 file
-        versions: Dictionary of loaded PPK versions
+    Attributes
+    ----------
+    flight_path : Path
+        Root flight directory
+    ppk_dir : Path
+        PPK directory ({flight_path}/proc/ppk/)
+    hdf5_path : Path
+        Path to ppk_solution.h5 file
+    versions : Dict[str, PPKVersion]
+        Dictionary of loaded PPK versions
 
-    Example:
-        >>> # Create new analysis
-        >>> ppk = PPKAnalysis('/path/to/flight')
-        >>> version = ppk.run_analysis('rtklib.conf')  # Smart execution
-        >>>
-        >>> # Only runs if config changed
-        >>> version2 = ppk.run_analysis('rtklib.conf')  # Skipped if same
-        >>>
-        >>> # Force re-run
-        >>> version3 = ppk.run_analysis('rtklib.conf', force=True)
-        >>>
-        >>> # Access versions
-        >>> latest = ppk.get_latest_version()
-        >>> all_versions = ppk.list_versions()
+    Examples
+    --------
+    >>> # Create new analysis
+    >>> ppk = PPKAnalysis('/path/to/flight')
+    >>> version = ppk.run_analysis('rtklib.conf')  # Smart execution
+    >>> # Only runs if config changed
+    >>> version2 = ppk.run_analysis('rtklib.conf')  # Skipped if same
+    >>> # Force re-run
+    >>> version3 = ppk.run_analysis('rtklib.conf', force=True)
+    >>> # Access versions
+    >>> latest = ppk.get_latest_version()
+    >>> all_versions = ppk.list_versions()
     """
 
     def __init__(self, flight_path: Union[str, Path]):
@@ -127,13 +138,16 @@ class PPKAnalysis:
 
         Creates the proc/ppk directory structure if it doesn't exist.
 
-        Args:
-            flight_path: Path to flight root directory
+        Parameters
+        ----------
+        flight_path : Union[str, Path]
+            Path to flight root directory
 
-        Example:
-            >>> ppk = PPKAnalysis('/mnt/data/flight_001')
-            >>> print(ppk.ppk_dir)
-            /mnt/data/flight_001/proc/ppk
+        Examples
+        --------
+        >>> ppk = PPKAnalysis('/mnt/data/flight_001')
+        >>> print(ppk.ppk_dir)
+        /mnt/data/flight_001/proc/ppk
         """
         self.flight_path = Path(flight_path)
         self.ppk_dir = self.flight_path / "proc" / "ppk"
@@ -153,17 +167,22 @@ class PPKAnalysis:
         Reads the entire config file and computes its SHA256 hash.
         Used to detect if configuration has changed since last run.
 
-        Args:
-            config_path: Path to RTKLIB config file
+        Parameters
+        ----------
+        config_path : Path
+            Path to RTKLIB config file
 
-        Returns:
+        Returns
+        -------
+        str
             64-character hexadecimal SHA256 hash
 
-        Example:
-            >>> ppk = PPKAnalysis('/path/to/flight')
-            >>> hash1 = ppk._hash_config(Path('config1.conf'))
-            >>> hash2 = ppk._hash_config(Path('config2.conf'))
-            >>> hash1 == hash2  # True if configs identical
+        Examples
+        --------
+        >>> ppk = PPKAnalysis('/path/to/flight')
+        >>> hash1 = ppk._hash_config(Path('config1.conf'))
+        >>> hash2 = ppk._hash_config(Path('config2.conf'))
+        >>> print(hash1 == hash2)  # True if configs identical
         """
         content = config_path.read_bytes()
         return hashlib.sha256(content).hexdigest()
@@ -179,17 +198,22 @@ class PPKAnalysis:
         - pos2-armode: Ambiguity resolution mode
         - ant2-postype: Antenna position type
 
-        Args:
-            config_path: Path to RTKLIB config file
+        Parameters
+        ----------
+        config_path : Path
+            Path to RTKLIB config file
 
-        Returns:
+        Returns
+        -------
+        Dict[str, Any]
             Dictionary of key-value config parameters
 
-        Example:
-            >>> ppk = PPKAnalysis('/path/to/flight')
-            >>> params = ppk._parse_config_params(Path('rtklib.conf'))
-            >>> print(params['pos1-posmode'])
-            'kinematic'
+        Examples
+        --------
+        >>> ppk = PPKAnalysis('/path/to/flight')
+        >>> params = ppk._parse_config_params(Path('rtklib.conf'))
+        >>> print(params['pos1-posmode'])
+        'kinematic'
         """
         params = {}
         content = config_path.read_text()
@@ -214,14 +238,17 @@ class PPKAnalysis:
 
         Creates version name in format: rev_YYYYMMDD_HHMMSS
 
-        Returns:
+        Returns
+        -------
+        str
             Version name string
 
-        Example:
-            >>> ppk = PPKAnalysis('/path/to/flight')
-            >>> name = ppk._generate_version_name()
-            >>> print(name)
-            'rev_20260204_143022'
+        Examples
+        --------
+        >>> ppk = PPKAnalysis('/path/to/flight')
+        >>> name = ppk._generate_version_name()
+        >>> print(name)
+        'rev_20260204_143022'
         """
         return datetime.now().strftime("rev_%Y%m%d_%H%M%S")
 
@@ -234,17 +261,22 @@ class PPKAnalysis:
         - solution.pos.stat (RTKLIB statistics)
         - config.conf (RTKLIB config used)
 
-        Args:
-            version_name: Version name (rev_YYYYMMDD_HHMMSS)
+        Parameters
+        ----------
+        version_name : str
+            Version name (rev_YYYYMMDD_HHMMSS)
 
-        Returns:
+        Returns
+        -------
+        Path
             Path to created revision folder
 
-        Example:
-            >>> ppk = PPKAnalysis('/path/to/flight')
-            >>> folder = ppk._create_revision_folder('rev_20260204_143022')
-            >>> print(folder)
-            /path/to/flight/proc/ppk/rev_20260204_143022
+        Examples
+        --------
+        >>> ppk = PPKAnalysis('/path/to/flight')
+        >>> folder = ppk._create_revision_folder('rev_20260204_143022')
+        >>> print(folder)
+        /path/to/flight/proc/ppk/rev_20260204_143022
         """
         revision_path = self.ppk_dir / version_name
         revision_path.mkdir(parents=True, exist_ok=True)
@@ -260,19 +292,24 @@ class PPKAnalysis:
         3. Run if config hash differs from latest version
         4. Skip if config unchanged
 
-        Args:
-            config_path: Path to RTKLIB config file
+        Parameters
+        ----------
+        config_path : Path
+            Path to RTKLIB config file
 
-        Returns:
+        Returns
+        -------
+        bool
             True if analysis should run, False to skip
 
-        Example:
-            >>> ppk = PPKAnalysis('/path/to/flight')
-            >>> should_run = ppk._should_run_analysis(Path('config.conf'))
-            >>> if should_run:
-            ...     print("Config changed, running analysis")
-            ... else:
-            ...     print("Config unchanged, skipping")
+        Examples
+        --------
+        >>> ppk = PPKAnalysis('/path/to/flight')
+        >>> should_run = ppk._should_run_analysis(Path('config.conf'))
+        >>> if should_run:
+        ...     print("Config changed, running analysis")
+        ... else:
+        ...     print("Config unchanged, skipping")
         """
         # Run if no HDF5 file exists (first run)
         if not self.hdf5_path.exists():
@@ -306,15 +343,18 @@ class PPKAnalysis:
         Returns the version with the latest timestamp based on
         version name sorting (rev_YYYYMMDD_HHMMSS format sorts chronologically).
 
-        Returns:
+        Returns
+        -------
+        Optional[PPKVersion]
             Latest PPKVersion or None if no versions exist
 
-        Example:
-            >>> ppk = PPKAnalysis.from_hdf5('/path/to/flight')
-            >>> latest = ppk.get_latest_version()
-            >>> if latest:
-            ...     print(f"Latest: {latest.version_name}")
-            ...     print(latest.pos_data)
+        Examples
+        --------
+        >>> ppk = PPKAnalysis.from_hdf5('/path/to/flight')
+        >>> latest = ppk.get_latest_version()
+        >>> if latest:
+        ...     print(f"Latest: {latest.version_name}")
+        ...     print(latest.pos_data)
         """
         if not self.versions:
             return None
@@ -343,34 +383,44 @@ class PPKAnalysis:
         - Parses results using POSAnalyzer and STATAnalyzer
         - Saves to HDF5
 
-        Args:
-            config_path: Path to RTKLIB configuration file
-            rover_obs: Path to rover RINEX observation file
-            base_obs: Path to base RINEX observation file
-            nav_file: Path to navigation file
-            force: If True, force re-run even if config unchanged
-            rnx2rtkp_path: Path to rnx2rtkp binary (default: "rnx2rtkp")
+        Parameters
+        ----------
+        config_path : Union[str, Path]
+            Path to RTKLIB configuration file
+        rover_obs : Union[str, Path]
+            Path to rover RINEX observation file
+        base_obs : Union[str, Path]
+            Path to base RINEX observation file
+        nav_file : Union[str, Path]
+            Path to navigation file
+        force : bool, optional
+            If True, force re-run even if config unchanged (default: False)
+        rnx2rtkp_path : str, optional
+            Path to rnx2rtkp binary (default: "rnx2rtkp")
 
-        Returns:
+        Returns
+        -------
+        Optional[PPKVersion]
             PPKVersion object with results, or None if execution failed
 
-        Raises:
-            FileNotFoundError: If config file doesn't exist
+        Raises
+        ------
+        FileNotFoundError
+            If config file doesn't exist
 
-        Example:
-            >>> ppk = PPKAnalysis('/path/to/flight')
-            >>>
-            >>> # Smart execution - only runs if needed
-            >>> v1 = ppk.run_analysis(
-            ...     'rtklib.conf',
-            ...     'rover.obs',
-            ...     'base.obs',
-            ...     'nav.nav'
-            ... )
-            >>> v2 = ppk.run_analysis(...)  # Skipped if config same
-            >>>
-            >>> # Force re-run
-            >>> v3 = ppk.run_analysis(..., force=True)
+        Examples
+        --------
+        >>> ppk = PPKAnalysis('/path/to/flight')
+        >>> # Smart execution - only runs if needed
+        >>> v1 = ppk.run_analysis(
+        ...     'rtklib.conf',
+        ...     'rover.obs',
+        ...     'base.obs',
+        ...     'nav.nav'
+        ... )
+        >>> v2 = ppk.run_analysis(...)  # Skipped if config same
+        >>> # Force re-run
+        >>> v3 = ppk.run_analysis(..., force=True)
         """
         config_path = Path(config_path)
         rover_obs = Path(rover_obs)
@@ -500,29 +550,33 @@ class PPKAnalysis:
         statistics data, and metadata. Follows Flight.py pattern for DataFrame
         serialization with column-wise datasets.
 
-        HDF5 Structure:
-            /{version_name}/
-            ├── position/           # POSAnalyzer DataFrame columns
-            │   ├── timestamp (dataset)
-            │   ├── lat (dataset)
-            │   └── ...
-            ├── statistics/         # STATAnalyzer DataFrame columns
-            │   ├── timestamp (dataset)
-            │   ├── num_sat (dataset)
-            │   └── ...
-            └── attrs:              # Group attributes
-                ├── config_hash
-                ├── timestamp
-                ├── config_params (JSON string)
-                └── revision_path
+        HDF5 Structure
+        --------------
+        /{version_name}/
+        ├── position/           # POSAnalyzer DataFrame columns
+        │   ├── timestamp (dataset)
+        │   ├── lat (dataset)
+        │   └── ...
+        ├── statistics/         # STATAnalyzer DataFrame columns
+        │   ├── timestamp (dataset)
+        │   ├── num_sat (dataset)
+        │   └── ...
+        └── attrs:              # Group attributes
+            ├── config_hash
+            ├── timestamp
+            ├── config_params (JSON string)
+            └── revision_path
 
-        Args:
-            version: PPKVersion to save
+        Parameters
+        ----------
+        version : PPKVersion
+            PPKVersion to save
 
-        Example:
-            >>> ppk = PPKAnalysis('/path/to/flight')
-            >>> version = PPKVersion(...)
-            >>> ppk._save_version_to_hdf5(version)
+        Examples
+        --------
+        >>> ppk = PPKAnalysis('/path/to/flight')
+        >>> version = PPKVersion(...)
+        >>> ppk._save_version_to_hdf5(version)
         """
         import h5py
 
@@ -566,14 +620,14 @@ class PPKAnalysis:
         separate HDF5 dataset, with metadata (columns, dtypes, n_rows) stored
         as group attributes.
 
-        Args:
-            parent_group: Parent HDF5 group
-            name: Name for the column group
-            df: Polars DataFrame to save
-
-        Example:
-            >>> with h5py.File('test.h5', 'w') as f:
-            ...     ppk._save_dataframe_to_hdf5(f, 'position', pos_df)
+        Parameters
+        ----------
+        parent_group : h5py.Group
+            Parent HDF5 group
+        name : str
+            Name for the column group
+        df : pl.DataFrame
+            Polars DataFrame to save
         """
         import json
 
@@ -603,19 +657,26 @@ class PPKAnalysis:
         Reconstructs a PPKVersion object from HDF5 storage, loading position
         data, statistics data, and metadata. Adds loaded version to self.versions dict.
 
-        Args:
-            version_name: Name of version to load (e.g., 'rev_20260204_143022')
+        Parameters
+        ----------
+        version_name : str
+            Name of version to load (e.g., 'rev_20260204_143022')
 
-        Returns:
+        Returns
+        -------
+        PPKVersion
             Loaded PPKVersion object
 
-        Raises:
-            KeyError: If version_name not found in HDF5 file
+        Raises
+        ------
+        KeyError
+            If version_name not found in HDF5 file
 
-        Example:
-            >>> ppk = PPKAnalysis('/path/to/flight')
-            >>> version = ppk._load_version_from_hdf5('rev_20260204_143022')
-            >>> print(version.pos_data)
+        Examples
+        --------
+        >>> ppk = PPKAnalysis('/path/to/flight')
+        >>> version = ppk._load_version_from_hdf5('rev_20260204_143022')
+        >>> print(version.pos_data)
         """
         import h5py
 
@@ -670,15 +731,15 @@ class PPKAnalysis:
         Reconstructs DataFrame from column-wise HDF5 datasets. Follows Flight.py
         pattern for deserialization.
 
-        Args:
-            dataset_group: HDF5 group containing column datasets
+        Parameters
+        ----------
+        dataset_group : h5py.Group
+            HDF5 group containing column datasets
 
-        Returns:
+        Returns
+        -------
+        pl.DataFrame
             Reconstructed Polars DataFrame
-
-        Example:
-            >>> with h5py.File('test.h5', 'r') as f:
-            ...     df = ppk._load_dataframe_from_hdf5(f['position'])
         """
         import json
 
@@ -712,17 +773,22 @@ class PPKAnalysis:
         Creates a PPKAnalysis instance and loads all stored versions from
         ppk_solution.h5. If no HDF5 file exists, returns empty PPKAnalysis.
 
-        Args:
-            flight_path: Path to flight root directory
+        Parameters
+        ----------
+        flight_path : Union[str, Path]
+            Path to flight root directory
 
-        Returns:
+        Returns
+        -------
+        PPKAnalysis
             PPKAnalysis instance with loaded versions
 
-        Example:
-            >>> ppk = PPKAnalysis.from_hdf5('/path/to/flight')
-            >>> print(f"Loaded {len(ppk.versions)} versions")
-            >>> for version_name in ppk.list_versions():
-            ...     print(f"  - {version_name}")
+        Examples
+        --------
+        >>> ppk = PPKAnalysis.from_hdf5('/path/to/flight')
+        >>> print(f"Loaded {len(ppk.versions)} versions")
+        >>> for version_name in ppk.list_versions():
+        ...     print(f"  - {version_name}")
         """
         import h5py
 
@@ -752,14 +818,17 @@ class PPKAnalysis:
         Version names use timestamp format (rev_YYYYMMDD_HHMMSS) which ensures
         alphabetical sorting equals chronological sorting.
 
-        Returns:
+        Returns
+        -------
+        List[str]
             Sorted list of version names
 
-        Example:
-            >>> ppk = PPKAnalysis.from_hdf5('/path/to/flight')
-            >>> versions = ppk.list_versions()
-            >>> print(versions)
-            ['rev_20260204_140000', 'rev_20260204_150000', 'rev_20260204_160000']
+        Examples
+        --------
+        >>> ppk = PPKAnalysis.from_hdf5('/path/to/flight')
+        >>> versions = ppk.list_versions()
+        >>> print(versions)
+        ['rev_20260204_140000', 'rev_20260204_150000', 'rev_20260204_160000']
         """
         return sorted(list(self.versions.keys()))
 
@@ -767,17 +836,22 @@ class PPKAnalysis:
         """
         Get specific version by name.
 
-        Args:
-            version_name: Version identifier (e.g., 'rev_20260204_143022')
+        Parameters
+        ----------
+        version_name : str
+            Version identifier (e.g., 'rev_20260204_143022')
 
-        Returns:
+        Returns
+        -------
+        Optional[PPKVersion]
             PPKVersion if found, None otherwise
 
-        Example:
-            >>> ppk = PPKAnalysis.from_hdf5('/path/to/flight')
-            >>> version = ppk.get_version('rev_20260204_143022')
-            >>> if version:
-            ...     print(version.pos_data)
+        Examples
+        --------
+        >>> ppk = PPKAnalysis.from_hdf5('/path/to/flight')
+        >>> version = ppk.get_version('rev_20260204_143022')
+        >>> if version:
+        ...     print(version.pos_data)
         """
         return self.versions.get(version_name)
 
@@ -790,13 +864,16 @@ class PPKAnalysis:
         2. HDF5 file (deletes group)
         3. Filesystem (deletes revision folder)
 
-        Args:
-            version_name: Version identifier to delete
+        Parameters
+        ----------
+        version_name : str
+            Version identifier to delete
 
-        Example:
-            >>> ppk = PPKAnalysis.from_hdf5('/path/to/flight')
-            >>> ppk.delete_version('rev_20260204_140000')
-            >>> print(ppk.list_versions())  # Version gone
+        Examples
+        --------
+        >>> ppk = PPKAnalysis.from_hdf5('/path/to/flight')
+        >>> ppk.delete_version('rev_20260204_140000')
+        >>> print(ppk.list_versions())  # Version gone
         """
         import shutil
 

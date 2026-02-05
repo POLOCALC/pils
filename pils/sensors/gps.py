@@ -10,21 +10,31 @@ from ..utils.tools import get_logpath_from_datapath, read_log_time
 
 
 class GPS:
-    """GPS sensor for reading UBX binary data.
+    """
+    GPS sensor for reading UBX binary data.
 
-    Attributes:
-        data_path: Path to GPS binary file (*.gps.bin).
-        logpath: Path to log file for timestamp extraction.
-        tstart: Start timestamp from log file (set after load_data).
-        data: Polars DataFrame with GPS data (None until load_data is called).
+    Attributes
+    ----------
+    data_path : Path
+        Path to GPS binary file (*.gps.bin).
+    logpath : Path
+        Path to log file for timestamp extraction.
+    tstart : Optional[datetime]
+        Start timestamp from log file (set after load_data).
+    data : Optional[pl.DataFrame]
+        Polars DataFrame with GPS data (None until load_data is called).
     """
 
     def __init__(self, path: Path, logpath: Optional[Path] = None) -> None:
-        """Initialize GPS sensor.
+        """
+        Initialize GPS sensor.
 
-        Args:
-            path: Directory containing GPS binary file.
-            logpath: Optional path to log file. If None, will be inferred.
+        Parameters
+        ----------
+        path : Path
+            Directory containing GPS binary file.
+        logpath : Optional[Path], default=None
+            Optional path to log file. If None, will be inferred.
         """
 
         files = list(path.glob("*"))
@@ -41,26 +51,29 @@ class GPS:
         self.data: Optional[pl.DataFrame] = None
 
     def load_data(self, freq_interpolation: Optional[float] = None) -> None:
-        """Load GPS data from UBX binary file.
+        """
+        Load GPS data from UBX binary file.
 
         Reads GPS data in UBX protocol format and parses NAV messages.
         Merges different NAV message types (POSLLH, VELNED, STATUS, etc.)
         onto a common time grid with optional interpolation.
 
-        Args:
-            freq_interpolation: Optional frequency for interpolation in Hz.
-                              If None, uses mean time difference from data.
-                              If provided, resamples data to this frequency.
+        Parameters
+        ----------
+        freq_interpolation : Optional[float], default=None
+            Optional frequency for interpolation in Hz.
+            If None, uses mean time difference from data.
+            If provided, resamples data to this frequency.
 
-        Sets:
-            self.data: Polars DataFrame with:
-                - unix_time_ms: Unix timestamp in milliseconds
-                - datetime: UTC datetime
-                - timestamp: Unix timestamp in seconds
-                - NAV message columns (prefixed by message type)
+        Notes
+        -----
+        Sets self.data: Polars DataFrame with:
+        - unix_time_ms: Unix timestamp in milliseconds
+        - datetime: UTC datetime
+        - timestamp: Unix timestamp in seconds
+        - NAV message columns (prefixed by message type)
 
-        Note:
-            Requires log file with "Sensor ZED-F9P started" entry for date extraction.
+        Requires log file with "Sensor ZED-F9P started" entry for date extraction.
         """
 
         # Dictionary to collect records from different NAV message types
@@ -178,14 +191,20 @@ class GPS:
     def _merge_nav_dataframes(
         self, nav_dataframes: dict, freq: Optional[float] = None
     ) -> Optional[pl.DataFrame]:
-        """Merge NAV dataframes onto a common time grid with interpolation.
+        """
+        Merge NAV dataframes onto a common time grid with interpolation.
 
-        Args:
-            nav_dataframes: Dictionary of NAV message type -> polars DataFrame.
-                          Each DataFrame must have unix_time_ms column.
-            freq: Time grid frequency in Hz. If None, uses mean time difference.
+        Parameters
+        ----------
+        nav_dataframes : dict
+            Dictionary of NAV message type -> polars DataFrame.
+            Each DataFrame must have unix_time_ms column.
+        freq : Optional[float], default=None
+            Time grid frequency in Hz. If None, uses mean time difference.
 
-        Returns:
+        Returns
+        -------
+        pl.DataFrame or None
             Merged DataFrame with interpolated values on common time grid,
             or None if no valid dataframes found.
         """

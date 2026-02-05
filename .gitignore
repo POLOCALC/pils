@@ -1,9 +1,11 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *.pyc
 *$py.class
 .ipynb_checkpoints/
+**/.ipynb_checkpoints/
 
 # C extensions
 *.so
@@ -31,3 +33,25 @@ tests/*.db
 
 #Data Files
 data*.csv
+
+# Agent artifacts and development files
+.agents/
+htmlcov/
+plans/*
+site/
+**/*_cache/
+.mypy_cache/
+.pytest_cache/
+.coverage
+.coverage.*
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -12,15 +12,24 @@ from ..utils.tools import get_logpath_from_datapath, read_log_time
 class Camera:
     """Camera sensor for video files and image sequences.
 
-    Attributes:
-        path: Path to video file or image directory.
-        logpath: Path to log file for timestamp extraction.
-        capture: OpenCV VideoCapture object (for videos).
-        fps: Frames per second.
-        tstart: Start timestamp from log file.
-        is_image_sequence: Whether path is an image sequence directory.
-        images: List of image file paths (for image sequences).
-        time_index: Optional timestamp mapping for images.
+    Attributes
+    ----------
+    path : Union[str, Path]
+        Path to video file or image directory.
+    logpath : Optional[Union[str, Path]]
+        Path to log file for timestamp extraction.
+    capture : Optional[Any]
+        OpenCV VideoCapture object (for videos).
+    fps : Optional[float]
+        Frames per second.
+    tstart : Optional[Any]
+        Start timestamp from log file.
+    is_image_sequence : bool
+        Whether path is an image sequence directory.
+    images : list
+        List of image file paths (for image sequences).
+    time_index : Optional[Dict[str, Any]]
+        Optional timestamp mapping for images.
     """
 
     def __init__(
@@ -31,11 +40,15 @@ class Camera:
     ) -> None:
         """Initialize Camera sensor.
 
-        Args:
-            path: Path to video file or directory containing images.
-            logpath: Optional path to log file. If None, will be inferred.
-            time_index: Optional dict mapping image filenames to timestamps.
-                       Example: {"img_0001.jpg": datetime, ...}
+        Parameters
+        ----------
+        path : Union[str, Path]
+            Path to video file or directory containing images.
+        logpath : Optional[Union[str, Path]], optional
+            Optional path to log file. If None, will be inferred.
+        time_index : Optional[Dict[str, Any]], optional
+            Optional dict mapping image filenames to timestamps.
+            Example: {"img_0001.jpg": datetime, ...}
         """
         self.path = path
         self.logpath = logpath if logpath is not None else get_logpath_from_datapath(self.path)
@@ -63,8 +76,10 @@ class Camera:
             - Estimates FPS from time_index if provided
             - Sorts images by filename
 
-        Raises:
-            FileNotFoundError: If image directory is empty.
+        Raises
+        ------
+        FileNotFoundError
+            If image directory is empty.
         """
         # ------------------------------
         # Case 1: VIDEO FILE
@@ -118,15 +133,22 @@ class Camera:
     def get_frame(self, frame_number: int) -> np.ndarray:
         """Get frame at specified index.
 
-        Args:
-            frame_number: Frame index to retrieve.
+        Parameters
+        ----------
+        frame_number : int
+            Frame index to retrieve.
 
-        Returns:
+        Returns
+        -------
+        np.ndarray
             Frame as numpy array (BGR format for OpenCV).
 
-        Raises:
-            ValueError: If video capture not initialized or frame read fails.
-            IndexError: If frame_number is out of range for image sequence.
+        Raises
+        ------
+        ValueError
+            If video capture not initialized or frame read fails.
+        IndexError
+            If frame_number is out of range for image sequence.
         """
         # -------------------
         # VIDEO
@@ -160,10 +182,14 @@ class Camera:
         For image sequences:
             Returns timestamp from time_index if available, else None.
 
-        Args:
-            frame_number: Frame index.
+        Parameters
+        ----------
+        frame_number : int
+            Frame index.
 
-        Returns:
+        Returns
+        -------
+        Optional[Any]
             Timestamp (datetime) or None if not available.
         """
         if not self.is_image_sequence:
@@ -181,12 +207,17 @@ class Camera:
     def plot_frame(self, frame_number: int, color: str = "rgb") -> None:
         """Plot frame at specified index.
 
-        Args:
-            frame_number: Frame index to plot.
-            color: Color space for display ("rgb", "hsv", "gray", or "bgr").
+        Parameters
+        ----------
+        frame_number : int
+            Frame index to plot.
+        color : str, optional
+            Color space for display ("rgb", "hsv", "gray", or "bgr").
 
-        Raises:
-            KeyError: If color space not recognized.
+        Raises
+        ------
+        KeyError
+            If color space not recognized.
         """
         frame = self.get_frame(frame_number)
 

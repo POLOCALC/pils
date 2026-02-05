@@ -31,20 +31,27 @@ def decode_inclino(inclino_path: str | Path) -> Dict[str, List[Any]]:
     """
     Decodes inclinometer data from a binary file and returns the decoded messages as a dictionary.
 
-    Args:
-        inclino_path: Path to the binary file containing inclinometer data.
+    Parameters
+    ----------
+    inclino_path : Union[str, Path]
+        Path to the binary file containing inclinometer data.
 
-    Returns:
+    Returns
+    -------
+    Dict[str, List[Any]]
         A dictionary where keys are message field names and values are lists of
         field values extracted from the decoded messages.
 
-    Raises:
-        FileNotFoundError: If inclino_path does not exist.
+    Raises
+    ------
+    FileNotFoundError
+        If inclino_path does not exist.
 
-    Example:
-        >>> data = decode_inclino(Path("inclino.bin"))
-        >>> data.keys()
-        dict_keys(['Roll', 'Pitch', 'Heading', 'Counter'])
+    Examples
+    --------
+    >>> data = decode_inclino(Path("inclino.bin"))
+    >>> data.keys()
+    dict_keys(['Roll', 'Pitch', 'Heading', 'Counter'])
     """
 
     with open(inclino_path, "rb") as fd:
@@ -183,9 +190,12 @@ class IMX5Inclinometer:
         """
         Initialize IMX5Inclinometer.
 
-        Args:
-            dirpath: Path to the sensors directory containing IMX-5 CSV files.
-            logpath: Path to log file for timing information (optional).
+        Parameters
+        ----------
+        dirpath : Path
+            Path to the sensors directory containing IMX-5 CSV files.
+        logpath : Optional[str], optional
+            Path to log file for timing information (optional).
         """
         self.dirpath = dirpath
         self.logpath = logpath
@@ -200,10 +210,14 @@ class IMX5Inclinometer:
     def _find_file(self, pattern: str) -> Optional[str]:
         """Find a file matching the pattern in dirpath.
 
-        Args:
-            pattern: Glob pattern to match files.
+        Parameters
+        ----------
+        pattern : str
+            Glob pattern to match files.
 
-        Returns:
+        Returns
+        -------
+        Optional[str]
             Path to first matching file, or None if not found.
         """
         files = glob.glob(os.path.join(self.dirpath, pattern))
@@ -323,9 +337,12 @@ class KernelInclinometer:
         """
         Initialize KernelInclinometer.
 
-        Args:
-            path: Path to the Kernel binary file (*_INC.bin).
-            logpath: Path to log file for timing information (optional).
+        Parameters
+        ----------
+        path : Path
+            Path to the Kernel binary file (*_INC.bin).
+        logpath : Optional[str], optional
+            Path to log file for timing information (optional).
         """
         self.path = path
         if logpath is not None:
@@ -342,8 +359,10 @@ class KernelInclinometer:
         """
         Read start time from log file.
 
-        Args:
-            logfile: Path to log file (optional).
+        Parameters
+        ----------
+        logfile : Optional[str], optional
+            Path to log file (optional).
         """
         if logfile is None:
             return
@@ -406,7 +425,9 @@ class KernelInclinometer:
         )
 
         if self.logpath is not None:
-            self.read_log_time(logfile=self.logpath)
+            # Convert Path to str if needed
+            logfile_path = str(self.logpath) if isinstance(self.logpath, Path) else self.logpath
+            self.read_log_time(logfile=logfile_path)
             if self.tstart is not None:
                 tstart = self.tstart
                 # Calculate datetime for each row
@@ -515,8 +536,10 @@ class Inclinometer:
     def load_data(self) -> None:
         """Load inclinometer data using the detected decoder.
 
-        Raises:
-            ValueError: If no inclinometer data found at path.
+        Raises
+        ------
+        ValueError
+            If no inclinometer data found at path.
         """
         if self._decoder is None:
             raise ValueError(
@@ -530,8 +553,10 @@ class Inclinometer:
     def plot(self) -> None:
         """Plot roll, pitch, yaw over time.
 
-        Raises:
-            ValueError: If data not loaded.
+        Raises
+        ------
+        ValueError
+            If data not loaded.
         """
         if self.data is None:
             raise ValueError("Data not loaded. Run load_data() first.")
@@ -539,19 +564,45 @@ class Inclinometer:
         fig, axs = plt.subplots(3, 1, sharex=True, figsize=(10, 8))
 
         # Determine x-axis (prefer timestamp)
-        if "timestamp" in self.data.columns:
-            x = self.data["timestamp"].to_numpy()
-            xlabel = "Time [s]"
-        elif "datetime" in self.data.columns:
-            x = self.data["datetime"].to_numpy()
-            xlabel = "Time"
+        # Handle both DataFrame and dict types
+        if isinstance(self.data, pl.DataFrame):
+            if "timestamp" in self.data.columns:
+                x = self.data["timestamp"].to_numpy()
+                xlabel = "Time [s]"
+            elif "datetime" in self.data.columns:
+                x = self.data["datetime"].to_numpy()
+                xlabel = "Time"
+            else:
+                x = np.arange(len(self.data))
+                xlabel = "Sample"
+        elif isinstance(self.data, dict):
+            if "timestamp" in self.data:
+                x = self.data["timestamp"]
+                xlabel = "Time [s]"
+            elif "datetime" in self.data:
+                x = self.data["datetime"]
+                xlabel = "Time"
+            else:
+                # Estimate length from first available key
+                first_key = next(iter(self.data), None)
+                data_len = len(self.data[first_key]) if first_key else 0
+                x = np.arange(data_len)
+                xlabel = "Sample"
         else:
             x = np.arange(len(self.data))
             xlabel = "Sample"
 
-        axs[0].plot(x, self.data["yaw"].to_numpy(), color="cornflowerblue")
-        axs[1].plot(x, self.data["pitch"].to_numpy(), color="crimson")
-        axs[2].plot(x, self.data["roll"].to_numpy(), color="forestgreen")
+        # Extract data based on type
+        if isinstance(self.data, pl.DataFrame):
+            yaw = self.data["yaw"].to_numpy()
+            pitch = self.data["pitch"].to_numpy()
+            roll = self.data["roll"].to_numpy()
+        elif isinstance(self.data, dict):
+            yaw = np.array(self.data.get("yaw", []))
+            pitch = np.array(self.data.get("pitch", []))
+            roll = np.array(self.data.get("roll", []))
+        else:
+            return
 
         axs[0].set_ylabel("Yaw [°]")
         axs[1].set_ylabel("Pitch [°]")

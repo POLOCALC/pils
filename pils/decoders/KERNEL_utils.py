@@ -18,10 +18,14 @@ def _checksum(msg: bytes) -> bytes:
     excluding the header. The resulting sum is an unsigned short integer
     whose Least Significant Byte is first.
 
-    Args:
-        msg: Message bytes used to compute the checksum.
+    Parameters
+    ----------
+    msg : bytes
+        Message bytes used to compute the checksum.
 
-    Returns:
+    Returns
+    -------
+    bytes
         Checksum as bytes (2 bytes, little-endian).
     """
 
@@ -46,11 +50,16 @@ class KernelMsg:
 
         The structure of the message is presented in the KERNEL IMU ICD v1.27.
 
-        Args:
-            msg: Message bytes to be decoded.
-            return_dict: If True, return as dictionary (currently unused).
+        Parameters
+        ----------
+        msg : bytes
+            Message bytes to be decoded.
+        return_dict : bool, optional
+            If True, return as dictionary (currently unused).
 
-        Returns:
+        Returns
+        -------
+        Dict[str, Any]
             Dictionary containing decoded message fields.
         """
 
@@ -95,10 +104,14 @@ class KernelMsg:
     def decode_multi(self, filename: str) -> Dict[str, list]:
         """Decode multiple messages saved in a binary file.
 
-        Args:
-            filename: Path to binary file containing KERNEL messages.
+        Parameters
+        ----------
+        filename : str
+            Path to binary file containing KERNEL messages.
 
-        Returns:
+        Returns
+        -------
+        Dict[str, list]
             Dictionary with parameter names as keys and lists of decoded values.
         """
         count = 0

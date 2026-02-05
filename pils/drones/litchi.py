@@ -18,8 +18,10 @@ class Litchi:
     def __init__(self, path: str | Path) -> None:
         """Initialize Litchi loader.
 
-        Args:
-            path: Path to Litchi CSV log file.
+        Parameters
+        ----------
+        path : Union[str, Path]
+            Path to Litchi CSV log file.
         """
         self.path = path
         self.data = None
@@ -30,11 +32,15 @@ class Litchi:
     ) -> None:
         """Load Litchi flight log data from CSV file.
 
-        Args:
-            cols: List of columns to load. If None, loads default columns.
+        Parameters
+        ----------
+        cols : Optional[List[str]], optional
+            List of columns to load. If None, loads default columns.
 
-        Raises:
-            FileNotFoundError: If CSV file not found.
+        Raises
+        ------
+        FileNotFoundError
+            If CSV file not found.
         """
         if cols is None:
             cols = [

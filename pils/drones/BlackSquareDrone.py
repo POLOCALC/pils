@@ -74,12 +74,18 @@ FLIGHTMODES = {
 def messages_to_df(messages: List[List[str]], columns: List[str], format_str: str) -> pl.DataFrame:
     """Convert ArduPilot log messages to Polars DataFrame.
 
-    Args:
-        messages: List of message rows (each row is list of string values).
-        columns: Column names for the DataFrame.
-        format_str: Format string specifying data types (ArduPilot format codes).
+    Parameters
+    ----------
+    messages : List[List[str]]
+        List of message rows (each row is list of string values).
+    columns : List[str]
+        Column names for the DataFrame.
+    format_str : str
+        Format string specifying data types (ArduPilot format codes).
 
-    Returns:
+    Returns
+    -------
+    pl.DataFrame
         Polars DataFrame with converted message data.
     """
     dtypes = []
@@ -97,14 +103,20 @@ def messages_to_df(messages: List[List[str]], columns: List[str], format_str: st
 def read_msgs(path: str | Path) -> Dict[str, pl.DataFrame]:
     """Read ArduPilot log file and parse messages into DataFrames.
 
-    Args:
-        path: Path to ArduPilot log file.
+    Parameters
+    ----------
+    path : Union[str, Path]
+        Path to ArduPilot log file.
 
-    Returns:
+    Returns
+    -------
+    Dict[str, pl.DataFrame]
         Dictionary mapping message types to DataFrames.
 
-    Raises:
-        FileNotFoundError: If log file not found.
+    Raises
+    ------
+    FileNotFoundError
+        If log file not found.
     """
     with open(path, "r") as f:
         lines = (line.strip() for line in f)
@@ -144,13 +156,17 @@ def read_msgs(path: str | Path) -> Dict[str, pl.DataFrame]:
     return dfs
 
 
-def generate_log_file(lines: List[str]) -> Dict[str, Any]:
+def generate_log_file(lines: List[str]):
     """Generate log file from lines.
 
-    Args:
-        lines: List of log file lines.
+    Parameters
+    ----------
+    lines : List[str]
+        List of log file lines.
 
-    Returns:
+    Returns
+    -------
+    Dict[str, Any]
         Dictionary with log file information.
     """
     msgs = []
@@ -172,11 +188,16 @@ def generate_log_file(lines: List[str]) -> Dict[str, Any]:
 def get_leapseconds(year: int, month: int) -> int:
     """Calculate number of leap seconds for given date.
 
-    Args:
-        year: Year (e.g., 2024).
-        month: Month (1-12).
+    Parameters
+    ----------
+    year : int
+        Year (e.g., 2024).
+    month : int
+        Month (1-12).
 
-    Returns:
+    Returns
+    -------
+    int
         Number of leap seconds to subtract from GPS time.
     """
     # Load and prepare DataFrame
@@ -209,8 +230,10 @@ class BlackSquareDrone:
     def __init__(self, path: str | Path) -> None:
         """Initialize BlackSquareDrone loader.
 
-        Args:
-            path: Path to ArduPilot log file.
+        Parameters
+        ----------
+        path : Union[str, Path]
+            Path to ArduPilot log file.
         """
 
         self.path = path
@@ -244,7 +267,7 @@ class BlackSquareDrone:
         self.attitude = self.data["ATT"]
         self.pwm = self.data["RCOU"]
         self.position = self.data["POS"]
-        
+
         # GPA may not always be present
         if "GPA" in self.data:
             self.gpa = self.data["GPA"]
@@ -264,21 +287,22 @@ class BlackSquareDrone:
 
         Converts GPS time to UTC by subtracting leap seconds.
         """
-        gps = self.gps
-        # GPS epoch is 1980-01-06, calculate datetime from GWk (week) and GMS (milliseconds)
-        gps_epoch = datetime(1980, 1, 6)
+        if self.gps is not None:
+            gps = self.gps
+            # GPS epoch is 1980-01-06, calculate datetime from GWk (week) and GMS (milliseconds)
+            gps_epoch = datetime(1980, 1, 6)
 
-        gps_dt = []
-        for row in gps.iter_rows(named=True):
-            dt = gps_epoch + timedelta(weeks=int(row["GWk"]), milliseconds=int(row["GMS"]))
-            gps_dt.append(dt)
+            gps_dt = []
+            for row in gps.iter_rows(named=True):
+                dt = gps_epoch + timedelta(weeks=int(row["GWk"]), milliseconds=int(row["GMS"]))
+                gps_dt.append(dt)
 
-        gps_dt_series = pl.Series("gps_datetime", gps_dt)
+            gps_dt_series = pl.Series("gps_datetime", gps_dt)
 
-        # Get leap seconds
-        first_dt = gps_dt[0]
-        leapseconds = get_leapseconds(first_dt.year, first_dt.month)
+            # Get leap seconds
+            first_dt = gps_dt[0]
+            leapseconds = get_leapseconds(first_dt.year, first_dt.month)
 
-        # Subtract leap seconds
-        gps_dt_corrected = [dt - timedelta(seconds=leapseconds) for dt in gps_dt]
-        self.datetime = pl.Series("datetime", gps_dt_corrected)
+            # Subtract leap seconds
+            gps_dt_corrected = [dt - timedelta(seconds=leapseconds) for dt in gps_dt]
+            self.datetime = pl.Series("datetime", gps_dt_corrected)

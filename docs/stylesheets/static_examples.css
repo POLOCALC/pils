@@ -1,0 +1,35 @@
+/* Static Examples - Make example boxes non-collapsible */
+details.example > summary {
+    pointer-events: none;
+    cursor: default;
+}
+
+details.example > summary::after,
+details.example > summary::before {
+    display: none !important;
+    content: none !important;
+}
+
+details.example > summary {
+    list-style: none;
+}
+
+details.example > summary::-webkit-details-marker {
+    display: none;
+}
+
+/* Align mkdocstrings examples with standard code blocks */
+.md-typeset details.example {
+    border: 0;
+    box-shadow: none;
+    background: transparent;
+    padding: 0;
+    margin: 1em 0;
+}
+
+.md-typeset details.example > summary {
+    font-size: 1.05em;
+    font-weight: 600;
+    margin: 0 0 0.5em 0;
+    padding: 0;
+}

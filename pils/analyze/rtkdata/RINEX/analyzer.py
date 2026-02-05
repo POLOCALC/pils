@@ -99,6 +99,7 @@ class RINEXAnalyzer:
         in_header = True
         records = []
         epoch_counter = 0
+        current_epoch = None  # Initialize before loop to avoid unbound errors
 
         with open(self.filepath, "r") as f:
             for line in f:
@@ -150,7 +151,9 @@ class RINEXAnalyzer:
                         current_epoch = None
                     continue
 
-                if current_epoch is None or len(line) < 4:
+                if current_epoch is None:
+                    continue
+                if len(line) < 4:
                     continue
                 sat_id = line[0:3].strip()
                 const = sat_id[0]
@@ -174,17 +177,18 @@ class RINEXAnalyzer:
                     lli = int(lli_str) if lli_str else 0
 
                     try:
-                        records.append(
-                            {
-                                "time": current_epoch,
-                                "satellite": sat_id,
-                                "constellation": const,
-                                "frequency": get_frequency_band(const, obs_type[1]),
-                                "obs_type": obs_type[0],
-                                "value": float(val_str),
-                                "lli": lli,
-                            }
-                        )
+                        if current_epoch is not None:
+                            records.append(
+                                {
+                                    "time": current_epoch,
+                                    "satellite": sat_id,
+                                    "constellation": const,
+                                    "frequency": get_frequency_band(const, obs_type[1]),
+                                    "obs_type": obs_type[0],
+                                    "value": float(val_str),
+                                    "lli": lli,
+                                }
+                            )
                     except:
                         pass
 
@@ -806,13 +810,21 @@ class RINEXAnalyzer:
         n_quads = len(quads)
         el_min = current_sky["elevation"].min()
         el_max = current_sky["elevation"].max()
-        el_spread = (el_max - el_min) if el_min is not None else 0
+
+        # Ensure both are numbers and not None
+        if el_min is None or el_max is None:
+            el_spread = 0.0
+        else:
+            # Cast to float to ensure proper numeric operations
+            el_min_val = float(el_min) if el_min is not None else 0.0  # type: ignore
+            el_max_val = float(el_max) if el_max is not None else 0.0  # type: ignore
+            el_spread = abs(el_max_val - el_min_val)
 
         # Diversity score: 0-100 based on quadrants (60%) and el spread (40%)
         quad_p = (n_quads / 4.0) * 100
-        el_p = min(100, (el_spread / 60.0) * 100)  # 60 deg spread is good
+        el_p = min(100, (float(el_spread) / 60.0) * 100)  # 60 deg spread is good
 
-        diversity = quad_p * 0.6 + el_p * 0.4
+        diversity = float(quad_p * 0.6 + el_p * 0.4)
 
         return {
             "quadrants": n_quads,
@@ -921,30 +933,42 @@ class RINEXAnalyzer:
                 cells_covered = bins.select(["quad", "ebin"]).unique().shape[0]
 
                 # Step 3: Geometry
-                el_min, el_max = (
-                    good_sats["elevation"].min(),
-                    good_sats["elevation"].max(),
-                )
-                el_span = (el_max - el_min) if el_min is not None else 0
+                el_min = good_sats["elevation"].min()
+                el_max = good_sats["elevation"].max()
+
+                if el_min is None or el_max is None:
+                    el_span = 0.0
+                else:
+                    # Cast to float to ensure proper numeric operations
+                    el_min_val = float(el_min) if el_min is not None else 0.0  # type: ignore
+                    el_max_val = float(el_max) if el_max is not None else 0.0  # type: ignore
+                    el_span = abs(el_max_val - el_min_val)
 
                 q_counts = bins.group_by("quad").count()
-                balance = (
-                    q_counts["count"].min() / q_counts["count"].max()
-                    if q_counts.shape[0] > 0
-                    else 0
-                )
+                if q_counts.shape[0] > 0:
+                    min_count = q_counts["count"].min()
+                    max_count = q_counts["count"].max()
+                    if min_count is not None and max_count is not None and max_count > 0:  # type: ignore
+                        # Cast to float to ensure proper numeric operations
+                        min_val = float(min_count) if min_count is not None else 0.0  # type: ignore
+                        max_val = float(max_count) if max_count is not None else 1.0  # type: ignore
+                        balance = min_val / max_val if max_val > 0 else 0.0
+                    else:
+                        balance = 0.0
+                else:
+                    balance = 0.0
             else:
                 cells_covered = 0
                 el_span = 0
                 balance = 0
 
             # Step 4: Final Score per epoch
-            s_count = min(100.0, (n_good / 20.0) * 100)
-            s_cov = (cells_covered / 12.0) * 100
-            s_el = min(100.0, (el_span / 45.0) * 100)
-            s_az = balance * 100
+            s_count = float(min(100.0, (n_good / 20.0) * 100))
+            s_cov = float((cells_covered / 12.0) * 100)
+            s_el = float(min(100.0, (float(el_span) / 45.0) * 100))
+            s_az = float(balance * 100)
 
-            epoch_score = s_count * 0.40 + s_cov * 0.30 + s_el * 0.15 + s_az * 0.15
+            epoch_score = float(s_count * 0.40 + s_cov * 0.30 + s_el * 0.15 + s_az * 0.15)
 
             epoch_stats.append(
                 {

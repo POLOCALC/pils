@@ -71,9 +71,15 @@ class POSAnalyzer:
     def _compute_enu(self):
         """Converts Lat/Lon/Height to ENU offsets relative to the mean position."""
         # Mean position as origin
-        lat0 = np.deg2rad(self.df["lat"].mean())
-        lon0 = np.deg2rad(self.df["lon"].mean())
-        h0 = self.df["height"].mean()
+        lat_mean = self.df["lat"].mean()
+        lon_mean = self.df["lon"].mean()
+        if lat_mean is None or lon_mean is None:
+            return
+        # Convert to float explicitly
+        lat0 = np.radians(float(lat_mean)) if lat_mean is not None else 0.0  # type: ignore
+        lon0 = np.radians(float(lon_mean)) if lon_mean is not None else 0.0  # type: ignore
+        h0_val = self.df["height"].mean()
+        h0 = float(h0_val) if h0_val is not None else 0.0  # type: ignore
 
         # WGS84 Constants
         a = 6378137.0

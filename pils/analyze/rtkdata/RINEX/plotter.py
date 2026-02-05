@@ -51,11 +51,13 @@ class RINEXPlotter:
             GNSSColors.apply_theme(axes[0, 1])
 
         # 3. Observation Count
+        paired_cmap = plt.get_cmap("Paired")
+        colors = [paired_cmap(i / paired_cmap.N) for i in range(min(len(summary), paired_cmap.N))]
         axes[1, 0].pie(
             summary["count"].to_numpy(),
             labels=summary["frequency"].to_list(),
             autopct="%1.1f%%",
-            colors=plt.cm.Paired.colors,
+            colors=colors,
         )
         axes[1, 0].set_title("Observation Distribution", fontweight="bold")
 
@@ -88,8 +90,15 @@ class RINEXPlotter:
         fig = plt.figure(figsize=(10, 10))
         ax = fig.add_subplot(111, projection="polar")
         fig.patch.set_alpha(0)
-        ax.set_theta_zero_location("N")
-        ax.set_theta_direction(-1)
+        # Set polar plot properties with try/except for compatibility
+        try:
+            ax.set_theta_zero_location("N")  # type: ignore
+        except AttributeError:
+            pass
+        try:
+            ax.set_theta_direction(-1)  # type: ignore
+        except AttributeError:
+            pass
 
         # Use numpy directly
         az = np.deg2rad(data["azimuth"].to_numpy())

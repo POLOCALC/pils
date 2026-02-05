@@ -19,13 +19,18 @@ def setup_logging(
     """
     Configure logging for PILS package.
 
-    Args:
-        level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-        log_file: Optional path to log file (default: logs/pils.log)
-        console_output: Enable console output handler
+    Parameters
+    ----------
+    level : str, optional
+        Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
+    log_file : Optional[Path], optional
+        Optional path to log file (default: logs/pils.log).
+    console_output : bool, optional
+        Enable console output handler.
 
-    Example:
-        >>> setup_logging(level="DEBUG", log_file=Path("my_logs/pils.log"))
+    Examples
+    --------
+    >>> setup_logging(level="DEBUG", log_file=Path("my_logs/pils.log"))
     """
     # Convert string level to logging constant
     numeric_level = getattr(logging, level.upper(), logging.INFO)
@@ -63,14 +68,19 @@ def get_logger(name: str) -> logging.Logger:
     """
     Get a logger instance for a module.
 
-    Args:
-        name: Logger name (typically __name__ of the calling module)
+    Parameters
+    ----------
+    name : str
+        Logger name (typically __name__ of the calling module).
 
-    Returns:
-        Logger instance configured for PILS
+    Returns
+    -------
+    logging.Logger
+        Logger instance configured for PILS.
 
-    Example:
-        >>> logger = get_logger(__name__)
-        >>> logger.info("Processing flight data")
+    Examples
+    --------
+    >>> logger = get_logger(__name__)
+    >>> logger.info("Processing flight data")
     """
     return logging.getLogger(name)

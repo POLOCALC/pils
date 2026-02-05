@@ -5,8 +5,9 @@ from datetime import datetime
 
 
 class RTKLIBRunner:
-    def __init__(self, data_path, rnx2rtkp_path="rnx2rtkp"):
+    def __init__(self, data_path: str, rnx2rtkp_path: str = "rnx2rtkp") -> None:
         self.bin = rnx2rtkp_path
+        self.work_dir = data_path
         if not os.path.exists(data_path):
             os.makedirs(data_path)
 
@@ -110,8 +111,11 @@ if __name__ == "__main__":
     rover = "20251207_152740_GPS_rover.obs"
     base = "ReachBase_raw_20251207140516_base.obs"
     nav = "ReachBase_raw_20251207140516_base.nav"
+    data_path = "./output"
 
-    diag = RTKLIBRunner(rnx2rtkp_path="rnx2rtkp")  # Ensure this binary is in PATH
+    diag = RTKLIBRunner(
+        data_path=data_path, rnx2rtkp_path="rnx2rtkp"
+    )  # Ensure this binary is in PATH
 
     # --- EXECUTE ---
     if diag.check_overlap(rover, base):

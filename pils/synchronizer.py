@@ -41,70 +41,70 @@ class CorrelationSynchronizer:
     All synchronization outputs are TIME OFFSETS (seconds) to align data
     to GPS payload timebase.
 
-    Attributes:
-        gps_payload: GPS payload data (reference timebase)
-        drone_gps: Optional drone GPS data
-        litchi_gps: Optional litchi GPS data
-        inclinometer: Optional inclinometer data
-        other_payload: Other payload sensors (adc, etc.)
-        offsets: Detected time offsets per source
-        synchronized_data: Final synchronized DataFrame
+    Attributes
+    ----------
+    gps_payload : Optional[pl.DataFrame]
+        GPS payload data (reference timebase)
+    drone_gps : Optional[pl.DataFrame]
+        Optional drone GPS data
+    litchi_gps : Optional[pl.DataFrame]
+        Optional litchi GPS data
+    inclinometer : Optional[pl.DataFrame]
+        Optional inclinometer data
+    other_payload : Dict[str, pl.DataFrame]
+        Other payload sensors (adc, etc.)
+    offsets : Dict[str, Dict[str, Any]]
+        Detected time offsets per source
+    synchronized_data : Optional[pl.DataFrame]
+        Final synchronized DataFrame
 
-    Example:
-        >>> import polars as pl
-        >>> import numpy as np
-        >>> from pils.synchronizer import CorrelationSynchronizer
-        >>>
-        >>> # Create sample GPS payload data (reference)
-        >>> t = np.linspace(0, 100, 1000)
-        >>> gps_payload = pl.DataFrame({
-        ...     'timestamp': t,
-        ...     'latitude': 45.0 + 0.001 * np.sin(0.1 * t),
-        ...     'longitude': 10.0 + 0.001 * np.cos(0.1 * t),
-        ...     'altitude': 100.0 + 10.0 * np.sin(0.05 * t),
-        ... })
-        >>>
-        >>> # Create drone GPS data with 2-second time offset
-        >>> drone_gps = pl.DataFrame({
-        ...     'timestamp': t + 2.0,  # Drone data 2s ahead
-        ...     'latitude': 45.0 + 0.001 * np.sin(0.1 * (t + 2.0)),
-        ...     'longitude': 10.0 + 0.001 * np.cos(0.1 * (t + 2.0)),
-        ...     'altitude': 100.0 + 10.0 * np.sin(0.05 * (t + 2.0)),
-        ... })
-        >>>
-        >>> # Initialize synchronizer
-        >>> sync = CorrelationSynchronizer()
-        >>>
-        >>> # Add GPS payload as reference (mandatory)
-        >>> sync.add_gps_reference(gps_payload)
-        >>>
-        >>> # Add drone GPS for correlation
-        >>> sync.add_drone_gps(drone_gps)
-        >>>
-        >>> # Execute synchronization
-        >>> result = sync.synchronize(target_rate_hz=10.0)
-        >>>
-        >>> # Check detected offsets
-        >>> print(sync.get_offset_summary())
-        Correlation Synchronizer - Detected Time Offsets
-        ============================================================
+    Examples
+    --------
+    >>> import polars as pl
+    >>> import numpy as np
+    >>> from pils.synchronizer import CorrelationSynchronizer
+    >>> # Create sample GPS payload data (reference)
+    >>> t = np.linspace(0, 100, 1000)
+    >>> gps_payload = pl.DataFrame({
+    ...     'timestamp': t,
+    ...     'latitude': 45.0 + 0.001 * np.sin(0.1 * t),
+    ...     'longitude': 10.0 + 0.001 * np.cos(0.1 * t),
+    ...     'altitude': 100.0 + 10.0 * np.sin(0.05 * t),
+    ... })
+    >>> # Create drone GPS data with 2-second time offset
+    >>> drone_gps = pl.DataFrame({
+    ...     'timestamp': t + 2.0,  # Drone data 2s ahead
+    ...     'latitude': 45.0 + 0.001 * np.sin(0.1 * (t + 2.0)),
+    ...     'longitude': 10.0 + 0.001 * np.cos(0.1 * (t + 2.0)),
+    ...     'altitude': 100.0 + 10.0 * np.sin(0.05 * (t + 2.0)),
+    ... })
+    >>> # Initialize synchronizer
+    >>> sync = CorrelationSynchronizer()
+    >>> # Add GPS payload as reference (mandatory)
+    >>> sync.add_gps_reference(gps_payload)
+    >>> # Add drone GPS for correlation
+    >>> sync.add_drone_gps(drone_gps)
+    >>> # Execute synchronization
+    >>> result = sync.synchronize(target_rate_hz=10.0)
+    >>> # Check detected offsets
+    >>> print(sync.get_offset_summary())
+    Correlation Synchronizer - Detected Time Offsets
+    ============================================================
 
-        DRONE_GPS
-          Time Offset: 2.000 s
-          Correlation: 0.998
-          Spatial Offset: 15.32 m
-            East: 10.23 m
-            North: 11.45 m
-            Up: 0.12 m
-        >>>
-        >>> # Access synchronized data
-        >>> print(result.columns)
-        ['timestamp', 'gps_payload_latitude', 'gps_payload_longitude',
-         'gps_payload_altitude', 'drone_gps_latitude', 'drone_gps_longitude',
-         'drone_gps_altitude']
-        >>>
-        >>> # Verify time offset was applied
-        >>> assert abs(sync.offsets['drone_gps']['time_offset'] - 2.0) < 0.1
+    DRONE_GPS
+      Time Offset: 2.000 s
+      Correlation: 0.998
+      Spatial Offset: 15.32 m
+        East: 10.23 m
+        North: 11.45 m
+        Up: 0.12 m
+    >>> # Access synchronized data
+    >>> print(result.columns)
+    ['timestamp', 'gps_payload_latitude', 'gps_payload_longitude',
+     'gps_payload_altitude', 'drone_gps_latitude', 'drone_gps_longitude',
+     'drone_gps_altitude']
+    >>> # Verify time offset was applied
+    >>> assert abs(sync.offsets['drone_gps']['time_offset'] - 2.0) < 0.1
     """
 
     def __init__(self):
@@ -134,29 +134,40 @@ class CorrelationSynchronizer:
         relative to a reference point. Uses spherical Earth approximation
         suitable for distances up to ~100 km.
 
-        Args:
-            ref_lat: Reference latitude in degrees
-            ref_lon: Reference longitude in degrees
-            ref_alt: Reference altitude in meters
-            target_lat: Target latitude in degrees
-            target_lon: Target longitude in degrees
-            target_alt: Target altitude in meters
+        Parameters
+        ----------
+        ref_lat : float
+            Reference latitude in degrees
+        ref_lon : float
+            Reference longitude in degrees
+        ref_alt : float
+            Reference altitude in meters
+        target_lat : float
+            Target latitude in degrees
+        target_lon : float
+            Target longitude in degrees
+        target_alt : float
+            Target altitude in meters
 
-        Returns:
-            Tuple of (east, north, up) offsets in meters
+        Returns
+        -------
+        Tuple[float, float, float]
+            (east, north, up) offsets in meters
 
-        Notes:
-            - Uses mean Earth radius of 6371 km
-            - Assumes flat Earth for small distances
-            - Longitude correction for latitude (cos factor)
+        Notes
+        -----
+        - Uses mean Earth radius of 6371 km
+        - Assumes flat Earth for small distances
+        - Longitude correction for latitude (cos factor)
 
-        Example:
-            >>> # Point 1 degree north and 1 degree east at same altitude
-            >>> e, n, u = CorrelationSynchronizer._lla_to_enu(
-            ...     45.0, 10.0, 100.0,
-            ...     46.0, 11.0, 100.0
-            ... )
-            >>> # e ≈ 78 km (1° east at 45° lat), n ≈ 111 km (1° north), u ≈ 0
+        Examples
+        --------
+        >>> # Point 1 degree north and 1 degree east at same altitude
+        >>> e, n, u = CorrelationSynchronizer._lla_to_enu(
+        ...     45.0, 10.0, 100.0,
+        ...     46.0, 11.0, 100.0
+        ... )
+        >>> # e ≈ 78 km (1° east at 45° lat), n ≈ 111 km (1° north), u ≈ 0
         """
         # Earth radius in meters
         R = 6371000.0
@@ -191,23 +202,29 @@ class CorrelationSynchronizer:
         Uses 3-point parabolic fit around the maximum correlation value
         to achieve sub-sample precision in peak detection.
 
-        Args:
-            correlation: 1D correlation array
+        Parameters
+        ----------
+        correlation : np.ndarray
+            1D correlation array
 
-        Returns:
-            Sub-sample peak index (float)
+        Returns
+        -------
+        float
+            Sub-sample peak index
 
-        Notes:
-            - Fits parabola through 3 points: [peak-1, peak, peak+1]
-            - Returns integer index if peak is at array boundary
-            - Numerical stability: checks for zero denominator
+        Notes
+        -----
+        - Fits parabola through 3 points: [peak-1, peak, peak+1]
+        - Returns integer index if peak is at array boundary
+        - Numerical stability: checks for zero denominator
 
-        Example:
-            >>> # Synthetic correlation with peak between samples
-            >>> x = np.arange(100)
-            >>> corr = 1.0 - 0.01 * (x - 50.3) ** 2
-            >>> peak = CorrelationSynchronizer._find_subsample_peak(corr)
-            >>> # peak ≈ 50.3
+        Examples
+        --------
+        >>> # Synthetic correlation with peak between samples
+        >>> x = np.arange(100)
+        >>> corr = 1.0 - 0.01 * (x - 50.3) ** 2
+        >>> peak = CorrelationSynchronizer._find_subsample_peak(corr)
+        >>> # peak ≈ 50.3
         """
         # Find integer peak location
         max_idx = int(np.argmax(correlation))
@@ -261,42 +278,58 @@ class CorrelationSynchronizer:
         4. Weighted average of offsets by correlation strength
         5. Compute spatial offsets after time alignment
 
-        Args:
-            time1: Reference GPS timestamps (seconds)
-            lat1: Reference GPS latitude (degrees)
-            lon1: Reference GPS longitude (degrees)
-            alt1: Reference GPS altitude (meters)
-            time2: Target GPS timestamps (seconds)
-            lat2: Target GPS latitude (degrees)
-            lon2: Target GPS longitude (degrees)
-            alt2: Target GPS altitude (meters)
-            target_rate_hz: Interpolation rate for correlation (default 100 Hz)
+        Parameters
+        ----------
+        time1 : np.ndarray
+            Reference GPS timestamps (seconds)
+        lat1 : np.ndarray
+            Reference GPS latitude (degrees)
+        lon1 : np.ndarray
+            Reference GPS longitude (degrees)
+        alt1 : np.ndarray
+            Reference GPS altitude (meters)
+        time2 : np.ndarray
+            Target GPS timestamps (seconds)
+        lat2 : np.ndarray
+            Target GPS latitude (degrees)
+        lon2 : np.ndarray
+            Target GPS longitude (degrees)
+        alt2 : np.ndarray
+            Target GPS altitude (meters)
+        target_rate_hz : float, default=100.0
+            Interpolation rate for correlation
 
-        Returns:
+        Returns
+        -------
+        Dict[str, Any] or None
             Dictionary with:
-                - time_offset: Time offset in seconds (add to time2 to align with time1)
-                - correlation: Combined correlation strength [0, 1]
-                - east_offset_m: East spatial offset after time alignment (meters)
-                - north_offset_m: North spatial offset after time alignment (meters)
-                - up_offset_m: Up spatial offset after time alignment (meters)
-                - spatial_offset_m: 3D spatial offset magnitude (meters)
-                - offsets_enu: Individual axis offsets in seconds
-                - correlations_enu: Individual axis correlation strengths
+            - time_offset: Time offset in seconds (add to time2 to align with time1)
+            - correlation: Combined correlation strength [0, 1]
+            - east_offset_m: East spatial offset after time alignment (meters)
+            - north_offset_m: North spatial offset after time alignment (meters)
+            - up_offset_m: Up spatial offset after time alignment (meters)
+            - spatial_offset_m: 3D spatial offset magnitude (meters)
+            - offsets_enu: Individual axis offsets in seconds
+            - correlations_enu: Individual axis correlation strengths
             Returns None if insufficient overlap or correlation too weak
 
-        Notes:
-            - Positive offset means source2 is ahead in time (add positive to align)
-            - Uses sub-sample precision via parabolic interpolation
-            - Requires minimum 10 seconds overlap for reliable correlation
+        Notes
+        -----
+        - Positive offset means source2 is ahead in time (add positive to align)
+        - Uses sub-sample precision via parabolic interpolation
+        - Requires minimum 10 seconds overlap for reliable correlation
 
-        Example:
-            >>> # GPS source 2 is 2 seconds ahead of source 1
-            >>> result = CorrelationSynchronizer._find_gps_offset(
-            ...     time1, lat1, lon1, alt1,
-            ...     time2, lat2, lon2, alt2
-            ... )
-            >>> print(f"Time offset: {result['time_offset']:.3f} s")
-            >>> print(f"Correlation: {result['correlation']:.3f}")
+        Examples
+        --------
+        >>> # GPS source 2 is 2 seconds ahead of source 1
+        >>> result = CorrelationSynchronizer._find_gps_offset(
+        ...     time1, lat1, lon1, alt1,
+        ...     time2, lat2, lon2, alt2
+        ... )
+        >>> print(f"Time offset: {result['time_offset']:.3f} s")
+        Time offset: 2.000 s
+        >>> print(f"Correlation: {result['correlation']:.3f}")
+        Correlation: 0.998
         """
         # Check for minimum overlap
         t1_start, t1_end = time1[0], time1[-1]
@@ -451,32 +484,43 @@ class CorrelationSynchronizer:
         3. Find sub-sample peak using parabolic interpolation
         4. Return time offset
 
-        Args:
-            time1: Reference timestamps (seconds) - typically Litchi
-            pitch1: Reference pitch angles (degrees) - typically Litchi gimbal
-            time2: Target timestamps (seconds) - typically Inclinometer
-            pitch2: Target pitch angles (degrees) - typically Inclinometer
-            target_rate_hz: Interpolation rate for correlation (default 100 Hz)
+        Parameters
+        ----------
+        time1 : np.ndarray
+            Reference timestamps (seconds) - typically Litchi
+        pitch1 : np.ndarray
+            Reference pitch angles (degrees) - typically Litchi gimbal
+        time2 : np.ndarray
+            Target timestamps (seconds) - typically Inclinometer
+        pitch2 : np.ndarray
+            Target pitch angles (degrees) - typically Inclinometer
+        target_rate_hz : float, default=100.0
+            Interpolation rate for correlation
 
-        Returns:
+        Returns
+        -------
+        Dict[str, Any] or None
             Dictionary with:
-                - time_offset: Time offset in seconds (add to time2 to align with time1)
-                - correlation: Correlation strength [0, 1]
+            - time_offset: Time offset in seconds (add to time2 to align with time1)
+            - correlation: Correlation strength [0, 1]
             Returns None if insufficient overlap or correlation too weak
 
-        Notes:
-            - This is TIME synchronization, not angular offset detection
-            - Positive offset means source2 is ahead in time
-            - Uses sub-sample precision via parabolic interpolation
-            - Requires minimum 10 seconds overlap for reliable correlation
+        Notes
+        -----
+        - This is TIME synchronization, not angular offset detection
+        - Positive offset means source2 is ahead in time
+        - Uses sub-sample precision via parabolic interpolation
+        - Requires minimum 10 seconds overlap for reliable correlation
 
-        Example:
-            >>> # Inclinometer is 1.5 seconds behind litchi gimbal
-            >>> result = CorrelationSynchronizer._find_pitch_offset(
-            ...     time1_litchi, pitch1_litchi,
-            ...     time2_inclinometer, pitch2_inclinometer
-            ... )
-            >>> print(f"Time offset: {result['time_offset']:.3f} s")
+        Examples
+        --------
+        >>> # Inclinometer is 1.5 seconds behind litchi gimbal
+        >>> result = CorrelationSynchronizer._find_pitch_offset(
+        ...     time1_litchi, pitch1_litchi,
+        ...     time2_inclinometer, pitch2_inclinometer
+        ... )
+        >>> print(f"Time offset: {result['time_offset']:.3f} s")
+        Time offset: -1.500 s
         """
         # Check for minimum overlap
         t1_start, t1_end = time1[0], time1[-1]
@@ -538,15 +582,23 @@ class CorrelationSynchronizer:
         """
         Set GPS payload as reference timebase (mandatory).
 
-        Args:
-            gps_data: Polars DataFrame with GPS data
-            timestamp_col: Name of timestamp column (default: 'timestamp')
-            lat_col: Name of latitude column (default: 'latitude')
-            lon_col: Name of longitude column (default: 'longitude')
-            alt_col: Name of altitude column (default: 'altitude')
+        Parameters
+        ----------
+        gps_data : pl.DataFrame
+            Polars DataFrame with GPS data
+        timestamp_col : str, default='timestamp'
+            Name of timestamp column
+        lat_col : str, default='latitude'
+            Name of latitude column
+        lon_col : str, default='longitude'
+            Name of longitude column
+        alt_col : str, default='altitude'
+            Name of altitude column
 
-        Raises:
-            ValueError: If required columns are missing or data is empty
+        Raises
+        ------
+        ValueError
+            If required columns are missing or data is empty
         """
         required_cols = [timestamp_col, lat_col, lon_col, alt_col]
         missing_cols = [col for col in required_cols if col not in gps_data.columns]
@@ -571,15 +623,23 @@ class CorrelationSynchronizer:
         """
         Add drone GPS data for correlation.
 
-        Args:
-            gps_data: Polars DataFrame with GPS data
-            timestamp_col: Name of timestamp column (default: 'timestamp')
-            lat_col: Name of latitude column (default: 'latitude')
-            lon_col: Name of longitude column (default: 'longitude')
-            alt_col: Name of altitude column (default: 'altitude')
+        Parameters
+        ----------
+        gps_data : pl.DataFrame
+            Polars DataFrame with GPS data
+        timestamp_col : str, default='timestamp'
+            Name of timestamp column
+        lat_col : str, default='latitude'
+            Name of latitude column
+        lon_col : str, default='longitude'
+            Name of longitude column
+        alt_col : str, default='altitude'
+            Name of altitude column
 
-        Raises:
-            ValueError: If required columns are missing or data is empty
+        Raises
+        ------
+        ValueError
+            If required columns are missing or data is empty
         """
         required_cols = [timestamp_col, lat_col, lon_col, alt_col]
         missing_cols = [col for col in required_cols if col not in gps_data.columns]
@@ -604,15 +664,23 @@ class CorrelationSynchronizer:
         """
         Add Litchi GPS data for correlation.
 
-        Args:
-            gps_data: Polars DataFrame with GPS data
-            timestamp_col: Name of timestamp column (default: 'timestamp')
-            lat_col: Name of latitude column (default: 'latitude')
-            lon_col: Name of longitude column (default: 'longitude')
-            alt_col: Name of altitude column (default: 'altitude')
+        Parameters
+        ----------
+        gps_data : pl.DataFrame
+            Polars DataFrame with GPS data
+        timestamp_col : str, default='timestamp'
+            Name of timestamp column
+        lat_col : str, default='latitude'
+            Name of latitude column
+        lon_col : str, default='longitude'
+            Name of longitude column
+        alt_col : str, default='altitude'
+            Name of altitude column
 
-        Raises:
-            ValueError: If required columns are missing or data is empty
+        Raises
+        ------
+        ValueError
+            If required columns are missing or data is empty
         """
         required_cols = [timestamp_col, lat_col, lon_col, alt_col]
         missing_cols = [col for col in required_cols if col not in gps_data.columns]
@@ -636,14 +704,21 @@ class CorrelationSynchronizer:
         """
         Add inclinometer data for pitch-based correlation.
 
-        Args:
-            inclinometer_data: Polars DataFrame with inclinometer data
-            litchi_data: Optional Litchi DataFrame for pitch reference
-            timestamp_col: Name of timestamp column (default: 'timestamp')
-            pitch_col: Name of pitch column (default: 'pitch')
+        Parameters
+        ----------
+        inclinometer_data : pl.DataFrame
+            Polars DataFrame with inclinometer data
+        litchi_data : Optional[pl.DataFrame], default=None
+            Optional Litchi DataFrame for pitch reference
+        timestamp_col : str, default='timestamp'
+            Name of timestamp column
+        pitch_col : str, default='pitch'
+            Name of pitch column
 
-        Raises:
-            ValueError: If required columns are missing or data is empty
+        Raises
+        ------
+        ValueError
+            If required columns are missing or data is empty
         """
         required_cols = [timestamp_col, pitch_col]
         missing_cols = [col for col in required_cols if col not in inclinometer_data.columns]
@@ -665,9 +740,17 @@ class CorrelationSynchronizer:
         """
         Add other payload sensor data (no correlation, simple alignment).
 
-        Args:
-            sensor_name: Name of sensor (e.g., 'adc', 'imu')
-            sensor_data: Polars DataFrame with sensor data
+        Parameters
+        ----------
+        sensor_name : str
+            Name of sensor (e.g., 'adc', 'imu')
+        sensor_data : pl.DataFrame
+            Polars DataFrame with sensor data
+
+        Raises
+        ------
+        ValueError
+            If sensor data is empty
         """
         if len(sensor_data) == 0:
             raise ValueError(f"Sensor {sensor_name} data is empty")
@@ -685,14 +768,20 @@ class CorrelationSynchronizer:
         Detects time offsets for all sources using correlation, then
         interpolates to GPS payload timebase at target rate.
 
-        Args:
-            target_rate_hz: Target sample rate in Hz for output
+        Parameters
+        ----------
+        target_rate_hz : float, default=10.0
+            Target sample rate in Hz for output
 
-        Returns:
-            Polars DataFrame with synchronized data
+        Returns
+        -------
+        pl.DataFrame
+            Synchronized DataFrame with all data sources
 
-        Raises:
-            RuntimeError: If GPS payload reference not set
+        Raises
+        ------
+        RuntimeError
+            If GPS payload reference not set
         """
         if self.gps_payload is None:
             raise RuntimeError("GPS payload reference not set. Call add_gps_reference() first.")
@@ -849,7 +938,9 @@ class CorrelationSynchronizer:
         """
         Get summary of detected time offsets.
 
-        Returns:
+        Returns
+        -------
+        str
             Formatted string with offset information
         """
         if not self.offsets:

@@ -38,11 +38,33 @@ class PILS:
 
         self.flights = []
 
-        for flight in self._tmp_flight:
+        if self._tmp_flight:
+            for flight in self._tmp_flight:
+                # Handle both string (flight ID) and dict (flight info) cases
+                if isinstance(flight, str):
+                    # If flight is a string, it might be flight ID or name
+                    # Try to load the flight data
+                    flight_data = self.loader.load_single_flight(
+                        flight_id=flight if not flight.startswith("FLIGHT_") else None,
+                        flight_name=flight if flight.startswith("FLIGHT_") else None,
+                    )
+                    if flight_data:
+                        # flight_data might be a list with one element
+                        if isinstance(flight_data, (list, tuple)) and len(flight_data) > 0:
+                            flight_info: Dict[str, Any] = flight_data[0]  # type: ignore
+                        elif isinstance(flight_data, dict):
+                            flight_info = flight_data
+                        else:
+                            continue
+                    else:
+                        continue
+                else:
+                    # Assume it's already flight info dictionary
+                    flight_info = flight
 
-            tmp = Flight(flight)
+                tmp = Flight(flight_info)  # type: ignore
 
-            self.flights.append(tmp)
+                self.flights.append(tmp)
 
     def load_drone_data(self, dji_dat_loader: bool = True, drone_model=None):
 

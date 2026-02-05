@@ -19,8 +19,10 @@ def _get_current_timestamp() -> str:
     """
     Get current timestamp in rev_YYYYMMDD_hhmmss format.
 
-    Returns:
-        str: Timestamp string with seconds precision
+    Returns
+    -------
+    str
+        Timestamp string with seconds precision
     """
     return datetime.now().strftime("rev_%Y%m%d_%H%M%S")
 
@@ -29,8 +31,10 @@ def _get_package_version() -> str:
     """
     Get PILS package version.
 
-    Returns:
-        str: Version string or 'unknown'
+    Returns
+    -------
+    str
+        Version string or 'unknown'
     """
     try:
         import pils
@@ -44,10 +48,14 @@ def _serialize_for_hdf5(obj: Any) -> Any:
     """
     Convert Python objects to HDF5-compatible types for attrs.
 
-    Args:
-        obj: Object to serialize
+    Parameters
+    ----------
+    obj : Any
+        Object to serialize
 
-    Returns:
+    Returns
+    -------
+    Any
         HDF5-compatible object
     """
     if obj is None:
@@ -66,11 +74,16 @@ def _deserialize_from_hdf5(value: Any, hint: Optional[str] = None) -> Any:
     """
     Deserialize values from HDF5 attrs.
 
-    Args:
-        value: Value to deserialize
-        hint: Type hint (e.g., 'dict', 'list')
+    Parameters
+    ----------
+    value : Any
+        Value to deserialize
+    hint : Optional[str], default=None
+        Type hint (e.g., 'dict', 'list')
 
-    Returns:
+    Returns
+    -------
+    Any
         Deserialized object
     """
     if value == "None":
@@ -92,67 +105,70 @@ def _deserialize_from_hdf5(value: Any, hint: Optional[str] = None) -> Any:
 
 class Flight:
     """
-
     This class provides a hierarchical structure to store and access drone flight data
     and sensor payloads. Data is stored in RAM for fast access using both attribute
     and dictionary-style notation.
 
-    Attributes:
-        flight_info (Dict): Dictionary containing flight configuration paths
-        flight_path (Path): Path to the flight directory
-        metadata (Dict): Flight metadata (duration, date, conditions, etc.)
-        raw_data (RawData): Container for drone and payload sensor data
-        adc_gain_config (Optional): Configuration for ADC gain settings
+    Attributes
+    ----------
+    flight_info : Dict
+        Dictionary containing flight configuration paths
+    flight_path : Path
+        Path to the flight directory
+    metadata : Dict
+        Flight metadata (duration, date, conditions, etc.)
+    raw_data : RawData
+        Container for drone and payload sensor data
+    adc_gain_config : Optional
+        Configuration for ADC gain settings
 
-    Examples:
-        >>> # Create a flight instance
-        >>> flight_info = {
-        ...     "drone_data_folder_path": "/data/flight_001/drone",
-        ...     "aux_data_folder_path": "/data/flight_001/aux"
-        ... }
-        >>> flight = Flight(flight_info)
-        >>>
-        >>> # Add metadata
-        >>> flight.set_metadata({
-        ...     'flight_time': '2025-01-28 14:30:00',
-        ...     'duration': 1800,
-        ...     'weather': 'clear'
-        ... })
-        >>>
-        >>> # Load drone data (auto-detects DJI or BlackSquare)
-        >>> flight.add_drone_data(dji_drone_loader='dat')
-        >>>
-        >>> # Load sensor data
-        >>> flight.add_sensor_data(['gps', 'imu', 'adc'])
-        >>>
-        >>> # Access data using attributes
-        >>> drone_df = flight.raw_data.drone_data.drone
-        >>> gps_df = flight.raw_data.payload_data.gps
-        >>>
-        >>> # Or use dictionary-style access (same speed!)
-        >>> drone_df = flight['raw_data']['drone_data']['drone']
-        >>> gps_df = flight['raw_data']['payload']['gps']
-        >>>
-        >>> # Perform operations on the data
-        >>> high_altitude = drone_df.filter(pl.col('altitude') > 100)
-        >>> print(f"Points above 100m: {len(high_altitude)}")
+    Examples
+    --------
+    >>> # Create a flight instance
+    >>> flight_info = {
+    ...     "drone_data_folder_path": "/data/flight_001/drone",
+    ...     "aux_data_folder_path": "/data/flight_001/aux"
+    ... }
+    >>> flight = Flight(flight_info)
+    >>> # Add metadata
+    >>> flight.set_metadata({
+    ...     'flight_time': '2025-01-28 14:30:00',
+    ...     'duration': 1800,
+    ...     'weather': 'clear'
+    ... })
+    >>> # Load drone data (auto-detects DJI or BlackSquare)
+    >>> flight.add_drone_data(dji_drone_loader='dat')
+    >>> # Load sensor data
+    >>> flight.add_sensor_data(['gps', 'imu', 'adc'])
+    >>> # Access data using attributes
+    >>> drone_df = flight.raw_data.drone_data.drone
+    >>> gps_df = flight.raw_data.payload_data.gps
+    >>> # Or use dictionary-style access (same speed!)
+    >>> drone_df = flight['raw_data']['drone_data']['drone']
+    >>> gps_df = flight['raw_data']['payload']['gps']
+    >>> # Perform operations on the data
+    >>> high_altitude = drone_df.filter(pl.col('altitude') > 100)
+    >>> print(f"Points above 100m: {len(high_altitude)}")
     """
 
-    def __init__(self, flight_info: Dict):
+    def __init__(self, flight_info: Dict[str, Any]):
         """
         Initialize a Flight data container.
 
-        Args:
-            flight_info (Dict): Dictionary containing at minimum:
-                - 'drone_data_folder_path': Path to drone data folder
-                - 'aux_data_folder_path': Path to auxiliary sensor data folder
+        Parameters
+        ----------
+        flight_info : Dict
+            Dictionary containing at minimum:
+            - 'drone_data_folder_path': Path to drone data folder
+            - 'aux_data_folder_path': Path to auxiliary sensor data folder
 
-        Examples:
-            >>> flight_info = {
-            ...     "drone_data_folder_path": "/mnt/data/flight_001/drone",
-            ...     "aux_data_folder_path": "/mnt/data/flight_001/aux"
-            ... }
-            >>> flight = Flight(flight_info)
+        Examples
+        --------
+        >>> flight_info = {
+        ...     "drone_data_folder_path": "/mnt/data/flight_001/drone",
+        ...     "aux_data_folder_path": "/mnt/data/flight_001/aux"
+        ... }
+        >>> flight = Flight(flight_info)
         """
         self.flight_info = flight_info
         self.flight_path = Path(flight_info["drone_data_folder_path"]).parent
@@ -161,12 +177,12 @@ class Flight:
 
         self.raw_data = RawData()
         self.synchronized_data = RawData()
+        self.sync_data: Optional[pl.DataFrame] = None
         self.adc_gain_config = None
 
-    @classmethod
     def from_hdf5(
-        cls,
-        filepath: Union[str, Path],
+        self,
+        filepath: Optional[Union[str, Path]] = None,
         sync_version: Union[str, None, bool] = None,
         load_raw: bool = True,
     ) -> "Flight":
@@ -176,57 +192,72 @@ class Flight:
         Loads metadata and raw_data hierarchy. Optionally loads a specific
         synchronized data version or the latest available version.
 
-        Args:
-            filepath (Union[str, Path]): Path to HDF5 file
-            sync_version (Optional[str]): Specific sync version to load (e.g., 'rev_20260202_1430').
-                                         If None and synchronized data exists, loads latest version.
-                                         Set to False to skip loading synchronized data.
-            load_raw (bool): If True, loads raw_data. If False, only loads metadata and sync data.
-                           Defaults to True.
+        Parameters
+        ----------
+        filepath : Optional[Union[str, Path]], default=None
+            Path to HDF5 file. If None, uses self.flight_info["proc_data_folder_path"]
+        sync_version : Union[str, None, bool], default=None
+            Specific sync version to load (e.g., 'rev_20260202_1430').
+            If None and synchronized data exists, loads latest version.
+            Set to False to skip loading synchronized data.
+        load_raw : bool, default=True
+            If True, loads raw_data. If False, only loads metadata and sync data.
 
-        Returns:
-            Flight: Reconstructed Flight object with loaded data
+        Returns
+        -------
+        Flight
+            Returns self for method chaining
 
-        Raises:
-            ImportError: If h5py is not installed
-            FileNotFoundError: If HDF5 file doesn't exist
-            ValueError: If requested sync version not found
+        Raises
+        ------
+        ImportError
+            If h5py is not installed
+        FileNotFoundError
+            If HDF5 file doesn't exist
+        ValueError
+            If requested sync version not found
 
-        Examples:
-            >>> # Load entire flight (raw + latest sync)
-            >>> flight = Flight.from_hdf5('flight_001.h5')
-            >>>
-            >>> # Load specific sync version
-            >>> flight = Flight.from_hdf5('flight_001.h5', sync_version='rev_20260202_1430')
-            >>>
-            >>> # Load only metadata and raw data
-            >>> flight = Flight.from_hdf5('flight_001.h5', sync_version=False)
+        Examples
+        --------
+        >>> # Load from default location
+        >>> flight = Flight(flight_info).from_hdf5()
+        >>> # Load from specific file
+        >>> flight = Flight(flight_info).from_hdf5('flight_001.h5')
+        >>> # Load specific sync version
+        >>> flight = Flight(flight_info).from_hdf5('flight_001.h5', sync_version='rev_20260202_1430')
+        >>> # Load only metadata and raw data
+        >>> flight = Flight(flight_info).from_hdf5('flight_001.h5', sync_version=False)
         """
 
-        filepath = Path(filepath)
+        if filepath is None:
+            filepath = Path(self.flight_info["proc_data_folder_path"])
+        else:
+            filepath = Path(filepath)
+
         if not filepath.exists():
             raise FileNotFoundError(f"HDF5 file not found: {filepath}")
-
-        # Create Flight object with minimal flight_info
-        flight = cls(
-            {
-                "drone_data_folder_path": str(filepath.parent),
-                "aux_data_folder_path": str(filepath.parent),
-            }
-        )
 
         with h5py.File(str(filepath), "r") as f:
             # Load metadata
             if "metadata" in f:
                 metadata_group = f["metadata"]
                 assert isinstance(metadata_group, h5py.Group)
-                cls._load_metadata_from_hdf5(metadata_group, flight)
+                self._load_metadata_from_hdf5(metadata_group, self)
 
             # Load raw data
             if load_raw and "raw_data" in f:
                 raw_data_group = f["raw_data"]
                 assert isinstance(raw_data_group, h5py.Group)
-                cls._load_raw_data_from_hdf5(raw_data_group, flight)
+                self._load_raw_data_from_hdf5(raw_data_group, self)
+
+            # Load sync_data if available
+            if "sync_data" in f:
+                sync_data_group = f["sync_data"]
+                assert isinstance(sync_data_group, h5py.Group)
+                if "data" in sync_data_group:
+                    data_group = sync_data_group["data"]
+                    assert isinstance(data_group, h5py.Group)
+                    self.sync_data = self._load_dataframe_from_hdf5(data_group)
 
             # Load synchronized data
             if sync_version is not False and "synchronized_data" in f:
@@ -248,18 +279,21 @@ class Flight:
                     # Load the specified version
                     version_group = sync_group[sync_version]
                     assert isinstance(version_group, h5py.Group)
-                    cls._load_synchronized_data_from_hdf5(version_group, flight)
+                    self._load_synchronized_data_from_hdf5(version_group, self)
 
-        return flight
+        return self
 
     @staticmethod
     def _load_metadata_from_hdf5(metadata_group: "h5py.Group", flight: "Flight") -> None:
         """
         Load metadata from HDF5 group.
 
-        Args:
-            metadata_group (h5py.Group): Metadata group
-            flight (Flight): Flight object to populate
+        Parameters
+        ----------
+        metadata_group : h5py.Group
+            Metadata group
+        flight : Flight
+            Flight object to populate
         """
         # Reconstruct flight_info from attrs
         flight_info = {}
@@ -283,9 +317,12 @@ class Flight:
         """
         Load raw data hierarchy from HDF5 group.
 
-        Args:
-            raw_group (h5py.Group): raw_data group
-            flight (Flight): Flight object to populate
+        Parameters
+        ----------
+        raw_group : h5py.Group
+            raw_data group
+        flight : Flight
+            Flight object to populate
         """
 
         # Load drone data
@@ -328,9 +365,12 @@ class Flight:
 
         Stores synchronized data as DataFrame attribute on raw_data.
 
-        Args:
-            version_group (h5py.Group): Version group containing synchronized data
-            flight (Flight): Flight object to populate
+        Parameters
+        ----------
+        version_group : h5py.Group
+            Version group containing synchronized data
+        flight : Flight
+            Flight object to populate
         """
 
         # Load synchronized dataframe
@@ -349,11 +389,15 @@ class Flight:
         """
         Load a Polars DataFrame from HDF5 dataset group.
 
-        Args:
-            dataset_group (h5py.Group): Group containing column datasets
+        Parameters
+        ----------
+        dataset_group : h5py.Group
+            Group containing column datasets
 
-        Returns:
-            pl.DataFrame or None if no data found
+        Returns
+        -------
+        pl.DataFrame or None
+            Polars DataFrame if data found, None otherwise
         """
 
         if "columns" not in dataset_group.attrs:
@@ -383,20 +427,23 @@ class Flight:
         """
         Set flight metadata.
 
-        Args:
-            metadata (Dict[str, Any]): Dictionary containing metadata fields
-                such as flight_time, duration, weather conditions, pilot info, etc.
+        Parameters
+        ----------
+        metadata : Dict[str, Any], optional
+            Dictionary containing metadata fields
+            such as flight_time, duration, weather conditions, pilot info, etc.
 
-        Examples:
-            >>> flight.set_metadata({
-            ...     'flight_time': '2025-01-28 14:30:00',
-            ...     'duration': 1800,
-            ...     'pilot': 'John Doe',
-            ...     'weather': 'clear',
-            ...     'temperature': 22.5
-            ... })
-            >>> print(flight.metadata['flight_time'])
-            '2025-01-28 14:30:00'
+        Examples
+        --------
+        >>> flight.set_metadata({
+        ...     'flight_time': '2025-01-28 14:30:00',
+        ...     'duration': 1800,
+        ...     'pilot': 'John Doe',
+        ...     'weather': 'clear',
+        ...     'temperature': 22.5
+        ... })
+        >>> print(flight.metadata['flight_time'])
+        '2025-01-28 14:30:00'
         """
         # First, store all provided metadata fields
         if isinstance(metadata, dict):
@@ -430,14 +477,19 @@ class Flight:
         """
         Auto-detect drone model from data folder structure.
 
-        Args:
-            drone_folder (str): Path to the drone data folder
+        Parameters
+        ----------
+        drone_folder : str
+            Path to the drone data folder
 
-        Returns:
-            str: Detected drone model ('dji' or 'blacksquare')
+        Returns
+        -------
+        str
+            Detected drone model ('dji' or 'blacksquare')
 
-        Note:
-            This is an internal method. Defaults to 'dji' if detection fails.
+        Notes
+        -----
+        This is an internal method. Defaults to 'dji' if detection fails.
         """
         # Prefer resolving the drone model from the stout inventory when a
         # `drone_id` is available in the flight info. This avoids relying on
@@ -494,29 +546,35 @@ class Flight:
         the appropriate data format. For DJI drones, also loads Litchi flight logs
         if available.
 
-        Args:
-            dji_drone_loader (str, optional): Data loader type for DJI drones.
-                Options: 'dat', 'csv'. Defaults to 'dat'.
+        Parameters
+        ----------
+        dji_drone_loader : str, default=True
+            Data loader type for DJI drones.
+            Options: 'dat', 'csv'.
+        drone_model : Optional[str], default=None
+            Drone model to load. If None, will auto-detect.
 
-        Returns:
-            DroneData: Reference to the loaded drone data
+        Returns
+        -------
+        DroneData
+            Reference to the loaded drone data
 
-        Raises:
-            ValueError: If an unknown drone model is detected
+        Raises
+        ------
+        ValueError
+            If an unknown drone model is detected
 
-        Examples:
-            >>> # Load DJI drone data using .DAT files
-            >>> flight.add_drone_data(dji_drone_loader='dat')
-            >>>
-            >>> # Access drone telemetry
-            >>> print(flight.raw_data.drone_data.drone.head())
-            >>>
-            >>> # Access Litchi waypoint data (if DJI)
-            >>> if flight.raw_data.drone_data.litchi is not None:
-            ...     print(flight.raw_data.drone_data.litchi.head())
-            >>>
-            >>> # Alternative: use dictionary access
-            >>> drone_data = flight['raw_data']['drone_data']['drone']
+        Examples
+        --------
+        >>> # Load DJI drone data using .DAT files
+        >>> flight.add_drone_data(dji_drone_loader='dat')
+        >>> # Access drone telemetry
+        >>> print(flight.raw_data.drone_data.drone.head())
+        >>> # Access Litchi waypoint data (if DJI)
+        >>> if flight.raw_data.drone_data.litchi is not None:
+        ...     print(flight.raw_data.drone_data.litchi.head())
+        >>> # Alternative: use dictionary access
+        >>> drone_data = flight['raw_data']['drone_data']['drone']
         """
 
         # Resolve drone folder
@@ -545,6 +603,7 @@ class Flight:
                 litchi_data_path = file
 
         # Load according to detected model
+        litchi_data = None
         if isinstance(drone_model, str) and "dji" in drone_model.lower():
             if drone_data_path is None:
                 # try passing folder to DJIDrone which may discover files
@@ -555,9 +614,10 @@ class Flight:
             drone_data = drone.data
 
             # load litchi if available (prefer explicit litchi file path)
-            litchi_loader = Litchi(litchi_data_path)
-            litchi_loader.load_data()
-            litchi_data = litchi_loader.data
+            if litchi_data_path is not None:
+                litchi_loader = Litchi(litchi_data_path)
+                litchi_loader.load_data()
+                litchi_data = litchi_loader.data
 
         elif isinstance(drone_model, str) and (
             "black" in drone_model.lower() or "blacksquare" in drone_model.lower()
@@ -588,15 +648,21 @@ class Flight:
         """
         Read sensor data based on sensor type.
 
-        Args:
-            sensor_name (str): Name of the sensor ('gps', 'imu', 'adc', 'inclinometer')
-            sensor_folder (Path): Path to the sensors folder
+        Parameters
+        ----------
+        sensor_name : str
+            Name of the sensor ('gps', 'imu', 'adc', 'inclinometer')
+        sensor_folder : Path
+            Path to the sensors folder
 
-        Returns:
+        Returns
+        -------
+        Optional[Any]
             Sensor object or None if sensor not found
 
-        Note:
-            This is an internal method used by add_sensor_data().
+        Notes
+        -----
+        This is an internal method used by add_sensor_data().
         """
         result = None
 
@@ -617,30 +683,28 @@ class Flight:
         Loads one or more sensors from the auxiliary data folder. Sensors are
         automatically detected and loaded based on their type.
 
-        Args:
-            sensor_name (Union[str, List[str]]): Single sensor name or list of sensor names.
-                Supported sensors: 'gps', 'imu', 'adc', 'inclinometer'
+        Parameters
+        ----------
+        sensor_name : Union[str, List[str]]
+            Single sensor name or list of sensor names.
+            Supported sensors: 'gps', 'imu', 'adc', 'inclinometer'
 
-        Examples:
-            >>> # Load a single sensor
-            >>> flight.add_sensor_data('gps')
-            >>> print(flight.raw_data.payload_data.gps)
-            >>>
-            >>> # Load multiple sensors at once
-            >>> flight.add_sensor_data(['gps', 'imu', 'adc'])
-            >>>
-            >>> # Access sensor data
-            >>> gps_data = flight.raw_data.payload_data.gps
-            >>> imu_data = flight.raw_data.payload_data.imu
-            >>>
-            >>> # Or use dictionary-style
-            >>> gps_data = flight['raw_data']['payload']['gps']
-            >>>
-            >>> # Filter GPS data
-            >>> high_accuracy = gps_data.filter(pl.col('accuracy') < 5.0)
-            >>>
-            >>> # List all loaded sensors
-            >>> print(flight.raw_data.payload_data.list_loaded_sensors())
+        Examples
+        --------
+        >>> # Load a single sensor
+        >>> flight.add_sensor_data('gps')
+        >>> print(flight.raw_data.payload_data.gps)
+        >>> # Load multiple sensors at once
+        >>> flight.add_sensor_data(['gps', 'imu', 'adc'])
+        >>> # Access sensor data
+        >>> gps_data = flight.raw_data.payload_data.gps
+        >>> imu_data = flight.raw_data.payload_data.imu
+        >>> # Or use dictionary-style
+        >>> gps_data = flight['raw_data']['payload']['gps']
+        >>> # Filter GPS data
+        >>> high_accuracy = gps_data.filter(pl.col('accuracy') < 5.0)
+        >>> # List all loaded sensors
+        >>> print(flight.raw_data.payload_data.list_loaded_sensors())
         """
         sensor_path = Path(self.flight_info["aux_data_folder_path"]) / "sensors"
 
@@ -654,39 +718,154 @@ class Flight:
             sensor_data = self._read_sensor_data(sensor, sensor_path)
             setattr(self.raw_data.payload_data, sensor, sensor_data)
 
+    def sync(self, target_rate_hz: float = 10.0, **kwargs) -> pl.DataFrame:
+        """
+        Synchronize flight data using GPS-based correlation.
+
+        Creates a Synchronizer instance, adds available data sources,
+        performs synchronization, and stores the result in sync_data attribute.
+
+        Parameters
+        ----------
+        target_rate_hz : float, default=10.0
+            Target sample rate in Hz
+        **kwargs : dict
+            Additional arguments passed to Synchronizer.synchronize()
+
+        Returns
+        -------
+        pl.DataFrame
+            Synchronized data
+
+        Raises
+        ------
+        ValueError
+            If no GPS payload data available (required as reference)
+
+        Examples
+        --------
+        >>> # Basic synchronization
+        >>> flight.add_sensor_data(['gps', 'imu', 'adc'])
+        >>> flight.add_drone_data()
+        >>> sync_df = flight.sync(target_rate_hz=10.0)
+        >>> # Synchronization is stored in flight.sync_data
+        >>> print(flight.sync_data.shape)
+        """
+        from pils.synchronizer import CorrelationSynchronizer
+
+        # Check if GPS payload data is available
+        if not self.raw_data.payload_data or "gps" not in self.raw_data.payload_data:
+            raise ValueError(
+                "GPS payload data is required as reference timebase. "
+                "Call flight.add_sensor_data(['gps']) first."
+            )
+
+        # Create synchronizer
+        sync = CorrelationSynchronizer()
+
+        # Add GPS payload as reference (mandatory)
+        gps_sensor = self.raw_data.payload_data["gps"]
+        gps_data = gps_sensor.data if hasattr(gps_sensor, "data") else gps_sensor
+        sync.add_gps_reference(gps_data)
+
+        # Add drone GPS if available
+        if self.raw_data.drone_data and self.raw_data.drone_data.drone is not None:
+            drone_df = self.raw_data.drone_data.drone
+            # Check if drone data has GPS columns
+            if (
+                isinstance(drone_df, pl.DataFrame)
+                and "latitude" in drone_df.columns
+                and "longitude" in drone_df.columns
+            ):
+                sync.add_drone_gps(drone_df)
+
+        # Add litchi GPS if available
+        if self.raw_data.drone_data and self.raw_data.drone_data.litchi is not None:
+            litchi_df = self.raw_data.drone_data.litchi
+            if (
+                isinstance(litchi_df, pl.DataFrame)
+                and "latitude" in litchi_df.columns
+                and "longitude" in litchi_df.columns
+            ):
+                sync.add_litchi_gps(litchi_df)
+
+        # Add inclinometer if available
+        if self.raw_data.payload_data and "inclinometer" in self.raw_data.payload_data:
+            incl_sensor = self.raw_data.payload_data["inclinometer"]
+            incl_data = incl_sensor.data if hasattr(incl_sensor, "data") else incl_sensor
+            sync.add_inclinometer(incl_data)
+
+        # Add other payload sensors
+        if self.raw_data.payload_data:
+            payload = self.raw_data.payload_data
+
+            # Add ADC if available
+            if "adc" in payload:
+                adc_sensor = payload["adc"]
+                adc_data = adc_sensor.data if hasattr(adc_sensor, "data") else adc_sensor
+                sync.add_payload_sensor("adc", adc_data)
+
+            # Add IMU sensors if available
+            if "imu" in payload:
+                imu_sensor = payload["imu"]
+                if hasattr(imu_sensor, "barometer") and imu_sensor.barometer is not None:
+                    sync.add_payload_sensor("imu_barometer", imu_sensor.barometer)
+                if hasattr(imu_sensor, "accelerometer") and imu_sensor.accelerometer is not None:
+                    sync.add_payload_sensor("imu_accelerometer", imu_sensor.accelerometer)
+                if hasattr(imu_sensor, "gyroscope") and imu_sensor.gyroscope is not None:
+                    sync.add_payload_sensor("imu_gyroscope", imu_sensor.gyroscope)
+                if hasattr(imu_sensor, "magnetometer") and imu_sensor.magnetometer is not None:
+                    sync.add_payload_sensor("imu_magnetometer", imu_sensor.magnetometer)
+
+        # Perform synchronization
+        self.sync_data = sync.synchronize(target_rate_hz=target_rate_hz, **kwargs)
+
+        return self.sync_data
+
     def to_hdf5(
         self,
-        filepath: Union[str, Path],
+        filepath: Optional[Union[str, Path]] = None,
     ) -> str:
         """
         Save flight data to HDF5 file.
 
         Saves metadata and raw_data hierarchy.
 
-        Args:
-            filepath (Union[str, Path]): Path to output HDF5 file
+        Parameters
+        ----------
+        filepath : Union[str, Path], optional
+            Path to output HDF5 file
 
-        Returns:
-            str: Timestamp string for the save operation
+        Returns
+        -------
+        str
+            Timestamp string for the save operation
 
-        Raises:
-            ImportError: If h5py is not installed
-            ValueError: If no data to save
+        Raises
+        ------
+        ImportError
+            If h5py is not installed
+        ValueError
+            If no data to save
 
-        Examples:
-            >>> # Save raw data
-            >>> flight.to_hdf5('flight_001.h5')
-            >>>
-            >>> # For synchronization, use CorrelationSynchronizer separately:
-            >>> from pils.synchronizer import CorrelationSynchronizer
-            >>> sync = CorrelationSynchronizer()
-            >>> sync.add_gps_reference(flight.raw_data.payload_data.gps)
-            >>> # ... add other sources ...
-            >>> result = sync.synchronize(target_rate_hz=10.0)
+        Examples
+        --------
+        >>> # Save raw data
+        >>> flight.to_hdf5('flight_001.h5')
+        >>> # For synchronization, use CorrelationSynchronizer separately:
+        >>> from pils.synchronizer import CorrelationSynchronizer
+        >>> sync = CorrelationSynchronizer()
+        >>> sync.add_gps_reference(flight.raw_data.payload_data.gps)
+        >>> # ... add other sources ...
+        >>> result = sync.synchronize(target_rate_hz=10.0)
         """
 
-        filepath = Path(filepath)
-        filepath.parent.mkdir(parents=True, exist_ok=True)
+        if filepath:
+            filepath = Path(filepath)
+            filepath.parent.mkdir(parents=True, exist_ok=True)
+
+        else:
+            filepath = Path(self.flight_info["proc_data_folder_path"])
 
         with h5py.File(str(filepath), "a") as f:
             # Save metadata
@@ -695,14 +874,20 @@ class Flight:
             # Save raw data
             self._save_raw_data_to_hdf5(f)
 
+            # Save sync_data if available
+            if self.sync_data is not None:
+                self._save_sync_data_to_hdf5(f)
+
         return _get_current_timestamp()
 
     def _save_metadata_to_hdf5(self, h5file: "h5py.File") -> None:
         """
         Save metadata to HDF5 file.
 
-        Args:
-            h5file (h5py.File): Open HDF5 file handle
+        Parameters
+        ----------
+        h5file : h5py.File
+            Open HDF5 file handle
         """
         if "metadata" not in h5file:
             metadata_group = h5file.create_group("metadata")
@@ -729,8 +914,10 @@ class Flight:
         """
         Save raw data hierarchy to HDF5 file.
 
-        Args:
-            h5file (h5py.File): Open HDF5 file handle
+        Parameters
+        ----------
+        h5file : h5py.File
+            Open HDF5 file handle
         """
 
         if "raw_data" not in h5file:
@@ -769,16 +956,46 @@ class Flight:
                 if sensor_data is not None:
                     self._save_dataframe_to_hdf5(payload_group, sensor_name, sensor_data)
 
+    def _save_sync_data_to_hdf5(self, h5file: "h5py.File") -> None:
+        """
+        Save synchronized data to HDF5 file.
+
+        Parameters
+        ----------
+        h5file : h5py.File
+            Open HDF5 file handle
+        """
+        if self.sync_data is None:
+            return
+
+        if "sync_data" not in h5file:
+            sync_group = h5file.create_group("sync_data")
+        else:
+            sync_group = h5file["sync_data"]
+            assert isinstance(sync_group, h5py.Group)
+
+        # Save sync_data DataFrame
+        self._save_dataframe_to_hdf5(sync_group, "data", self.sync_data)
+
+        # Save metadata
+        sync_group.attrs["created_at"] = _get_current_timestamp()
+        sync_group.attrs["n_samples"] = len(self.sync_data)
+        sync_group.attrs["n_columns"] = len(self.sync_data.columns)
+
     def _save_dataframe_to_hdf5(
         self, parent_group: "h5py.Group", name: str, df: "pl.DataFrame"
     ) -> None:
         """
         Save a Polars DataFrame to HDF5.
 
-        Args:
-            parent_group (h5py.Group): Parent HDF5 group
-            name (str): Dataset name
-            df (pl.DataFrame): DataFrame to save
+        Parameters
+        ----------
+        parent_group : h5py.Group
+            Parent HDF5 group
+        name : str
+            Dataset name
+        df : pl.DataFrame
+            DataFrame to save
         """
 
         # Convert to arrow and save as HDF5 dataset
@@ -803,24 +1020,29 @@ class Flight:
         """
         Dictionary-style access to flight data.
 
-        Args:
-            key (str): Key to access ('raw_data' or 'metadata')
+        Parameters
+        ----------
+        key : str
+            Key to access ('raw_data' or 'metadata')
 
-        Returns:
+        Returns
+        -------
+        object
             Corresponding data object
 
-        Raises:
-            KeyError: If key is not found
+        Raises
+        ------
+        KeyError
+            If key is not found
 
-        Examples:
-            >>> # Access raw data
-            >>> raw_data = flight['raw_data']
-            >>>
-            >>> # Access metadata
-            >>> metadata = flight['metadata']
-            >>>
-            >>> # Chain dictionary access
-            >>> drone_data = flight['raw_data']['drone_data']['drone']
+        Examples
+        --------
+        >>> # Access raw data
+        >>> raw_data = flight['raw_data']
+        >>> # Access metadata
+        >>> metadata = flight['metadata']
+        >>> # Chain dictionary access
+        >>> drone_data = flight['raw_data']['drone_data']['drone']
         """
         if key == "raw_data":
             return self.raw_data
@@ -834,23 +1056,24 @@ class RawData:
     """
     Container for raw flight data including drone telemetry and payload sensors.
 
-    Attributes:
-        drone_data (Optional[DroneData]): Drone telemetry data
-        payload_data (Optional[PayloadData]): Payload sensor data
+    Attributes
+    ----------
+    drone_data : Optional[DroneData]
+        Drone telemetry data
+    payload_data : Optional[PayloadData]
+        Payload sensor data
 
-    Examples:
-        >>> # Access drone data
-        >>> drone_telemetry = raw_data.drone_data.drone
-        >>>
-        >>> # Access payload sensors
-        >>> gps_data = raw_data.payload_data.gps
-        >>>
-        >>> # Dictionary-style access
-        >>> drone_telemetry = raw_data['drone_data']['drone']
-        >>> gps_data = raw_data['payload']['gps']
-        >>>
-        >>> # Print summary
-        >>> print(raw_data)
+    Examples
+    --------
+    >>> # Access drone data
+    >>> drone_telemetry = raw_data.drone_data.drone
+    >>> # Access payload sensors
+    >>> gps_data = raw_data.payload_data.gps
+    >>> # Dictionary-style access
+    >>> drone_telemetry = raw_data['drone_data']['drone']
+    >>> gps_data = raw_data['payload']['gps']
+    >>> # Print summary
+    >>> print(raw_data)
     """
 
     def __init__(self):
@@ -862,14 +1085,20 @@ class RawData:
         """
         Dictionary-style access to raw data components.
 
-        Args:
-            key (str): Key to access ('drone_data', 'payload_data', or 'payload')
+        Parameters
+        ----------
+        key : str
+            Key to access ('drone_data', 'payload_data', or 'payload')
 
-        Returns:
+        Returns
+        -------
+        object
             Corresponding data object
 
-        Raises:
-            KeyError: If key is not found
+        Raises
+        ------
+        KeyError
+            If key is not found
         """
         if key == "drone_data":
             return self.drone_data
@@ -894,26 +1123,27 @@ class DroneData:
     """
     Container for drone telemetry data.
 
-    Attributes:
-        drone (Optional[pl.DataFrame]): Drone telemetry data
-        litchi (Optional[pl.DataFrame]): Litchi flight log data (DJI only)
+    Attributes
+    ----------
+    drone : Union[Dict[str, pl.DataFrame], pl.DataFrame, None]
+        Drone telemetry data
+    litchi : Optional[pl.DataFrame]
+        Litchi flight log data (DJI only)
 
-    Examples:
-        >>> # Access drone telemetry
-        >>> telemetry = drone_data.drone
-        >>> print(telemetry.columns)
-        >>>
-        >>> # Filter by altitude
-        >>> high_flight = telemetry.filter(pl.col('altitude') > 50)
-        >>>
-        >>> # Access Litchi waypoints
-        >>> if drone_data.litchi is not None:
-        ...     waypoints = drone_data.litchi
-        ...     print(waypoints.head())
-        >>>
-        >>> # Dictionary-style access
-        >>> telemetry = drone_data['drone']
-        >>> waypoints = drone_data['litchi']
+    Examples
+    --------
+    >>> # Access drone telemetry
+    >>> telemetry = drone_data.drone
+    >>> print(telemetry.columns)
+    >>> # Filter by altitude
+    >>> high_flight = telemetry.filter(pl.col('altitude') > 50)
+    >>> # Access Litchi waypoints
+    >>> if drone_data.litchi is not None:
+    ...     waypoints = drone_data.litchi
+    ...     print(waypoints.head())
+    >>> # Dictionary-style access
+    >>> telemetry = drone_data['drone']
+    >>> waypoints = drone_data['litchi']
     """
 
     def __init__(
@@ -924,10 +1154,13 @@ class DroneData:
         """
         Initialize DroneData container.
 
-        Args:
-            drone_df (Union[Dict[str, pl.DataFrame], pl.DataFrame, None]): Drone telemetry data.
-                Can be a single DataFrame or a dict of DataFrames keyed by sensor name.
-            litchi_df (Optional[pl.DataFrame]): Litchi flight log DataFrame
+        Parameters
+        ----------
+        drone_df : Union[Dict[str, pl.DataFrame], pl.DataFrame, None], default=None
+            Drone telemetry data.
+            Can be a single DataFrame or a dict of DataFrames keyed by sensor name.
+        litchi_df : Optional[pl.DataFrame], default=None
+            Litchi flight log DataFrame
         """
         self.drone: Union[Dict[str, "pl.DataFrame"], "pl.DataFrame", None] = drone_df
         self.litchi: Optional["pl.DataFrame"] = litchi_df
@@ -936,14 +1169,20 @@ class DroneData:
         """
         Dictionary-style access to drone data.
 
-        Args:
-            key (str): Key to access ('drone' or 'litchi')
+        Parameters
+        ----------
+        key : str
+            Key to access ('drone' or 'litchi')
 
-        Returns:
+        Returns
+        -------
+        object
             Corresponding DataFrame
 
-        Raises:
-            KeyError: If key is not found
+        Raises
+        ------
+        KeyError
+            If key is not found
         """
         if hasattr(self, key):
             return getattr(self, key)
@@ -968,27 +1207,24 @@ class PayloadData:
     sensor configurations. Each sensor is accessible both as an attribute
     and through dictionary-style access.
 
-    Examples:
-        >>> # Access sensors as attributes
-        >>> gps_data = payload_data.gps
-        >>> imu_data = payload_data.imu
-        >>> adc_data = payload_data.adc
-        >>>
-        >>> # Access sensors using dictionary-style
-        >>> gps_data = payload_data['gps']
-        >>> imu_data = payload_data['imu']
-        >>>
-        >>> # List all loaded sensors
-        >>> sensors = payload_data.list_loaded_sensors()
-        >>> print(f"Loaded sensors: {sensors}")
-        >>>
-        >>> # Iterate over all sensors
-        >>> for sensor_name in payload_data.list_loaded_sensors():
-        ...     sensor_data = getattr(payload_data, sensor_name)
-        ...     print(f"{sensor_name}: {sensor_data.shape}")
-        >>>
-        >>> # Print summary
-        >>> print(payload_data)
+    Examples
+    --------
+    >>> # Access sensors as attributes
+    >>> gps_data = payload_data.gps
+    >>> imu_data = payload_data.imu
+    >>> adc_data = payload_data.adc
+    >>> # Access sensors using dictionary-style
+    >>> gps_data = payload_data['gps']
+    >>> imu_data = payload_data['imu']
+    >>> # List all loaded sensors
+    >>> sensors = payload_data.list_loaded_sensors()
+    >>> print(f"Loaded sensors: {sensors}")
+    >>> # Iterate over all sensors
+    >>> for sensor_name in payload_data.list_loaded_sensors():
+    ...     sensor_data = getattr(payload_data, sensor_name)
+    ...     print(f"{sensor_name}: {sensor_data.shape}")
+    >>> # Print summary
+    >>> print(payload_data)
     """
 
     def __init__(self):
@@ -999,18 +1235,25 @@ class PayloadData:
         """
         Dictionary-style access to sensor data.
 
-        Args:
-            key (str): Sensor name to access
+        Parameters
+        ----------
+        key : str
+            Sensor name to access
 
-        Returns:
+        Returns
+        -------
+        object
             Sensor data object
 
-        Raises:
-            KeyError: If sensor is not found
+        Raises
+        ------
+        KeyError
+            If sensor is not found
 
-        Examples:
-            >>> gps = payload_data['gps']
-            >>> imu = payload_data['imu']
+        Examples
+        --------
+        >>> gps = payload_data['gps']
+        >>> imu = payload_data['imu']
         """
         if hasattr(self, key):
             return getattr(self, key)
@@ -1021,17 +1264,19 @@ class PayloadData:
         """
         List all currently loaded sensors.
 
-        Returns:
-            List[str]: List of sensor names
+        Returns
+        -------
+        List[str]
+            List of sensor names
 
-        Examples:
-            >>> sensors = payload_data.list_loaded_sensors()
-            >>> print(sensors)
-            ['gps', 'imu', 'adc', 'inclinometer']
-            >>>
-            >>> # Check if specific sensor is loaded
-            >>> if 'gps' in payload_data.list_loaded_sensors():
-            ...     print("GPS data available")
+        Examples
+        --------
+        >>> sensors = payload_data.list_loaded_sensors()
+        >>> print(sensors)
+        ['gps', 'imu', 'adc', 'inclinometer']
+        >>> # Check if specific sensor is loaded
+        >>> if 'gps' in payload_data.list_loaded_sensors():
+        ...     print("GPS data available")
         """
         return [
             attr

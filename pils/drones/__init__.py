@@ -18,11 +18,16 @@ def drone_init(drone_model: str, drone_path: str):
     """
     Initialize appropriate drone class based on model.
 
-    Args:
-        drone_model: 'dji', 'blacksquare', or 'litchi'
-        drone_path: Path to drone data file or directory
+    Parameters
+    ----------
+    drone_model : str
+        'dji', 'blacksquare', or 'litchi'
+    drone_path : str
+        Path to drone data file or directory
 
-    Returns:
+    Returns
+    -------
+    object
         Initialized drone object
     """
     drone_model = drone_model.lower()
@@ -42,10 +47,14 @@ def find_first_drone_file(dirpath: str) -> Optional[str]:
     Find the first *_drone.csv file in directory tree.
     Assumes one flight per directory.
 
-    Args:
-        dirpath: Directory to search
+    Parameters
+    ----------
+    dirpath : str
+        Directory to search
 
-    Returns:
+    Returns
+    -------
+    Optional[str]
         Path to drone file or None if not found
     """
     for root, _, files in os.walk(dirpath):

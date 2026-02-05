@@ -42,19 +42,25 @@ class StoutLoader:
     Provides methods to load flight data paths and associated metadata
     from the STOUT database and file system.
 
-    Attributes:
-        campaign_service: Service for accessing campaign and flight data
-        base_data_path: Base path where all campaign data is stored
+    Attributes
+    ----------
+    campaign_service : Optional[CampaignService]
+        Service for accessing campaign and flight data
+    base_data_path : Optional[Path]
+        Base path where all campaign data is stored
     """
 
     def __init__(self):
         """
         Initialize the StoutDataLoader.
 
-        Args:
-            use_stout: If True, uses stout services to query database.
-                      If False, queries filesystem directly.
-            base_data_path: Base path for data storage. If None, uses stout config.
+        Parameters
+        ----------
+        use_stout : bool
+            If True, uses stout services to query database.
+            If False, queries filesystem directly.
+        base_data_path : Optional[Path]
+            Base path for data storage. If None, uses stout config.
         """
 
         self.campaign_service = None
@@ -74,7 +80,9 @@ class StoutLoader:
         """
         Load all flights from all campaigns.
 
-        Returns:
+        Returns
+        -------
+        List[Dict[str, Any]]
             List of flight dictionaries containing flight metadata and paths.
             Each flight dict includes: flight_id, flight_name, campaign_id,
             takeoff_datetime, landing_datetime, and folder paths.
@@ -97,11 +105,16 @@ class StoutLoader:
         """
         Load data for a single flight.
 
-        Args:
-            flight_id: Flight ID to load
-            flight_name: Flight name to load (alternative to flight_id)
+        Parameters
+        ----------
+        flight_id : Optional[str]
+            Flight ID to load
+        flight_name : Optional[str]
+            Flight name to load (alternative to flight_id)
 
-        Returns:
+        Returns
+        -------
+        Optional[Dict[str, Any]]
             Flight dictionary with metadata and paths, or None if not found.
         """
         if not campaign_id and not campaign_name:
@@ -130,11 +143,16 @@ class StoutLoader:
         """
         Load data for a single flight.
 
-        Args:
-            flight_id: Flight ID to load
-            flight_name: Flight name to load (alternative to flight_id)
+        Parameters
+        ----------
+        flight_id : Optional[str]
+            Flight ID to load
+        flight_name : Optional[str]
+            Flight name to load (alternative to flight_id)
 
-        Returns:
+        Returns
+        -------
+        Optional[Dict[str, Any]]
             Flight dictionary with metadata and paths, or None if not found.
         """
         if not flight_id and not flight_name:
@@ -159,12 +177,18 @@ class StoutLoader:
         """
         Load flights within a date range.
 
-        Args:
-            start_date: Start date in format 'YYYY-MM-DD'
-            end_date: End date in format 'YYYY-MM-DD'
-            campaign_id: Filter by campaign ID (optional)
+        Parameters
+        ----------
+        start_date : str
+            Start date in format 'YYYY-MM-DD'
+        end_date : str
+            End date in format 'YYYY-MM-DD'
+        campaign_id : Optional[str]
+            Filter by campaign ID (optional)
 
-        Returns:
+        Returns
+        -------
+        List[Dict[str, Any]]
             List of flight dictionaries matching the date range.
         """
         try:
@@ -215,11 +239,16 @@ class StoutLoader:
         - 'gps': GPS-specific data
         - 'imu': IMU-specific data
 
-        Args:
-            flight_id: Flight ID to load data from
-            data_types: List of data types to load. If None, loads all available.
+        Parameters
+        ----------
+        flight_id : str
+            Flight ID to load data from
+        data_types : Optional[List[str]]
+            List of data types to load. If None, loads all available.
 
-        Returns:
+        Returns
+        -------
+        Dict[str, List[str]]
             Dictionary mapping data_type to list of file paths.
         """
         if not flight_id:
@@ -369,11 +398,16 @@ class StoutLoader:
         """
         Collect specific data types from a flight.
 
-        Args:
-            flight: Flight dictionary from database
-            data_types: List of data types to collect. If None, all available.
+        Parameters
+        ----------
+        flight : Dict[str, Any]
+            Flight dictionary from database
+        data_types : Optional[List[str]]
+            List of data types to collect. If None, all available.
 
-        Returns:
+        Returns
+        -------
+        Dict[str, List[str]]
             Dictionary mapping data_type to list of file paths.
         """
         result = {}
@@ -390,11 +424,16 @@ class StoutLoader:
         """
         Get list of files for a specific data type within a flight.
 
-        Args:
-            flight: Flight dictionary
-            data_type: Type of data to retrieve
+        Parameters
+        ----------
+        flight : Dict[str, Any]
+            Flight dictionary
+        data_type : str
+            Type of data to retrieve
 
-        Returns:
+        Returns
+        -------
+        List[str]
             List of file paths
         """
         files = []
@@ -432,10 +471,14 @@ class StoutLoader:
         """
         Recursively list all files in a directory.
 
-        Args:
-            directory: Directory path
+        Parameters
+        ----------
+        directory : str
+            Directory path
 
-        Returns:
+        Returns
+        -------
+        List[str]
             List of absolute file paths
         """
         files = []
@@ -455,7 +498,9 @@ class StoutLoader:
         """
         Get list of all campaigns.
 
-        Returns:
+        Returns
+        -------
+        List[Dict[str, Any]]
             List of campaign dictionaries with metadata.
         """
         if self.use_stout and self.campaign_service:
@@ -518,27 +563,35 @@ class StoutLoader:
         - 'litchi': Litchi flight logs
         - 'blacksquare': BlackSquare drone logs
 
-        Args:
-            flight_id: Flight ID to load
-            flight_name: Flight name to load (alternative to flight_id)
-            sensors: List of sensor types to load. If None, loads ['gps'].
-            drones: List of drone types to load. If None, loads ['dji'].
+        Parameters
+        ----------
+        flight_id : Optional[str]
+            Flight ID to load
+        flight_name : Optional[str]
+            Flight name to load (alternative to flight_id)
+        sensors : Optional[List[str]]
+            List of sensor types to load. If None, loads ['gps'].
+        drones : Optional[List[str]]
+            List of drone types to load. If None, loads ['dji'].
 
-        Returns:
+        Returns
+        -------
+        Dict[str, Any]
             Dictionary containing:
                 - 'flight_info': Flight metadata dictionary
                 - '<sensor_type>': DataFrame for each requested sensor
                 - '<drone_type>': DataFrame for each requested drone
 
-        Example:
-            loader = StoutDataLoader()
-            data = loader.load_flight_data(
-                flight_id='some-id',
-                sensors=['gps', 'imu'],
-                drones=['dji']
-            )
-            gps_df = data['gps']
-            drone_df = data['dji']
+        Examples
+        --------
+        >>> loader = StoutDataLoader()
+        >>> data = loader.load_flight_data(
+        ...     flight_id='some-id',
+        ...     sensors=['gps', 'imu'],
+        ...     drones=['dji']
+        ... )
+        >>> gps_df = data['gps']
+        >>> drone_df = data['dji']
         """
         if sensors is None:
             sensors = ["gps"]
@@ -594,11 +647,16 @@ class StoutLoader:
         """
         Load sensor data and return as polars DataFrame.
 
-        Args:
-            flight_info: Flight metadata dictionary
-            sensor_type: Type of sensor to load (must be in SENSOR_MAP)
+        Parameters
+        ----------
+        flight_info : Dict[str, Any]
+            Flight metadata dictionary
+        sensor_type : str
+            Type of sensor to load (must be in SENSOR_MAP)
 
-        Returns:
+        Returns
+        -------
+        Optional[Any]
             polars.DataFrame with sensor data, or None if not found
         """
         config = SENSOR_MAP[sensor_type]
@@ -658,11 +716,16 @@ class StoutLoader:
         """
         Load drone telemetry and return as polars DataFrame.
 
-        Args:
-            flight_info: Flight metadata dictionary
-            drone_type: Type of drone to load (must be in DRONE_MAP)
+        Parameters
+        ----------
+        flight_info : Dict[str, Any]
+            Flight metadata dictionary
+        drone_type : str
+            Type of drone to load (must be in DRONE_MAP)
 
-        Returns:
+        Returns
+        -------
+        Optional[Any]
             polars.DataFrame with drone telemetry, or None if not found
         """
         config = DRONE_MAP[drone_type]

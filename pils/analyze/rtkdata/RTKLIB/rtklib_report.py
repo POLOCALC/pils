@@ -132,26 +132,36 @@ class RTKLIBReport:
             constellations = sorted(self.stat.df["constellation"].unique().to_list())
             report += "## 🛰️ Constellation-Specific Performance\n"
             for const in constellations:
-                c_full_name = CONSTELLATION_NAMES.get(const, const).upper()
+                c_full_name = CONSTELLATION_NAMES.get(const, const)
+                if c_full_name:
+                    c_full_name = c_full_name.upper()
+                else:
+                    c_full_name = const.upper()
                 report += f"### {c_full_name} Analysis\n"
 
                 # SNR Time Series
-                snr_t_path = os.path.join(assets_dir, f"snr_ts_{const}.png")
-                self.plotter.plot_constellation_snr_time_series(const, snr_t_path)
-                if os.path.exists(snr_t_path):
-                    report += f"#### {c_full_name} SNR Stability over Time\n![SNR](assets/snr_ts_{const}.png)\n\n"
+                if self.plotter:
+                    snr_t_path = os.path.join(assets_dir, f"snr_ts_{const}.png")
+                    if hasattr(self.plotter, "plot_constellation_snr_time_series"):
+                        self.plotter.plot_constellation_snr_time_series(const, snr_t_path)
+                    if os.path.exists(snr_t_path):
+                        report += f"#### {c_full_name} SNR Stability over Time\n![SNR](assets/snr_ts_{const}.png)\n\n"
 
                 # Histograms
-                h_path = os.path.join(assets_dir, f"resid_hist_{const}.png")
-                self.plotter.plot_stat_constellation_hists_dual(const, h_path)
-                if os.path.exists(h_path):
-                    report += f"#### {c_full_name} Phase & Code Residuals\n![Hist](assets/resid_hist_{const}.png)\n\n"
+                if self.plotter:
+                    h_path = os.path.join(assets_dir, f"resid_hist_{const}.png")
+                    if hasattr(self.plotter, "plot_stat_constellation_hists_dual"):
+                        self.plotter.plot_stat_constellation_hists_dual(const, h_path)
+                    if os.path.exists(h_path):
+                        report += f"#### {c_full_name} Phase & Code Residuals\n![Hist](assets/resid_hist_{const}.png)\n\n"
 
                 # Bar Chart
-                b_path = os.path.join(assets_dir, f"resid_bar_{const}.png")
-                self.plotter.plot_sat_residual_bar(const, b_path)
-                if os.path.exists(b_path):
-                    report += f"#### {c_full_name} Per-Satellite Peak Residuals\n![Bar](assets/resid_bar_{const}.png)\n\n"
+                if self.plotter:
+                    b_path = os.path.join(assets_dir, f"resid_bar_{const}.png")
+                    if hasattr(self.plotter, "plot_sat_residual_bar"):
+                        self.plotter.plot_sat_residual_bar(const, b_path)
+                    if os.path.exists(b_path):
+                        report += f"#### {c_full_name} Per-Satellite Peak Residuals\n![Bar](assets/resid_bar_{const}.png)\n\n"
 
             report += "## 📋 Satellite Quality Audit\n"
             report += "Analyzed satellites ranked by typical Carrier Phase stability (P95 Phase Residual).\n\n"

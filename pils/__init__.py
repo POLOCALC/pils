@@ -38,13 +38,21 @@ from . import decoders, drones, sensors, utils
 # Core imports
 # Load loader implementations from the loader subpackage. The loader
 # subpackage exposes `StoutLoader` (DB-backed) and `PathLoader` (filesystem).
+from .flight import Flight
 from .loader import PathLoader, StoutLoader
+from .pils import PILS
 from .synchronizer import CorrelationSynchronizer
 
+# Alias for cleaner user-facing API
+Synchronizer = CorrelationSynchronizer
+
 __all__ = [
+    "Flight",
+    "PILS",
     "StoutLoader",
     "PathLoader",
     "CorrelationSynchronizer",
+    "Synchronizer",
     "sensors",
     "drones",
     "decoders",

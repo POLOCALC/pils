@@ -36,17 +36,22 @@ class PathLoader:
     Provides methods to load flight data paths and associated metadata
     from the STOUT database and file system.
 
-    Attributes:
-        campaign_service: Service for accessing campaign and flight data
-        base_data_path: Base path where all campaign data is stored
+    Attributes
+    ----------
+    campaign_service : Service
+        Service for accessing campaign and flight data
+    base_data_path : Optional[Path]
+        Base path where all campaign data is stored
     """
 
     def __init__(self, base_data_path: str | Path | None):
         """
         Initialize the PathLoader.
 
-        Args:
-            base_data_path: Base path for data storage. Accepts string or Path object.
+        Parameters
+        ----------
+        base_data_path : Union[str, Path, None]
+            Base path for data storage. Accepts string or Path object.
         """
         self.base_data_path: Optional[Path] = (
             Path(base_data_path) if base_data_path is not None else None
@@ -56,7 +61,9 @@ class PathLoader:
         """
         Load all flights from all campaigns.
 
-        Returns:
+        Returns
+        -------
+        List[Dict[str, Any]]
             List of flight dictionaries containing flight metadata and paths.
             Each flight dict includes: flight_id, flight_name, campaign_id,
             takeoff_datetime, landing_datetime, and folder paths.
@@ -113,10 +120,14 @@ class PathLoader:
         """
         Load data for a single flight.
 
-        Args:
-            campaign_name: Flight name to load (alternative to flight_id)
+        Parameters
+        ----------
+        campaign_name : Optional[str]
+            Flight name to load (alternative to flight_id)
 
-        Returns:
+        Returns
+        -------
+        Optional[Dict[str, Any]]
             Flight dictionary with metadata and paths, or None if not found.
         """
         if campaign_name:
@@ -138,11 +149,16 @@ class PathLoader:
         """
         Load data for a single flight.
 
-        Args:
-            flight_id: Flight ID to load
-            flight_name: Flight name to load (alternative to flight_id)
+        Parameters
+        ----------
+        flight_id : Optional[str]
+            Flight ID to load
+        flight_name : Optional[str]
+            Flight name to load (alternative to flight_id)
 
-        Returns:
+        Returns
+        -------
+        Optional[Dict[str, Any]]
             Flight dictionary with metadata and paths, or None if not found.
         """
         if not flight_id and not flight_name:

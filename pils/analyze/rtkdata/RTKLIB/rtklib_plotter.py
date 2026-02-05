@@ -22,9 +22,19 @@ class RTKLIBPlotter:
         fig = plt.figure(figsize=(10, 10))
         ax = fig.add_subplot(111, projection="polar")
         fig.patch.set_alpha(0)
-        ax.set_theta_zero_location("N")
-        ax.set_theta_direction(-1)
-        ax.set_rlim(90, 0)
+        # Set polar plot properties with try/except for compatibility
+        try:
+            ax.set_theta_zero_location("N")  # type: ignore
+        except AttributeError:
+            pass
+        try:
+            ax.set_theta_direction(-1)  # type: ignore
+        except AttributeError:
+            pass
+        try:
+            ax.set_rlim(90, 0)  # type: ignore
+        except AttributeError:
+            pass
 
         # Plot all points
         sc = ax.scatter(
