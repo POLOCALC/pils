@@ -79,10 +79,11 @@ disallow_untyped_defs = false
 [tool.bumpver]
 current_version = "2026.2.0"
 version_pattern = "YYYY.MM.INC0"
-commit_message = "bump version {old_version} -> {new_version}"
+commit_message = "chore: bump version {old_version} -> {new_version}"
+tag_message = "Release {new_version}"
 commit = true
 tag = true
-push = true
+push = false
 
 [tool.bumpver.file_patterns]
 "pyproject.toml" = [

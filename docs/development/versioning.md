@@ -1,42 +1,41 @@
 # Auto-Versioning with CalVer
 
-This project uses **Calendar Versioning (CalVer)** with automatic version bumping via GitHub Actions when PRs are merged to main.
+This project uses **Calendar Versioning (CalVer)**. Version bumping is handled automatically by GitHub Actions when Pull Requests are merged to `main`.
 
 ## Version Format
 
-**YYYY.MM.PATCH** (e.g., `2026.2.0`, `2026.2.1`, `2026.3.0`)
+**YYYY.MM.INC0** (e.g., `2026.02.0`, `2026.02.1`, `2026.03.0`)
 
 - **YYYY**: Year (4 digits)
-- **MM**: Month (no leading zero)
-- **PATCH**: Incrementing number within the month
+- **MM**: Month (Zero-padded, e.g., 01, 02... 12)
+- **INC0**: Incrementing number (Resets to 0 automatically when the month changes)
 
 ## How It Works
 
-1. Developers create feature branches and make commits
-2. When PR is merged to `main`, GitHub Actions automatically:
-   - Checks if month has changed (bumps to YYYY.MM.0)
-   - Otherwise increments patch version (YYYY.MM.PATCH+1)
-   - Updates `pyproject.toml` and `pils/__init__.py`
-   - Creates git tag
-   - Pushes version commit and tag back to main
-
-No local setup required - versioning happens automatically in CI/CD.
+1. Developers create feature branches and make commits.
+2. When a PR is merged to `main`, GitHub Actions automatically:
+   - **Calculates the new version:**
+     - If the date has changed since the last release (new month/year), it updates the date and resets the counter to `.0`.
+     - If the date is the same, it increments the counter (e.g., `.0` -> `.1`).
+   - **Updates Files:** `pyproject.toml` and `pils/__init__.py`.
+   - **Git Operations:** Creates a commit and a git tag.
+   - **Push:** Pushes the new version commit and tag back to main.
 
 ## Setup
 
-No setup needed for developers. Versioning is calendar-based and automatic.
+No setup is needed for developers. Versioning is calendar-based and automated.
 
 ## Usage
 
 ### Regular Commits
 
-Since this project uses CalVer (calendar versioning), you don't need to follow any specific commit message format. Version bumps are calendar-based, not commit-based.
+Since this project uses CalVer, version bumps are time-based. You do not need to format your commit messages specifically to trigger a version bump (unlike Semantic Versioning).
 
 ```bash
 # Any commit message works
 git commit -m "Add PPK analysis cleanup on failure"
 git commit -m "Fix GPS timestamp parsing"
-git commit -m "Update README with examples"
+
 ```
 
 ### Push and Create PR
@@ -45,28 +44,64 @@ git commit -m "Update README with examples"
 git push origin feature-branch
 ```
 
-Create a PR and merge to main. GitHub Actions automatically handles versioning based on the current date.
+Create a PR and merge to `main`. The GitHub Action will detect the merge and run the version bump.
 
-## Manual Version Bump
+---
 
-If maintainers need to manually bump the version (requires bumpver installed locally):
+## Manual Versioning (Local Release)
+
+**Note:** You generally do not need to do this. The CI/CD pipeline handles releases.
+However, if GitHub Actions is broken or you need to force a release locally, follow these steps.
+
+### Prerequisites
+
+1. Ensure your local `main` branch is up to date.
+2. Ensure you have no uncommitted changes (`git status` must be clean).
+3. Install the tool:
 
 ```bash
-# Install bumpver
 pip install bumpver
-
-# Bump patch version (2026.2.0 -> 2026.2.1)
-bumpver update --patch
-
-# Bump to new month (2026.2.1 -> 2026.3.0)
-bumpver update --minor
-
-# Bump to new year (2026.2.1 -> 2027.0.0)
-bumpver update --major
-
-# Dry-run to see what would happen
-bumpver update --patch --dry
 ```
+
+
+
+### 1. Standard Manual Release (Recommended)
+
+This mimics the CI process. It checks today's date against the current version and increments automatically.
+
+```bash
+# 1. Switch to main and pull latest
+git checkout main
+git pull origin main
+
+# 2. Run the update (Updates files, commits, and tags)
+bumpver update
+
+# 3. Push the commit and the tag to GitHub
+git push --follow-tags
+```
+
+### 2. Force a Specific Version
+
+Use this if you need to override the date logic (e.g., fixing a mistake or backdating).
+
+```bash
+# Force version to 2026.05.01 regardless of today's date
+bumpver update --set-version "2026.05.01"
+
+# Push changes
+git push --follow-tags
+```
+
+### 3. Dry Run (Test)
+
+Check what the version *would* be without changing any files.
+
+```bash
+bumpver update --dry
+```
+
+---
 
 ## Check Current Version
 
@@ -80,46 +115,36 @@ grep '^version = ' pyproject.toml
 
 ## Skip Auto-Versioning
 
-To merge to main without triggering version bump, include `[skip-version]` in the merge commit:
+To merge to `main` without triggering a version bump (e.g., for CI config changes or readme updates), include `[skip-version]` in your **Merge Commit** message or the PR title.
 
 ```bash
+# Example commit message
 git commit -m "chore: update CI config [skip-version]"
 ```
 
 ## Changelog
 
-The CHANGELOG.md is automatically updated with version bumps. It includes:
-- Version number and date
-- Grouped changes by type (feat, fix, etc.)
-- Commit messages
+*Note: `bumpver` updates version numbers but does not generate text changelogs.*
+
+The `CHANGELOG.md` is updated via a separate GitHub Action (e.g., Release Drafter or Git Cliff) which groups commits from the PR.
 
 ## Troubleshooting
 
-### "No version bump needed"
-This means no `feat:` or `fix:` commits were found since the last version. Only documentation or style changes don't trigger version bumps.
-
 ### Version not bumping after PR merge
-Check the GitHub Actions logs in the Actions tab. Common issues:
-- No `feat:` or `fix:` commits in the PR
-- Commit message contains `[skip-version]`
-- GitHub Actions workflow failed
+
+Check the GitHub Actions logs. Common causes:
+
+1. **Protected Branch:** The Action failed to push because it lacks permission to bypass branch protection on `main`.
+2. **Skip Flag:** The commit message contained `[skip-version]`.
+3. **Dirty Directory:** The runner had uncommitted changes (rare in CI).
 
 ### Version out of sync
-If `pyproject.toml` and `pils/__init__.py` have different versions, manually fix and push:
+
+If `pyproject.toml` and `pils/__init__.py` have different versions, manually fix them to match and push:
+
 ```bash
-# Edit both files to match
-git commit -m "fix: sync version numbers"
+# 1. Edit both files to have the same version string
+# 2. Commit the fix
+git commit -m "chore: sync version numbers"
 git push
-```
-
-## Version History
-
-View all versions:
-```bash
-git tag -l "v*"
-```
-
-View changelog:
-```bash
-cat CHANGELOG.md
 ```
