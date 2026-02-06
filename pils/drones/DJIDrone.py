@@ -850,10 +850,6 @@ class DJIDrone:
 
                 aligned_df = pl.DataFrame(aligned_data)
 
-                logger.info(
-                    f"Timestamp corrected {aligned_data["correct_timestamp"].min()}, {aligned_data["correct_timestamp"].max()}"
-                )
-
                 aligned_df = aligned_df.with_columns(
                     (pl.col("correct_timestamp") * 1000)
                     .cast(pl.Int64)
@@ -861,9 +857,10 @@ class DJIDrone:
                     .alias("datetime_converted")
                 )
 
-                logger.info(
-                    f"Timestamp corrected {aligned_data["correct_timestamp"].min()}, {aligned_data["correct_timestamp"].max()}"
-                )
+                min_val = aligned_data["correct_timestamp"].min()
+                max_val = aligned_data["correct_timestamp"].max()
+
+                logger.info(f"Timestamp corrected {min_val}, {max_val}")
 
                 # Ensure correct_timestamp is present and maybe sort columns
                 self.aligned_df = aligned_df
