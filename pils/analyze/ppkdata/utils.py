@@ -151,13 +151,13 @@ class GNSSColors:
     @classmethod
     def get_constellation_color(cls, constellation: str) -> str:
         """Get color for a constellation code (first character of satellite ID).
-        
+
         Args:
             constellation: GNSS constellation code ('G', 'R', 'E', 'C', etc.)
-        
+
         Returns:
             Hex color code for the constellation
-        
+
         Examples:
             >>> GNSSColors.get_constellation_color('G')
             '#1f77b4'
@@ -171,12 +171,12 @@ class GNSSColors:
     @classmethod
     def apply_theme(cls, ax) -> None:
         """Apply consistent theme to plot axes.
-        
+
         Adds grid, background color, and styling for consistent plot appearance.
-        
+
         Args:
             ax: Matplotlib axes object
-        
+
         Examples:
             >>> import matplotlib.pyplot as plt
             >>> fig, ax = plt.subplots()

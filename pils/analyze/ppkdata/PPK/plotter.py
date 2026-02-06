@@ -8,16 +8,16 @@ from ..utils import GNSSColors
 
 class PPKPlotter:
     """Visualization engine for PPK analysis results.
-    
+
     Creates plots for PPK position solutions and processing statistics.
-    
+
     Attributes
     ----------
     pos : POSAnalyzer
         Position solution analyzer
     stat : STATAnalyzer
         Processing statistics analyzer
-    
+
     Examples
     --------
     >>> pos_analyzer = POSAnalyzer('solution.pos')
@@ -27,14 +27,14 @@ class PPKPlotter:
     >>> plotter = PPKPlotter(pos_analyzer, stat_analyzer)
     >>> plotter.plot_trajectory_q('trajectory.png')
     """
-    
+
     def __init__(self, pos_analyzer=None, stat_analyzer=None):
         """Initialize PPK plotter.
-        
+
         Args:
             pos_analyzer: POSAnalyzer instance with parsed position data
             stat_analyzer: STATAnalyzer instance with parsed statistics
-        
+
         Examples:
             >>> pos_analyzer = POSAnalyzer('solution.pos')
             >>> pos_analyzer.parse()
@@ -45,10 +45,10 @@ class PPKPlotter:
 
     def plot_skyplot_snr(self, save_path=None):
         """Polar skyplot with SNR tracks.
-        
+
         Args:
             save_path: Output file path
-        
+
         Examples:
             >>> plotter = PPKPlotter(stat_analyzer=stat_analyzer)
             >>> plotter.plot_skyplot_snr('skyplot.png')
@@ -113,10 +113,10 @@ class PPKPlotter:
 
     def plot_trajectory_q(self, save_path=None):
         """Plots trajectory (Lon vs Lat) colored by Q status.
-        
+
         Args:
             save_path: Output file path
-        
+
         Examples:
             >>> plotter = PPKPlotter(pos_analyzer=pos_analyzer)
             >>> plotter.plot_trajectory_q('trajectory.png')
@@ -157,10 +157,10 @@ class PPKPlotter:
 
     def plot_ratio_time(self, save_path=None):
         """Plot ambiguity ratio over time.
-        
+
         Args:
             save_path: Output file path
-        
+
         Examples:
             >>> plotter = PPKPlotter(pos_analyzer=pos_analyzer)
             >>> plotter.plot_ratio_time('ratio_time.png')
@@ -191,10 +191,10 @@ class PPKPlotter:
 
     def plot_snr_vs_elevation(self, save_path=None):
         """Scatter plot of SNR vs elevation angle.
-        
+
         Args:
             save_path: Output file path
-        
+
         Examples:
             >>> plotter = PPKPlotter(stat_analyzer=stat_analyzer)
             >>> plotter.plot_snr_vs_elevation('snr_elevation.png')
@@ -236,10 +236,10 @@ class PPKPlotter:
 
     def plot_enu_time_series(self, save_path=None):
         """Plot East-North-Up offsets over time.
-        
+
         Args:
             save_path: Output file path
-        
+
         Examples:
             >>> plotter = PPKPlotter(pos_analyzer=pos_analyzer)
             >>> plotter.plot_enu_time_series('enu_timeseries.png')
@@ -293,10 +293,10 @@ class PPKPlotter:
 
     def plot_residual_distribution_dual(self, save_path=None):
         """Plot histogram of phase residuals for L1/L2.
-        
+
         Args:
             save_path: Output file path
-        
+
         Examples:
             >>> plotter = PPKPlotter(stat_analyzer=stat_analyzer)
             >>> plotter.plot_residual_distribution_dual('residuals.png')
@@ -352,10 +352,10 @@ class PPKPlotter:
 
     def plot_avg_snr_time_series(self, save_path=None):
         """Plot average SNR per frequency over time.
-        
+
         Args:
             save_path: Output file path
-        
+
         Examples:
             >>> plotter = PPKPlotter(stat_analyzer=stat_analyzer)
             >>> plotter.plot_avg_snr_time_series('avg_snr_time.png')
@@ -415,11 +415,11 @@ class PPKPlotter:
 
     def plot_stat_constellation_hists_dual(self, const, save_path=None):
         """Plot dual-panel SNR histograms for constellation.
-        
+
         Args:
             const: Constellation code ('G', 'R', 'E', 'C')
             save_path: Output file path
-        
+
         Examples:
             >>> plotter = PPKPlotter(stat_analyzer=stat_analyzer)
             >>> plotter.plot_stat_constellation_hists_dual('G', 'gps_histograms.png')
@@ -477,11 +477,11 @@ class PPKPlotter:
 
     def plot_constellation_snr_time_series(self, const, save_path=None):
         """Plot SNR time series for specific constellation.
-        
+
         Args:
             const: Constellation code
             save_path: Output file path
-        
+
         Examples:
             >>> plotter = PPKPlotter(stat_analyzer=stat_analyzer)
             >>> plotter.plot_constellation_snr_time_series('E', 'galileo_snr_time.png')
@@ -524,11 +524,11 @@ class PPKPlotter:
 
     def plot_sat_residual_bar(self, const, save_path=None):
         """Plot bar chart of residuals per satellite.
-        
+
         Args:
             const: Constellation code
             save_path: Output file path
-        
+
         Examples:
             >>> plotter = PPKPlotter(stat_analyzer=stat_analyzer)
             >>> plotter.plot_sat_residual_bar('C', 'beidou_residuals.png')

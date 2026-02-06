@@ -65,7 +65,7 @@ class RINEXPlotter:
 
         Args:
             save_path: Output file path (PNG format)
-        
+
         Examples:
             >>> analyzer = RINEXAnalyzer('file.obs')
             >>> analyzer.parse_obs_file()
@@ -194,11 +194,11 @@ class RINEXPlotter:
 
     def plot_elevation_dependent_stats(self, pool="single", save_path=None):
         """Two panels: SNR and MP vs Elevation (Binned Averages, Color-coded by Sat Count).
-        
+
         Args:
             pool: Frequency pool - 'single' or 'dual'
             save_path: Output file path
-        
+
         Examples:
             >>> analyzer = RINEXAnalyzer('file.obs')
             >>> analyzer.parse_obs_file()
@@ -291,12 +291,12 @@ class RINEXPlotter:
 
     def plot_snr_time_series(self, satellites, freq_band, save_path=None):
         """Plot SNR time series for specified satellites and frequency.
-        
+
         Args:
             satellites: List of satellite IDs (e.g., ['G01', 'G02'])
             freq_band: Frequency band (e.g., 'L1', 'L2')
             save_path: Output file path
-        
+
         Examples:
             >>> plotter = RINEXPlotter(analyzer)
             >>> plotter.plot_snr_time_series(['G01', 'G05', 'G12'], 'L1', 'snr_gps.png')
@@ -331,12 +331,12 @@ class RINEXPlotter:
 
     def plot_multipath_time_series(self, satellites, freq_band, save_path=None):
         """Plot multipath time series for specified satellites.
-        
+
         Args:
             satellites: List of satellite IDs
             freq_band: Frequency band
             save_path: Output file path
-        
+
         Examples:
             >>> plotter = RINEXPlotter(analyzer)
             >>> plotter.plot_multipath_time_series(['E01', 'E11'], 'E1', 'mp_galileo.png')
@@ -365,12 +365,12 @@ class RINEXPlotter:
 
     def plot_constellation_histograms(self, const, bands, save_path=None):
         """Plot SNR histograms for constellation.
-        
+
         Args:
             const: Constellation code ('G', 'R', 'E', 'C')
             bands: List of frequency bands
             save_path: Output file path
-        
+
         Examples:
             >>> plotter = RINEXPlotter(analyzer)
             >>> plotter.plot_constellation_histograms('G', ['L1', 'L2'], 'gps_hist.png')
@@ -399,11 +399,11 @@ class RINEXPlotter:
 
     def plot_sat_avg_snr_bar(self, const, save_path=None):
         """Plot average SNR bar chart per satellite.
-        
+
         Args:
             const: Constellation code
             save_path: Output file path
-        
+
         Examples:
             >>> plotter = RINEXPlotter(analyzer)
             >>> plotter.plot_sat_avg_snr_bar('R', 'glonass_snr_bars.png')
@@ -452,10 +452,10 @@ class RINEXPlotter:
 
     def plot_cycle_slips(self, save_path=None):
         """Plot cycle slip detections over time.
-        
+
         Args:
             save_path: Output file path
-        
+
         Examples:
             >>> plotter = RINEXPlotter(analyzer)
             >>> plotter.plot_cycle_slips('cycle_slips.png')

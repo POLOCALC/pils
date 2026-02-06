@@ -32,7 +32,7 @@ class RTKLIBReport:
         Analyzer for processing statistics
     plotter : PPKPlotter
         Plotter for visualization
-    
+
     Examples
     --------
     >>> report = RTKLIBReport(pos_file='solution.pos', stat_file='solution.pos.stat')
@@ -56,7 +56,7 @@ class RTKLIBReport:
             pos_analyzer: Existing POSAnalyzer instance
             stat_analyzer: Existing STATAnalyzer instance
             plotter: Existing PPKPlotter instance
-        
+
         Examples:
             >>> # From files
             >>> report = RTKLIBReport(pos_file='solution.pos', stat_file='solution.pos.stat')
@@ -97,7 +97,7 @@ class RTKLIBReport:
 
         Returns:
             Path to generated report file
-        
+
         Examples:
             >>> report = RTKLIBReport(pos_file='solution.pos', stat_file='solution.pos.stat')
             >>> report_path = report.generate('my_report', plot_dir='figures')

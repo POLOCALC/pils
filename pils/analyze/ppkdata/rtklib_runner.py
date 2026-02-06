@@ -11,31 +11,31 @@ logger = logging.getLogger(__name__)
 
 class RTKLIBRunner:
     """RTKLIB PPK processing runner.
-    
+
     Manages RTKLIB rnx2rtkp execution for post-processed kinematic positioning.
     Validates time overlap between rover and base observations before processing.
-    
+
     Attributes
     ----------
     bin : str
         Path to rnx2rtkp binary
     output_dif : str
         Output directory path
-    
+
     Examples
     --------
     >>> runner = RTKLIBRunner(data_path='./output', rnx2rtkp_path='rnx2rtkp')
     >>> if runner.check_overlap('rover.obs', 'base.obs'):
     ...     runner.run_ppk('rover.obs', 'base.obs', 'rover.nav')
     """
-    
+
     def __init__(self, data_path: str, rnx2rtkp_path: str = "rnx2rtkp") -> None:
         """Initialize RTKLIB runner.
-        
+
         Args:
             data_path: Output directory for results
             rnx2rtkp_path: Path to rnx2rtkp binary executable
-        
+
         Examples:
             >>> runner = RTKLIBRunner('./ppk_output')
             >>> runner = RTKLIBRunner('./results', rnx2rtkp_path='/usr/local/bin/rnx2rtkp')
@@ -47,13 +47,13 @@ class RTKLIBRunner:
 
     def _parse_rinex_epoch_line(self, line):
         """Helper to parse a RINEX 3 epoch line (> Y M D h m s).
-        
+
         Args:
             line: RINEX epoch line string
-        
+
         Returns:
             datetime object or None if parsing fails
-        
+
         Examples:
             >>> runner = RTKLIBRunner('./output')
             >>> dt = runner._parse_rinex_epoch_line('> 2026 01 21 14 00 00.0000000')
@@ -71,13 +71,13 @@ class RTKLIBRunner:
 
     def _get_rinex_bounds(self, rinex_file):
         """Reads the FIRST and LAST observation timestamps.
-        
+
         Args:
             rinex_file: Path to RINEX observation file
-        
+
         Returns:
             Tuple of (start_datetime, end_datetime)
-        
+
         Examples:
             >>> runner = RTKLIBRunner('./output')
             >>> start, end = runner._get_rinex_bounds('rover.obs')
@@ -110,17 +110,17 @@ class RTKLIBRunner:
 
     def check_overlap(self, rover_obs, base_obs):
         """Check time overlap between rover and base observations.
-        
+
         Validates that rover and base station data have sufficient time overlap
         for effective PPK processing. Warns if overlap is less than 10 minutes.
-        
+
         Args:
             rover_obs: Path to rover RINEX observation file
             base_obs: Path to base RINEX observation file
-        
+
         Returns:
             True if adequate overlap exists, False otherwise
-        
+
         Examples:
             >>> runner = RTKLIBRunner('./output')
             >>> if runner.check_overlap('rover.obs', 'base.obs'):
@@ -168,15 +168,15 @@ class RTKLIBRunner:
 
     def run_ppk(self, rover, base, nav):
         """Execute RTKLIB PPK processing.
-        
+
         Runs rnx2rtkp binary with rover, base, and navigation files.
         Generates solution.pos output file.
-        
+
         Args:
             rover: Path to rover RINEX observation file
             base: Path to base RINEX observation file
             nav: Path to navigation file
-        
+
         Examples:
             >>> runner = RTKLIBRunner('./output', rnx2rtkp_path='rnx2rtkp')
             >>> runner.run_ppk('rover.obs', 'base.obs', 'rover.nav')

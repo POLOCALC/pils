@@ -112,10 +112,10 @@ class POSAnalyzer:
 
     def _compute_enu(self):
         """Converts Lat/Lon/Height to ENU offsets relative to the mean position.
-        
+
         Internal method that transforms geodetic coordinates to local
         East-North-Up frame for position analysis.
-        
+
         Examples:
             >>> analyzer = POSAnalyzer('solution.pos')
             >>> df = analyzer.parse()
@@ -168,7 +168,7 @@ class POSAnalyzer:
 
     def get_statistics(self):
         """Calculate position statistics (fix rate, avg ratio, etc.).
-        
+
         Returns:
             Dictionary with processing quality metrics:
             - total_epochs: Total number of position solutions
@@ -178,7 +178,7 @@ class POSAnalyzer:
             - fix_rate: Percentage of fixed solutions
             - avg_ratio: Average ambiguity ratio
             - max_ratio: Maximum ambiguity ratio
-        
+
         Examples:
             >>> analyzer = POSAnalyzer('solution.pos')
             >>> analyzer.parse()

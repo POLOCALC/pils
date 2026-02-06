@@ -100,7 +100,7 @@ class STATAnalyzer:
 
     def get_satellite_stats(self):
         """Aggregates residuals and SNR per satellite.
-        
+
         Returns:
             DataFrame with per-satellite statistics including:
             - avg_snr: Mean signal-to-noise ratio
@@ -109,7 +109,7 @@ class STATAnalyzer:
             - p95_resid_phase: 95th percentile phase residual
             - total_slips: Total cycle slips detected
             - total_rejects: Total rejected observations
-        
+
         Examples:
             >>> analyzer = STATAnalyzer('solution.pos.stat')
             >>> analyzer.parse()
@@ -141,13 +141,13 @@ class STATAnalyzer:
 
     def get_global_stats(self):
         """Aggregates residuals and SNR per frequency band.
-        
+
         Returns:
             DataFrame with global statistics by frequency:
             - mean_snr: Average SNR for the frequency
             - mean_resid_phase: Average phase residual
             - mean_resid_code: Average code residual
-        
+
         Examples:
             >>> analyzer = STATAnalyzer('solution.pos.stat')
             >>> analyzer.parse()

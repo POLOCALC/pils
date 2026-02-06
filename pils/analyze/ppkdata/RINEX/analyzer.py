@@ -333,10 +333,10 @@ class RINEXAnalyzer:
 
     def compute_satellite_azel(self):
         """Propagates satellite positions for precise Az/El calculation.
-        
+
         Uses broadcast ephemeris to calculate satellite positions and
         compute azimuth/elevation angles from receiver position.
-        
+
         Examples:
             >>> analyzer = RINEXAnalyzer('file.obs', navpath='file.nav')
             >>> analyzer.parse_obs_file()
@@ -453,10 +453,10 @@ class RINEXAnalyzer:
 
     def _mock_azel(self):
         """Generate mock azimuth/elevation data when navigation unavailable.
-        
+
         Creates simulated satellite tracks for visualization when
         precise ephemeris is not available.
-        
+
         Examples:
             >>> analyzer = RINEXAnalyzer('file.obs')  # No nav file
             >>> analyzer.parse_obs_file()
@@ -482,10 +482,10 @@ class RINEXAnalyzer:
     # STATISTICS
     def get_snr(self):
         """Extract SNR observations from parsed data.
-        
+
         Returns:
             DataFrame containing only SNR ('S') observations
-        
+
         Examples:
             >>> analyzer = RINEXAnalyzer('file.obs')
             >>> analyzer.parse_obs_file()
@@ -496,10 +496,10 @@ class RINEXAnalyzer:
 
     def get_snr_statistics(self):
         """Calculate SNR statistics per satellite and frequency.
-        
+
         Returns:
             DataFrame with mean, std, and count grouped by satellite and frequency
-        
+
         Examples:
             >>> analyzer = RINEXAnalyzer('file.obs')
             >>> analyzer.parse_obs_file()
@@ -562,13 +562,13 @@ class RINEXAnalyzer:
     # ADVANCED GEODETIC ANALYSIS
     def estimate_multipath(self):
         """Estimate multipath error using code-phase combinations.
-        
+
         Implements RTKLIB multipath algorithm using dual-frequency
         data to isolate multipath effects from other errors.
-        
+
         Returns:
             DataFrame with multipath estimates (MP) for each observation
-        
+
         Examples:
             >>> analyzer = RINEXAnalyzer('file.obs')
             >>> analyzer.parse_obs_file()
@@ -743,10 +743,10 @@ class RINEXAnalyzer:
 
     def get_multipath_rms(self):
         """Calculate RMS multipath per satellite and frequency.
-        
+
         Returns:
             DataFrame with MP_RMS values grouped by satellite, constellation, frequency
-        
+
         Examples:
             >>> analyzer = RINEXAnalyzer('file.obs')
             >>> analyzer.parse_obs_file()
@@ -762,17 +762,17 @@ class RINEXAnalyzer:
 
     def detect_cycle_slips(self, threshold_gf=0.08, threshold_mw=2.5):
         """Detect cycle slips using dual-frequency combinations.
-        
+
         Uses geometry-free (GF) and Melbourne-Wübbena (MW) combinations
         to identify carrier phase cycle slips.
-        
+
         Args:
             threshold_gf: Geometry-free jump threshold in meters (default: 0.08)
             threshold_mw: Melbourne-Wübbena jump threshold in cycles (default: 2.5)
-        
+
         Returns:
             DataFrame with detected slips including time, satellite, and type
-        
+
         Examples:
             >>> analyzer = RINEXAnalyzer('file.obs')
             >>> analyzer.parse_obs_file()
@@ -862,13 +862,13 @@ class RINEXAnalyzer:
 
     def get_completeness_metrics(self):
         """Calculate observation completeness percentage.
-        
+
         Computes ratio of actual observations to expected observations
         assuming dual-frequency tracking for all satellites.
-        
+
         Returns:
             Completeness percentage (0-100)
-        
+
         Examples:
             >>> analyzer = RINEXAnalyzer('file.obs')
             >>> analyzer.parse_obs_file()
@@ -887,13 +887,13 @@ class RINEXAnalyzer:
 
     def get_gap_metrics(self):
         """Detect data gaps in observation epochs.
-        
+
         Identifies periods where expected observations are missing
         based on median epoch interval.
-        
+
         Returns:
             Dictionary with max_gap, n_gaps, and expected_interval
-        
+
         Examples:
             >>> analyzer = RINEXAnalyzer('file.obs')
             >>> analyzer.parse_obs_file()
@@ -919,10 +919,10 @@ class RINEXAnalyzer:
 
     def get_integrity_metrics(self):
         """Calculate cycle slip rates for data integrity assessment.
-        
+
         Returns:
             Dictionary with slip_rate (per satellite per hour) and total_slips
-        
+
         Examples:
             >>> analyzer = RINEXAnalyzer('file.obs')
             >>> analyzer.parse_obs_file()
@@ -948,13 +948,13 @@ class RINEXAnalyzer:
 
     def get_geometric_metrics(self):
         """Assess satellite geometric distribution.
-        
+
         Evaluates azimuth quadrant coverage and elevation spread
         for current satellite constellation.
-        
+
         Returns:
             Dictionary with quadrants, el_spread, and diversity_score
-        
+
         Examples:
             >>> analyzer = RINEXAnalyzer('file.obs')
             >>> analyzer.parse_obs_file()
@@ -1067,9 +1067,7 @@ class RINEXAnalyzer:
                 mean_snr = avg_snr.select(pl.col("avg_snr").mean()).item()
 
                 basic_score = (
-                    float(min(100, (mean_snr / 45.0) * 100))
-                    if avg_snr["avg_snr"].mean()
-                    else 0
+                    float(min(100, (mean_snr / 45.0) * 100)) if avg_snr["avg_snr"].mean() else 0
                 )
                 sat_count = snr["satellite"].n_unique()
 
@@ -1306,10 +1304,10 @@ class RINEXAnalyzer:
 
     def get_time_span(self):
         """Get observation time span.
-        
+
         Returns:
             Tuple of (start_datetime, end_datetime)
-        
+
         Examples:
             >>> analyzer = RINEXAnalyzer('file.obs')
             >>> analyzer.parse_obs_file()

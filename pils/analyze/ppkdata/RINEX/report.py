@@ -29,7 +29,7 @@ class RINEXReport:
         Analyzer instance for data processing
     plotter : RINEXPlotter
         Plotter instance for visualization
-    
+
     Examples
     --------
     >>> report = RINEXReport(rinex_obs=Path('file.obs'), rinex_nav=Path('file.nav'))
@@ -51,7 +51,7 @@ class RINEXReport:
             rinex_nav: Path to RINEX navigation file (if analyzer not provided)
             analyzer: Existing RINEXAnalyzer instance
             plotter: Existing RINEXPlotter instance
-        
+
         Examples:
             >>> # From file
             >>> report = RINEXReport(rinex_obs=Path('station.obs'), rinex_nav=Path('station.nav'))
@@ -93,7 +93,7 @@ class RINEXReport:
 
         Raises:
             ValueError: If analyzer or plotter not initialized
-        
+
         Examples:
             >>> report = RINEXReport(rinex_obs=Path('file.obs'), rinex_nav=Path('file.nav'))
             >>> report_path = report.generate('rinex_quality.md', plot_folder='figures')
