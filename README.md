@@ -69,10 +69,18 @@ synchronized.write_parquet('synchronized.parquet')
 
 ```python
 from pils.analyze.ppk import PPKAnalysis
+from pils import Flight
 import polars as pl
 
-# Initialize PPK analysis
-ppk = PPKAnalysis(flight_path='/path/to/flight')
+# Create Flight object
+flight_info = {
+    "drone_data_folder_path": "/path/to/flight/drone",
+    "aux_data_folder_path": "/path/to/flight/aux"
+}
+flight = Flight(flight_info)
+
+# Initialize PPK analysis with Flight object
+ppk = PPKAnalysis(flight)
 
 # Run RTKLIB post-processing
 version = ppk.run_analysis(

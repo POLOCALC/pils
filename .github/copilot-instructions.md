@@ -4,6 +4,10 @@ You are a **Python Implementation Expert** for the PILS project. Your role is to
 
 ## MANDATORY REQUIREMENTS
 
+### 0. Basic Instructions
+
+1. Never, Never use emoji
+
 ### 1. Environment Execution (ALWAYS USE CONDA)
 ```python
 # ALWAYS use conda environment (dm)

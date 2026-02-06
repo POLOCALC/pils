@@ -2,7 +2,7 @@ import glob
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union, cast, overload
 
 import h5py
 import polars as pl
@@ -176,7 +176,7 @@ class Flight:
         self.set_metadata()
 
         self.raw_data = RawData()
-        self.sync_data: Optional[pl.DataFrame] = None
+        self.sync_data: pl.DataFrame = pl.DataFrame()
         self.adc_gain_config = None
 
     def from_hdf5(
@@ -256,7 +256,9 @@ class Flight:
                 if "data" in sync_data_group:
                     data_group = sync_data_group["data"]
                     assert isinstance(data_group, h5py.Group)
-                    self.sync_data = self._load_dataframe_from_hdf5(data_group)
+                    loaded_sync = self._load_dataframe_from_hdf5(data_group)
+                    if loaded_sync is not None:
+                        self.sync_data = loaded_sync
 
             # Load synchronized data
             if sync_version is not False and "synchronized_data" in f:
@@ -715,9 +717,6 @@ class Flight:
         """
         sensor_path = Path(self.flight_info["aux_data_folder_path"]) / "sensors"
 
-        if self.raw_data.payload_data is None:
-            self.raw_data.payload_data = PayloadData()
-
         if isinstance(sensor_name, str):
             sensor_name = [sensor_name]
 
@@ -787,9 +786,12 @@ class Flight:
         )
 
         # Add drone GPS if available
-        if self.raw_data.drone_data and self.raw_data.drone_data.drone is not None:
-            drone_df = self.raw_data.drone_data.drone
-
+        drone_data = self.raw_data.drone_data.drone
+        drone_has_data = (isinstance(drone_data, dict) and len(drone_data) > 0) or (
+            isinstance(drone_data, pl.DataFrame) and len(drone_data) > 0
+        )
+        if drone_has_data:
+            drone_df = drone_data
 
             if "dji" in self.__drone_model.lower():
 
@@ -819,7 +821,7 @@ class Flight:
             )
 
         # Add litchi GPS if available
-        if self.raw_data.drone_data and self.raw_data.drone_data.litchi is not None:
+        if len(self.raw_data.drone_data.litchi) > 0:
             litchi_df = self.raw_data.drone_data.litchi
             if (
                 isinstance(litchi_df, pl.DataFrame)
@@ -829,7 +831,7 @@ class Flight:
                 sync.add_litchi_gps(litchi_df)
 
         # Add inclinometer if available
-        if self.raw_data.payload_data and "inclinometer" in self.raw_data.payload_data:
+        if "inclinometer" in self.raw_data.payload_data:
             incl_sensor = self.raw_data.payload_data["inclinometer"]
             incl_data = incl_sensor.data if hasattr(incl_sensor, "data") else incl_sensor
             if self.__inclinometer == "imx5":
@@ -837,26 +839,25 @@ class Flight:
             sync.add_inclinometer(incl_data, self.__inclinometer)
 
         # Add other payload sensors
-        if self.raw_data.payload_data:
-            payload = self.raw_data.payload_data
+        payload = self.raw_data.payload_data
 
-            # Add ADC if available
-            if "adc" in payload:
-                adc_sensor = payload["adc"]
-                adc_data = adc_sensor.data if hasattr(adc_sensor, "data") else adc_sensor
-                sync.add_payload_sensor("adc", adc_data)
+        # Add ADC if available
+        if "adc" in payload:
+            adc_sensor = payload["adc"]
+            adc_data = adc_sensor.data if hasattr(adc_sensor, "data") else adc_sensor
+            sync.add_payload_sensor("adc", adc_data)
 
-            # Add IMU sensors if available
-            if "imu" in payload:
-                imu_sensor = payload["imu"]
-                if hasattr(imu_sensor, "barometer") and imu_sensor.barometer is not None:
-                    sync.add_payload_sensor("imu_barometer", imu_sensor.barometer)
-                if hasattr(imu_sensor, "accelerometer") and imu_sensor.accelerometer is not None:
-                    sync.add_payload_sensor("imu_accelerometer", imu_sensor.accelerometer)
-                if hasattr(imu_sensor, "gyroscope") and imu_sensor.gyroscope is not None:
-                    sync.add_payload_sensor("imu_gyroscope", imu_sensor.gyroscope)
-                if hasattr(imu_sensor, "magnetometer") and imu_sensor.magnetometer is not None:
-                    sync.add_payload_sensor("imu_magnetometer", imu_sensor.magnetometer)
+        # Add IMU sensors if available
+        if "imu" in payload:
+            imu_sensor = payload["imu"]
+            if hasattr(imu_sensor, "barometer") and imu_sensor.barometer is not None:
+                sync.add_payload_sensor("imu_barometer", imu_sensor.barometer)
+            if hasattr(imu_sensor, "accelerometer") and imu_sensor.accelerometer is not None:
+                sync.add_payload_sensor("imu_accelerometer", imu_sensor.accelerometer)
+            if hasattr(imu_sensor, "gyroscope") and imu_sensor.gyroscope is not None:
+                sync.add_payload_sensor("imu_gyroscope", imu_sensor.gyroscope)
+            if hasattr(imu_sensor, "magnetometer") and imu_sensor.magnetometer is not None:
+                sync.add_payload_sensor("imu_magnetometer", imu_sensor.magnetometer)
 
         # Perform synchronization
         self.sync_data = sync.synchronize(target_rate_hz=target_rate_hz, **kwargs)
@@ -916,7 +917,7 @@ class Flight:
             self._save_raw_data_to_hdf5(f)
 
             # Save sync_data if available
-            if self.sync_data is not None:
+            if len(self.sync_data) > 0:
                 self._save_sync_data_to_hdf5(f)
 
         return _get_current_timestamp()
@@ -968,24 +969,35 @@ class Flight:
             assert isinstance(raw_data_group, h5py.Group)
 
         # Save drone data
-        if self.raw_data.drone_data:
+        drone_has_data = (
+            (
+                isinstance(self.raw_data.drone_data.drone, dict)
+                and len(self.raw_data.drone_data.drone) > 0
+            )
+            or (
+                isinstance(self.raw_data.drone_data.drone, pl.DataFrame)
+                and len(self.raw_data.drone_data.drone) > 0
+            )
+            or len(self.raw_data.drone_data.litchi) > 0
+        )
+        if drone_has_data:
             if "drone_data" not in raw_data_group:
                 drone_group = raw_data_group.create_group("drone_data")
             else:
                 drone_group = raw_data_group["drone_data"]
                 assert isinstance(drone_group, h5py.Group)
 
-            if self.raw_data.drone_data.drone is not None:
-                drone_data = self.raw_data.drone_data.drone
-                # Handle case where drone could be Dict or DataFrame
-                if not isinstance(drone_data, dict):
-                    self._save_dataframe_to_hdf5(drone_group, "drone", drone_data)
+            drone_data = self.raw_data.drone_data.drone
+            if isinstance(drone_data, dict) and len(drone_data) > 0:
+                pass  # Handle dict case if needed
+            elif isinstance(drone_data, pl.DataFrame) and len(drone_data) > 0:
+                self._save_dataframe_to_hdf5(drone_group, "drone", drone_data)
 
-            if self.raw_data.drone_data.litchi is not None:
+            if len(self.raw_data.drone_data.litchi) > 0:
                 self._save_dataframe_to_hdf5(drone_group, "litchi", self.raw_data.drone_data.litchi)
 
         # Save payload data
-        if self.raw_data.payload_data:
+        if len(self.raw_data.payload_data.list_loaded_sensors()) > 0:
             if "payload_data" not in raw_data_group:
                 payload_group = raw_data_group.create_group("payload_data")
             else:
@@ -1006,7 +1018,7 @@ class Flight:
         h5file : h5py.File
             Open HDF5 file handle
         """
-        if self.sync_data is None:
+        if len(self.sync_data) == 0:
             return
 
         if "sync_data" not in h5file:
@@ -1099,10 +1111,10 @@ class RawData:
 
     Attributes
     ----------
-    drone_data : Optional[DroneData]
-        Drone telemetry data
-    payload_data : Optional[PayloadData]
-        Payload sensor data
+    drone_data : DroneData
+        Drone telemetry data (initialized empty, populated by add_drone_data())
+    payload_data : PayloadData
+        Payload sensor data (initialized empty, populated by add_sensor_data())
 
     Examples
     --------
@@ -1118,9 +1130,9 @@ class RawData:
     """
 
     def __init__(self):
-        """Initialize empty RawData container."""
-        self.drone_data: Optional["DroneData"] = None
-        self.payload_data: Optional["PayloadData"] = None
+        """Initialize empty RawData container with empty data objects."""
+        self.drone_data: "DroneData" = DroneData(None, None)
+        self.payload_data: "PayloadData" = PayloadData()
 
     def __getitem__(self, key):
         """
@@ -1151,10 +1163,12 @@ class RawData:
     def __repr__(self):
         """Return string representation of loaded data."""
         output = []
-        if self.drone_data:
+        # Check if drone data has been loaded
+        if len(self.drone_data.drone) > 0 or len(self.drone_data.litchi) > 0:
             output.append("=== DRONE DATA ===")
             output.append(str(self.drone_data))
-        if self.payload_data:
+        # Check if payload data has sensors loaded
+        if len(self.payload_data.list_loaded_sensors()) > 0:
             output.append("\n=== PAYLOAD DATA ===")
             output.append(str(self.payload_data))
         return "\n".join(output) if output else "No data loaded"
@@ -1203,10 +1217,13 @@ class DroneData:
         litchi_df : Optional[pl.DataFrame], default=None
             Litchi flight log DataFrame
         """
-        self.drone: Union[Dict[str, "pl.DataFrame"], "pl.DataFrame", None] = drone_df
-        self.litchi: Optional["pl.DataFrame"] = litchi_df
+        # Initialize with empty DataFrames to avoid Optional types
+        self.drone: Union[Dict[str, "pl.DataFrame"], "pl.DataFrame"] = (
+            drone_df if drone_df is not None else pl.DataFrame()
+        )
+        self.litchi: "pl.DataFrame" = litchi_df if litchi_df is not None else pl.DataFrame()
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str) -> Union["pl.DataFrame", Dict[str, "pl.DataFrame"]]:
         """
         Dictionary-style access to drone data.
 
@@ -1217,7 +1234,7 @@ class DroneData:
 
         Returns
         -------
-        object
+        Union[pl.DataFrame, Dict[str, pl.DataFrame]]
             Corresponding DataFrame
 
         Raises
@@ -1269,10 +1286,66 @@ class PayloadData:
     """
 
     def __init__(self):
-        """Initialize empty PayloadData container."""
+        """Initialize empty PayloadData container.
+
+        Sensor attributes are set dynamically via add_sensor_data().
+        """
         pass
 
-    def __getitem__(self, key):
+    def __getattr__(self, name: str) -> Any:
+        """
+        Access sensor data attributes.
+
+        This method is called when an attribute is not found through normal lookup.
+        It provides better error messages for missing sensors.
+
+        Parameters
+        ----------
+        name : str
+            Sensor name (gps, imu, adc, inclinometer, camera, etc.)
+
+        Returns
+        -------
+        Any
+            Sensor data (typically pl.DataFrame or sensor object)
+
+        Raises
+        ------
+        AttributeError
+            If sensor not loaded. Error message includes list of available sensors.
+
+        Examples
+        --------
+        >>> gps_data = payload_data.gps  # Returns GPS DataFrame if loaded
+        >>> # If sensor not loaded, raises AttributeError with helpful message
+        """
+        # This will be called only if attribute doesn't exist via normal lookup
+        available = self.list_loaded_sensors()
+        if available:
+            raise AttributeError(f"Sensor '{name}' not loaded. Available sensors: {available}")
+        else:
+            raise AttributeError(f"Sensor '{name}' not loaded. No sensors currently loaded.")
+
+    @overload
+    def __setattr__(self, name: str, value: pl.DataFrame) -> None: ...
+
+    @overload
+    def __setattr__(self, name: str, value: Any) -> None: ...
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """
+        Set sensor data attribute dynamically.
+
+        Parameters
+        ----------
+        name : str
+            Sensor name (gps, imu, adc, inclinometer, etc.)
+        value : Any
+            Sensor data (typically pl.DataFrame or sensor object)
+        """
+        object.__setattr__(self, name, value)
+
+    def __getitem__(self, key: str) -> Any:
         """
         Dictionary-style access to sensor data.
 
@@ -1283,8 +1356,8 @@ class PayloadData:
 
         Returns
         -------
-        object
-            Sensor data object
+        Any
+            Sensor data object (DataFrame or other sensor object)
 
         Raises
         ------

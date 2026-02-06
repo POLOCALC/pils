@@ -2,6 +2,6 @@
 RTK Data Analysis Utilities.
 """
 
-from pils.analyze.rtkdata.analyze_rtk import RTKLIBRunner
+from pils.analyze.ppkdata.rtklib_runner import RTKLIBRunner
 
 __all__ = ["RTKLIBRunner"]

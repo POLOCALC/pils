@@ -15,11 +15,18 @@ Key Features
 Examples
 --------
 >>> from pils.analyze.ppk import PPKAnalysis
->>> # Create new analysis
->>> ppk = PPKAnalysis('/path/to/flight')
+>>> from pils.flight import Flight
+>>> # Create Flight object
+>>> flight_info = {
+...     "drone_data_folder_path": "/path/to/flight/drone",
+...     "aux_data_folder_path": "/path/to/flight/aux"
+... }
+>>> flight = Flight(flight_info)
+>>> # Create new analysis with Flight object
+>>> ppk = PPKAnalysis(flight)
 >>> ppk.run_analysis('config.conf')  # Only runs if config changed
 >>> # Load existing
->>> ppk = PPKAnalysis.from_hdf5('/path/to/flight')
+>>> ppk = PPKAnalysis.from_hdf5(flight)
 >>> latest = ppk.get_latest_version()
 >>> print(latest.pos_data)  # Polars DataFrame
 """
@@ -31,15 +38,23 @@ import logging
 import shutil
 import subprocess
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 import polars as pl
 
-from pils.analyze.rtkdata.analyze_rtk import RTKLIBRunner
-from pils.analyze.rtkdata.RTKLIB.pos_analyzer import POSAnalyzer
-from pils.analyze.rtkdata.RTKLIB.stat_analyzer import STATAnalyzer
+if TYPE_CHECKING:
+    import h5py
+
+from pils.analyze.ppkdata.PPK.pos_analyzer import POSAnalyzer
+from pils.analyze.ppkdata.PPK.report import RTKLIBReport
+from pils.analyze.ppkdata.PPK.stat_analyzer import STATAnalyzer
+from pils.analyze.ppkdata.RINEX.report import RINEXReport
+from pils.analyze.ppkdata.rtklib_runner import RTKLIBRunner
+
+if TYPE_CHECKING:
+    from pils.flight import Flight
 
 logger = logging.getLogger(__name__)
 
@@ -120,8 +135,15 @@ class PPKAnalysis:
 
     Examples
     --------
+    >>> from pils.flight import Flight
+    >>> # Create Flight object
+    >>> flight_info = {
+    ...     "drone_data_folder_path": "/path/to/flight/drone",
+    ...     "aux_data_folder_path": "/path/to/flight/aux"
+    ... }
+    >>> flight = Flight(flight_info)
     >>> # Create new analysis
-    >>> ppk = PPKAnalysis('/path/to/flight')
+    >>> ppk = PPKAnalysis(flight)
     >>> version = ppk.run_analysis('rtklib.conf')  # Smart execution
     >>> # Only runs if config changed
     >>> version2 = ppk.run_analysis('rtklib.conf')  # Skipped if same
@@ -132,7 +154,7 @@ class PPKAnalysis:
     >>> all_versions = ppk.list_versions()
     """
 
-    def __init__(self, flight_path: Union[str, Path]):
+    def __init__(self, flight: "Flight"):
         """
         Initialize PPKAnalysis for a flight.
 
@@ -140,16 +162,51 @@ class PPKAnalysis:
 
         Parameters
         ----------
-        flight_path : Union[str, Path]
-            Path to flight root directory
+        flight : Flight
+            Flight object with valid flight_path attribute
+
+        Raises
+        ------
+        TypeError
+            If flight is not a Flight object
+        ValueError
+            If flight.flight_path is None or not an existing directory
 
         Examples
         --------
-        >>> ppk = PPKAnalysis('/mnt/data/flight_001')
+        >>> from pils.flight import Flight
+        >>> flight_info = {
+        ...     "drone_data_folder_path": "/path/to/flight/drone",
+        ...     "aux_data_folder_path": "/path/to/flight/aux"
+        ... }
+        >>> flight = Flight(flight_info)
+        >>> ppk = PPKAnalysis(flight)
         >>> print(ppk.ppk_dir)
-        /mnt/data/flight_001/proc/ppk
+        /path/to/flight/proc/ppk
         """
-        self.flight_path = Path(flight_path)
+        # Import here to avoid circular import
+        from pils.flight import Flight
+
+        # Validate input type
+        if not isinstance(flight, Flight):
+            raise TypeError(
+                f"Expected Flight object, got {type(flight).__name__}. "
+                "PPKAnalysis now requires a Flight object instead of a path."
+            )
+
+        # Validate flight_path exists
+        if flight.flight_path is None:
+            raise ValueError(
+                "Flight object must have a valid flight_path attribute. "
+                "Ensure the Flight was initialized with proper flight_info."
+            )
+
+        # Convert to Path and validate it's a directory
+        flight_path = Path(flight.flight_path)
+        if not flight_path.exists() or not flight_path.is_dir():
+            raise ValueError(f"flight_path must be an existing directory. " f"Got: {flight_path}")
+
+        self.flight_path = flight_path
         self.ppk_dir = self.flight_path / "proc" / "ppk"
         self.hdf5_path = self.ppk_dir / "ppk_solution.h5"
         self.versions: Dict[str, PPKVersion] = {}
@@ -363,14 +420,92 @@ class PPKAnalysis:
         latest_name = sorted(self.versions.keys())[-1]
         return self.versions[latest_name]
 
+    def _parse_rinex_epoch_line(self, line):
+        """Helper to parse a RINEX 3 epoch line (> Y M D h m s)."""
+        try:
+            parts = line.strip().split()
+            # Format: > 2026 01 21 14 00 00.0000000
+            y, m, d, h, mn = map(int, parts[1:6])
+            s = float(parts[6])
+            return datetime(y, m, d, h, mn, int(s))
+        except (ValueError, IndexError):
+            return None
+
+    def _get_rinex_bounds(self, rinex_file):
+        """
+        Reads the FIRST and LAST observation timestamps.
+        Returns tuple (start_dt, end_dt).
+        """
+        start_dt = None
+        last_dt = None
+
+        # Read file efficiently
+        with open(rinex_file, "r") as f:
+            # 1. Find Start Time
+            for line in f:
+                if line.startswith(">"):
+                    start_dt = self._parse_rinex_epoch_line(line)
+                    if start_dt:
+                        last_dt = start_dt  # Initialize last_dt
+                        break
+
+            # 2. Find End Time
+            # We continue reading line by line. For massive files,
+            # this takes a moment but ensures we find the true last epoch.
+            for line in f:
+                if line.startswith(">"):
+                    dt = self._parse_rinex_epoch_line(line)
+                    if dt:
+                        last_dt = dt
+
+        return start_dt, last_dt
+
+    def check_overlap(self, rover_obs, base_obs):
+        print("--- 1. Time Overlap Analysis ---")
+
+        # Get Bounds
+        r_start, r_end = self._get_rinex_bounds(rover_obs)
+        b_start, b_end = self._get_rinex_bounds(base_obs)
+
+        # Basic Check
+        if not r_start or not r_end:
+            print(f"  [Error] Failed to read timestamps from Rover: {rover_obs}")
+            return False
+        if not b_start or not b_end:
+            print(f"  [Error] Failed to read timestamps from Base: {base_obs}")
+            return False
+
+        print(f"  Rover: {r_start}  -->  {r_end}")
+        print(f"  Base:  {b_start}  -->  {b_end}")
+
+        # Calculate Overlap
+        overlap_start = max(r_start, b_start)
+        overlap_end = min(r_end, b_end)
+
+        duration = (overlap_end - overlap_start).total_seconds()
+
+        if duration <= 0:
+            print("  [CRITICAL] NO OVERLAP DETECTED!")
+            print("  The Base data ends before the Rover starts (or vice versa).")
+            print("  Gap: {abs(duration):.1f} seconds")
+            return False
+
+        print(f"  [OK] Common Window: {duration:.1f} seconds ({duration / 60:.1f} min)")
+
+        if duration < 600:  # Less than 10 mins
+            print("  [Warning] Overlap is very short (<10 min). Solution may be unstable.")
+
+        return True
+
     def run_analysis(
         self,
         config_path: Union[str, Path],
-        rover_obs: Union[str, Path],
-        base_obs: Union[str, Path],
-        nav_file: Union[str, Path],
+        rover_obs: Optional[Union[str, Path]] = None,
+        base_obs: Optional[Union[str, Path]] = None,
+        nav_file: Optional[Union[str, Path]] = None,
         force: bool = False,
-        rnx2rtkp_path: str = "rnx2rtkp",
+        analyze_rinex: bool = False,
+        analyze_ppk: bool = False,
     ) -> Optional[PPKVersion]:
         """
         Execute RTKLIB PPK analysis with smart re-run logic.
@@ -387,16 +522,21 @@ class PPKAnalysis:
         ----------
         config_path : Union[str, Path]
             Path to RTKLIB configuration file
-        rover_obs : Union[str, Path]
-            Path to rover RINEX observation file
-        base_obs : Union[str, Path]
-            Path to base RINEX observation file
-        nav_file : Union[str, Path]
-            Path to navigation file
+        rover_obs : Union[str, Path], optional
+            Path to rover RINEX observation file. If None, first look for available
+            files in the folder otherwise use convbin for conversion (default: None)
+        base_obs : Union[str, Path], optional
+            Path to base RINEX observation file. If None, first look for available
+            files in the folder otherwise use convbin for conversion (default: None)
+        nav_file : Union[str, Path], optional
+            Path to navigation file. If None, first look for available
+            files in the folder otherwise use convbin for conversion (default: None)
         force : bool, optional
             If True, force re-run even if config unchanged (default: False)
-        rnx2rtkp_path : str, optional
-            Path to rnx2rtkp binary (default: "rnx2rtkp")
+        analyze_rinex : bool, optional
+            If True, analyze RINEX files (default: False)
+        analyze_ppk : bool, optional
+            If True, analyze PPK results (default: False)
 
         Returns
         -------
@@ -422,19 +562,10 @@ class PPKAnalysis:
         >>> # Force re-run
         >>> v3 = ppk.run_analysis(..., force=True)
         """
-        config_path = Path(config_path)
-        rover_obs = Path(rover_obs)
-        base_obs = Path(base_obs)
-        nav_file = Path(nav_file)
 
+        config_path = Path(config_path)
         if not config_path.exists():
             raise FileNotFoundError(f"Config file not found: {config_path}")
-        if not rover_obs.exists():
-            raise FileNotFoundError(f"Rover observation file not found: {rover_obs}")
-        if not base_obs.exists():
-            raise FileNotFoundError(f"Base observation file not found: {base_obs}")
-        if not nav_file.exists():
-            raise FileNotFoundError(f"Navigation file not found: {nav_file}")
 
         # Check if should run
         if not force and not self._should_run_analysis(config_path):
@@ -447,6 +578,163 @@ class PPKAnalysis:
         version_name = self._generate_version_name()
         revision_path = self._create_revision_folder(version_name)
 
+        # Initialize nav file variables
+        rover_nav: Optional[Path] = None
+        base_nav: Optional[Path] = None
+
+        if rover_obs is not None:
+            rover_obs = Path(rover_obs)
+            # Infer rover nav file if exists
+            potential_nav = rover_obs.with_suffix(".nav")
+            if potential_nav.exists():
+                rover_nav = potential_nav
+        else:
+            obs_path = self.ppk_dir / "rover.obs"
+            nav_path = self.ppk_dir / "rover.nav"
+
+            if obs_path.exists() and nav_path.exists():
+                rover_obs = obs_path
+                rover_nav = nav_path
+
+            else:
+
+                rover_path = self.flight_path / "aux" / "sensors"
+
+                rover_ubx = list(rover_path.glob("*_GPS.bin"))[0]
+
+                cmd = [
+                    "convbin",
+                    "-od",
+                    "-os",
+                    "-oi",
+                    "-ot",
+                    "-ol",
+                    "-r",
+                    "ubx",
+                    "-o",
+                    str(obs_path),
+                    "-n",
+                    str(nav_path),
+                    str(rover_ubx),
+                ]
+
+                subprocess.run(cmd, check=True)
+
+                if not obs_path.exists():
+                    logger.info("rover obs file not created")
+                    raise FileNotFoundError("Conversion failed: .obs file not created")
+                if not obs_path.exists():
+                    logger.info("rover nav file not created")
+                    raise FileNotFoundError("Conversion failed: .nav file not created")
+
+                rover_obs = obs_path
+                rover_nav = nav_path
+
+        start_rover, end_rover = self._get_rinex_bounds(rover_obs)
+
+        if base_obs is not None:
+            base_obs = Path(base_obs)
+            # Infer base nav file if exists
+            potential_nav = base_obs.with_suffix(".nav")
+            if potential_nav.exists():
+                base_nav = potential_nav
+        else:
+            obs_path = self.ppk_dir / "base.obs"
+            nav_path = self.ppk_dir / "base.nav"
+
+            if obs_path.exists() and nav_path.exists():
+                base_obs = obs_path
+                base_nav = nav_path
+            else:
+
+                day_path = self.flight_path.parent
+                base_path = day_path / "base"
+
+                # Check if rover bounds are valid
+                if start_rover is None or end_rover is None:
+                    raise ValueError("Could not determine rover observation time bounds")
+
+                start = start_rover - timedelta(minutes=10)
+                date_start, time_start = start.strftime("%Y/%m/%d %H:%M:%S").split(" ")
+                end = end_rover - timedelta(minutes=10)
+                date_end, time_end = end.strftime("%Y/%m/%d %H:%M:%S").split(" ")
+
+                base_ubx = list(base_path.glob("*.[uU][bB][xX]"))[0]
+
+                cmd = [
+                    "convbin",
+                    "-od",
+                    "-os",
+                    "-oi",
+                    "-ot",
+                    "-ol",
+                    "-r",
+                    "ubx",
+                    "-ts",
+                    date_start,
+                    time_start,
+                    "-te",
+                    date_end,
+                    time_end,
+                    "-o",
+                    str(obs_path),
+                    "-n",
+                    str(nav_path),
+                    str(base_ubx),
+                ]
+
+                subprocess.run(cmd, check=True)
+
+                if not obs_path.exists():
+                    logger.info("rover obs file not created")
+                    raise FileNotFoundError("Conversion failed: .obs file not created")
+                if not obs_path.exists():
+                    logger.info("rover nav file not created")
+                    raise FileNotFoundError("Conversion failed: .nav file not created")
+
+                base_obs = obs_path
+                base_nav = nav_path
+
+        if nav_file is not None:
+            nav_file = Path(nav_file)
+        else:
+            # Use the larger navigation file if both exist
+            if base_nav and rover_nav:
+                nav_file = max(base_nav, rover_nav, key=lambda p: p.stat().st_size)
+            elif base_nav:
+                nav_file = base_nav
+            elif rover_nav:
+                nav_file = rover_nav
+            else:
+                raise FileNotFoundError("No navigation file available (base or rover)")
+
+        if not rover_obs.exists():
+            raise FileNotFoundError(f"Rover observation file not found: {rover_obs}")
+        if not base_obs.exists():
+            raise FileNotFoundError(f"Base observation file not found: {base_obs}")
+        if not nav_file.exists():
+            raise FileNotFoundError(f"Navigation file not found: {nav_file}")
+
+        if analyze_rinex:
+
+            obs_files = [rover_obs, base_obs]
+            nav_files = [rover_nav, base_nav]
+
+            names = ["rover", "base"]
+
+            for i, obs in enumerate(obs_files):
+
+                report_md = self.ppk_dir / f"report_{names[i]}.md"
+
+                if report_md.exists():
+                    continue
+                else:
+                    report = RINEXReport(obs, nav_files[i])
+
+                    plot_folder = self.ppk_dir / f"rinex_plots_{names[i]}"
+
+                    report.generate(str(report_md), str(plot_folder.name))
+
         logger.info(f"Running PPK analysis: {version_name}")
 
         # Copy config to revision folder
@@ -458,34 +746,36 @@ class PPKAnalysis:
         pos_file = revision_path / "solution.pos"
         stat_file = revision_path / "solution.pos.stat"
 
-        # Initialize RTKLIB runner
-        rtklib = RTKLIBRunner(rnx2rtkp_path=rnx2rtkp_path)
+        cmd = [
+            "rnx2rtkp",
+            "-k",
+            str(config_copy),
+            "-o",
+            str(pos_file),
+            str(rover_obs),
+            str(base_obs),
+            str(nav_file),
+        ]
 
-        # Check temporal overlap between rover and base
-        if not rtklib.check_overlap(str(rover_obs), str(base_obs)):
-            logger.error("No temporal overlap between rover and base observations")
-            return None
+        subprocess.run(cmd, check=True)
 
-        # Execute RTKLIB processing
-        try:
-            rtklib.run_ppk(
-                rover=str(rover_obs),
-                base=str(base_obs),
-                nav=str(nav_file),
-                config=str(config_copy),
-                output=str(pos_file),
-            )
-            logger.info(f"RTKLIB execution completed")
-        except subprocess.CalledProcessError as e:
-            logger.error(f"RTKLIB execution failed: {e}")
-            return None
-        except FileNotFoundError as e:
-            logger.error(f"RTKLIB binary not found: {e}")
-            return None
+        if analyze_ppk:
+
+            report_md = revision_path / "report_ppk.md"
+
+            report = RTKLIBReport(pos_file, stat_file)
+
+            plot_folder = revision_path / "plots"
+
+            report.generate(str(report_md.parent), str(plot_folder.name))
 
         # Check if output files were created
         if not pos_file.exists():
             logger.error(f"Position file not created: {pos_file}")
+            # Clean up revision folder on failure
+            if revision_path.exists():
+                shutil.rmtree(revision_path)
+                logger.info(f"Cleaned up failed revision folder: {revision_path}")
             return None
 
         # Parse position file
@@ -495,6 +785,10 @@ class PPKAnalysis:
             logger.info(f"Parsed position: {len(pos_data)} epochs")
         except Exception as e:
             logger.error(f"Failed to parse position file: {e}")
+            # Clean up revision folder on failure
+            if revision_path.exists():
+                shutil.rmtree(revision_path)
+                logger.info(f"Cleaned up failed revision folder: {revision_path}")
             return None
 
         # Parse statistics file (optional)
@@ -524,7 +818,10 @@ class PPKAnalysis:
             "stat_file": str(stat_file) if stat_data is not None else None,
         }
 
-        # Create version object
+        # Create version object (handle None stat_data)
+        if stat_data is None:
+            stat_data = pl.DataFrame()
+
         version = PPKVersion(
             version_name=version_name,
             pos_data=pos_data,
@@ -536,7 +833,7 @@ class PPKAnalysis:
         # Store in versions dict
         self.versions[version_name] = version
 
-        # Save to HDF5 automatically (Phase 3)
+        # Save to HDF5 automatically
         self._save_version_to_hdf5(version)
 
         logger.info(f"PPK analysis complete: {version_name}")
@@ -640,7 +937,18 @@ class PPKAnalysis:
 
         # Save each column as separate dataset
         for col_name in df.columns:
-            col_data = df[col_name].to_numpy()
+            col_series = df[col_name]
+            # Convert datetime columns to int64 (microseconds since epoch) for HDF5 compatibility
+            if col_series.dtype in [
+                pl.Datetime,
+                pl.Datetime("us"),
+                pl.Datetime("ms"),
+                pl.Datetime("ns"),
+            ]:
+                col_data = col_series.dt.epoch(time_unit="us").to_numpy()
+            else:
+                col_data = col_series.to_numpy()
+
             if col_name in column_group:
                 del column_group[col_name]
             column_group.create_dataset(col_name, data=col_data)
@@ -685,12 +993,20 @@ class PPKAnalysis:
                 raise KeyError(f"Version {version_name} not found in HDF5")
 
             version_group = f[version_name]
+            if not isinstance(version_group, h5py.Group):
+                raise TypeError(f"{version_name} is not a group in HDF5 file")
 
             # Load position DataFrame
-            pos_data = self._load_dataframe_from_hdf5(version_group["position"])
+            pos_group = version_group["position"]
+            if not isinstance(pos_group, h5py.Group):
+                raise TypeError("position is not a group in HDF5 file")
+            pos_data = self._load_dataframe_from_hdf5(pos_group)
 
             # Load statistics DataFrame
-            stat_data = self._load_dataframe_from_hdf5(version_group["statistics"])
+            stat_group = version_group["statistics"]
+            if not isinstance(stat_group, h5py.Group):
+                raise TypeError("statistics is not a group in HDF5 file")
+            stat_data = self._load_dataframe_from_hdf5(stat_group)
 
             # Load metadata from attrs
             from pils.flight import _deserialize_from_hdf5
@@ -743,6 +1059,8 @@ class PPKAnalysis:
         """
         import json
 
+        import h5py
+
         if "columns" not in dataset_group.attrs:
             return pl.DataFrame()
 
@@ -753,20 +1071,39 @@ class PPKAnalysis:
         else:
             columns = json.loads(str(columns_attr))
 
+        dtypes_attr = dataset_group.attrs.get("dtypes")
+        if dtypes_attr:
+            if isinstance(dtypes_attr, bytes):
+                dtypes = json.loads(dtypes_attr.decode())
+            else:
+                dtypes = json.loads(str(dtypes_attr))
+        else:
+            dtypes = [None] * len(columns)
+
         data_dict = {}
 
         for col_name in columns:
             if col_name in dataset_group:
                 col_dataset = dataset_group[col_name]
-                data_dict[col_name] = col_dataset[:]
+                if isinstance(col_dataset, h5py.Dataset):
+                    data_dict[col_name] = col_dataset[:]
 
         if not data_dict:
             return pl.DataFrame()
 
-        return pl.DataFrame(data_dict)
+        df = pl.DataFrame(data_dict)
+
+        # Restore datetime columns from int64 microseconds
+        for col_name, dtype_str in zip(columns, dtypes):
+            if dtype_str and "Datetime" in dtype_str:
+                df = df.with_columns(
+                    pl.from_epoch(pl.col(col_name), time_unit="us").alias(col_name)
+                )
+
+        return df
 
     @classmethod
-    def from_hdf5(cls, flight_path: Union[str, Path]) -> "PPKAnalysis":
+    def from_hdf5(cls, flight: "Flight") -> "PPKAnalysis":
         """
         Load existing PPKAnalysis from HDF5 file.
 
@@ -775,24 +1112,37 @@ class PPKAnalysis:
 
         Parameters
         ----------
-        flight_path : Union[str, Path]
-            Path to flight root directory
+        flight : Flight
+            Flight object with valid flight_path attribute
 
         Returns
         -------
         PPKAnalysis
             PPKAnalysis instance with loaded versions
 
+        Raises
+        ------
+        TypeError
+            If flight is not a Flight object
+        ValueError
+            If flight.flight_path is None or not an existing directory
+
         Examples
         --------
-        >>> ppk = PPKAnalysis.from_hdf5('/path/to/flight')
+        >>> from pils.flight import Flight
+        >>> flight_info = {
+        ...     "drone_data_folder_path": "/path/to/flight/drone",
+        ...     "aux_data_folder_path": "/path/to/flight/aux"
+        ... }
+        >>> flight = Flight(flight_info)
+        >>> ppk = PPKAnalysis.from_hdf5(flight)
         >>> print(f"Loaded {len(ppk.versions)} versions")
         >>> for version_name in ppk.list_versions():
         ...     print(f"  - {version_name}")
         """
         import h5py
 
-        ppk = cls(flight_path)
+        ppk = cls(flight)
 
         # Check if HDF5 file exists
         if not ppk.hdf5_path.exists():

@@ -73,7 +73,6 @@ nav:
     - Analysis:
       - api/analysis/index.md
       - PPK: api/analysis/ppk.md
-      - RTK: api/analysis/rtk.md
     - Utilities:
       - api/utilities/index.md
       - Tools: api/utilities/tools.md
@@ -83,6 +82,8 @@ nav:
     - Directory Structure: user-guide/directory-structure.md
     - Time Synchronization: user-guide/synchronization.md
     - Drone: user-guide/dji-drone.md
+  - Data Formats:
+    - data-formats/index.md
   - Development:
     - development/index.md
     - Architecture: development/architecture.md
@@ -91,6 +92,7 @@ nav:
     - Adding Sensors: development/adding-sensors.md
     - Adding Analysis: development/adding-analysis.md
     - Code Style: development/code-style.md
+    - Versioning: development/versioning.md
   - Changelog: changelog.md
 
 # Plugins

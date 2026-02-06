@@ -3,25 +3,75 @@ RINEX Quality Plotter v5
 Feature-Complete Visualization engine for RINEXAnalyzer.
 """
 
+from typing import TYPE_CHECKING, List, Optional
+
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
 
-from ..utils import GNSSColors
-from .analyzer import CONSTELLATION_NAMES, RTKLIB_bands
+from ..utils import (
+    CONSTELLATION_NAMES,
+    GNSSColors,
+    RTKLIB_BANDS,
+)
+
+# Backwards compatibility alias
+RTKLIB_bands = RTKLIB_BANDS
+
+if TYPE_CHECKING:
+    from .analyzer import RINEXAnalyzer
 
 
 class RINEXPlotter:
-    def __init__(self, analyzer):
+    """Visualization engine for RINEX quality analysis.
+
+    Creates publication-quality plots for GNSS data quality assessment,
+    including skyplots, time series, histograms, and dashboard views.
+
+    Attributes
+    ----------
+    analyzer : RINEXAnalyzer
+        Analyzer instance containing parsed RINEX data
+
+    Examples
+    --------
+    >>> analyzer = RINEXAnalyzer('file.obs')
+    >>> analyzer.parse()
+    >>> plotter = RINEXPlotter(analyzer)
+    >>> plotter.plot_all_frequencies_summary('dashboard.png')
+    """
+
+    def __init__(self, analyzer: "RINEXAnalyzer") -> None:
+        """Initialize plotter with analyzer instance.
+
+        Args:
+            analyzer: RINEXAnalyzer with parsed data
+        """
         self.analyzer = analyzer
 
     def _get_arr(self, col):
         """Extract numpy array from Polars Series."""
         return col.to_numpy()
 
-    def plot_all_frequencies_summary(self, save_path=None):
-        """The 'WOW' 2x2 Global Dashboard."""
+    def plot_all_frequencies_summary(self, save_path: Optional[str] = None) -> None:
+        """Generate 2x2 global dashboard of frequency band metrics.
+
+        Creates comprehensive dashboard showing:
+        - Average SNR by band
+        - Multipath RMS by band
+        - Observation counts
+        - Standard deviation metrics
+
+        Args:
+            save_path: Output file path (PNG format)
+        
+        Examples:
+            >>> analyzer = RINEXAnalyzer('file.obs')
+            >>> analyzer.parse_obs_file()
+            >>> plotter = RINEXPlotter(analyzer)
+            >>> plotter.plot_all_frequencies_summary('frequencies.png')
+        """
         summary = self.analyzer.get_global_frequency_summary()
         if summary.is_empty():
             return
@@ -77,8 +127,17 @@ class RINEXPlotter:
         else:
             plt.show()
 
-    def plot_skyplot_snr(self, pool="single", save_path=None):
-        """Polar skyplot with SNR tracks and Satellite Labels."""
+    def plot_skyplot_snr(self, pool: str = "single", save_path: Optional[str] = None) -> None:
+        """Generate polar skyplot showing satellite tracks colored by SNR.
+
+        Args:
+            pool: Frequency pool - 'single' (L1) or 'dual' (L2)
+            save_path: Output file path (PNG format)
+
+        Examples:
+            >>> plotter.plot_skyplot_snr('single', 'skyplot_L1.png')
+            >>> plotter.plot_skyplot_snr('dual', 'skyplot_L2.png')
+        """
         if self.analyzer.azel_df.is_empty():
             return
         bands = RTKLIB_bands[pool]
@@ -134,7 +193,19 @@ class RINEXPlotter:
             plt.show()
 
     def plot_elevation_dependent_stats(self, pool="single", save_path=None):
-        """Two panels: SNR and MP vs Elevation (Binned Averages, Color-coded by Sat Count)."""
+        """Two panels: SNR and MP vs Elevation (Binned Averages, Color-coded by Sat Count).
+        
+        Args:
+            pool: Frequency pool - 'single' or 'dual'
+            save_path: Output file path
+        
+        Examples:
+            >>> analyzer = RINEXAnalyzer('file.obs')
+            >>> analyzer.parse_obs_file()
+            >>> analyzer.compute_satellite_azel()
+            >>> plotter = RINEXPlotter(analyzer)
+            >>> plotter.plot_elevation_dependent_stats('single', 'elevation_stats.png')
+        """
         if self.analyzer.azel_df.is_empty():
             return
         bands = RTKLIB_bands[pool]
@@ -219,6 +290,17 @@ class RINEXPlotter:
             plt.show()
 
     def plot_snr_time_series(self, satellites, freq_band, save_path=None):
+        """Plot SNR time series for specified satellites and frequency.
+        
+        Args:
+            satellites: List of satellite IDs (e.g., ['G01', 'G02'])
+            freq_band: Frequency band (e.g., 'L1', 'L2')
+            save_path: Output file path
+        
+        Examples:
+            >>> plotter = RINEXPlotter(analyzer)
+            >>> plotter.plot_snr_time_series(['G01', 'G05', 'G12'], 'L1', 'snr_gps.png')
+        """
         snr = self.analyzer.get_snr().filter(
             (pl.col("satellite").is_in(satellites)) & (pl.col("frequency") == freq_band)
         )
@@ -248,6 +330,17 @@ class RINEXPlotter:
             plt.close()
 
     def plot_multipath_time_series(self, satellites, freq_band, save_path=None):
+        """Plot multipath time series for specified satellites.
+        
+        Args:
+            satellites: List of satellite IDs
+            freq_band: Frequency band
+            save_path: Output file path
+        
+        Examples:
+            >>> plotter = RINEXPlotter(analyzer)
+            >>> plotter.plot_multipath_time_series(['E01', 'E11'], 'E1', 'mp_galileo.png')
+        """
         mp = self.analyzer.estimate_multipath().filter(
             (pl.col("satellite").is_in(satellites)) & (pl.col("frequency") == freq_band)
         )
@@ -271,6 +364,17 @@ class RINEXPlotter:
             plt.close()
 
     def plot_constellation_histograms(self, const, bands, save_path=None):
+        """Plot SNR histograms for constellation.
+        
+        Args:
+            const: Constellation code ('G', 'R', 'E', 'C')
+            bands: List of frequency bands
+            save_path: Output file path
+        
+        Examples:
+            >>> plotter = RINEXPlotter(analyzer)
+            >>> plotter.plot_constellation_histograms('G', ['L1', 'L2'], 'gps_hist.png')
+        """
         snr = self.analyzer.get_snr().filter(
             (pl.col("constellation") == const) & (pl.col("frequency").is_in(bands))
         )
@@ -294,6 +398,16 @@ class RINEXPlotter:
             plt.close()
 
     def plot_sat_avg_snr_bar(self, const, save_path=None):
+        """Plot average SNR bar chart per satellite.
+        
+        Args:
+            const: Constellation code
+            save_path: Output file path
+        
+        Examples:
+            >>> plotter = RINEXPlotter(analyzer)
+            >>> plotter.plot_sat_avg_snr_bar('R', 'glonass_snr_bars.png')
+        """
         stats = self.analyzer.get_snr_statistics().filter(
             pl.col("satellite").str.starts_with(const)
         )
@@ -337,6 +451,15 @@ class RINEXPlotter:
             plt.close()
 
     def plot_cycle_slips(self, save_path=None):
+        """Plot cycle slip detections over time.
+        
+        Args:
+            save_path: Output file path
+        
+        Examples:
+            >>> plotter = RINEXPlotter(analyzer)
+            >>> plotter.plot_cycle_slips('cycle_slips.png')
+        """
         """Restores the detailed scatter plot for Cycle Slips."""
         slips = self.analyzer.detect_cycle_slips()
         if slips.is_empty():

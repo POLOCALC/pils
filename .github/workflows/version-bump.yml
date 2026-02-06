@@ -1,0 +1,61 @@
+name: Auto Version Bump
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  bump-version:
+    runs-on: ubuntu-latest
+    
+    # Skip if commit message contains [skip-version]
+    if: "!contains(github.event.head_commit.message, '[skip-version]')"
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install commitizen
+        run: |
+          pip install commitizen
+      
+      - name: Configure git
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+      
+      - name: Check if version bump needed
+        id: check
+        run: |
+          if cz bump --yes --dry-run > /dev/null 2>&1; then
+            echo "bump_needed=true" >> $GITHUB_OUTPUT
+          else
+            echo "bump_needed=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Bump version
+        if: steps.check.outputs.bump_needed == 'true'
+        run: |
+          echo "[AUTO-VERSION] Bumping version based on commits..."
+          cz bump --yes
+          echo "[SUCCESS] Version bumped successfully"
+      
+      - name: Push changes
+        if: steps.check.outputs.bump_needed == 'true'
+        run: |
+          git push --follow-tags
+          echo "[AUTO-VERSION] Pushed version commit and tags"
+      
+      - name: No bump needed
+        if: steps.check.outputs.bump_needed == 'false'
+        run: |
+          echo "[INFO] No version bump needed (no feat/fix commits)"

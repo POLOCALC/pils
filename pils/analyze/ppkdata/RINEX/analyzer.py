@@ -3,78 +3,30 @@ RINEX Quality Analyzer v5 - Polars Core (Feature Complete)
 High-performance GNSS analysis with 100% geodetic logic fidelity.
 """
 
-import os
+import logging
 import warnings
 from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple, Union
 
 import numpy as np
 import polars as pl
 
-# =============================================================================
-# CONSTANTS & MAPPING
-# =============================================================================
+from ..utils import (
+    C,
+    CONSTELLATION_NAMES,
+    GNSS_FREQUENCIES,
+    GNSSColors,
+    RTKLIB_BANDS,
+    get_dual_freq_bands,
+    get_frequency_band,
+)
 
-C = 299792458.0  # Speed of light m/s
+logger = logging.getLogger(__name__)
 
-# Frequency in MHz
-GNSS_FREQUENCIES = {
-    "G": {"L1": 1575.42, "L2": 1227.60, "L5": 1176.45},
-    "R": {"G1": 1602.0, "G2": 1246.0},  # Nominal, ignoring FDMA channels for MP
-    "E": {
-        "E1": 1575.42,
-        "E5a": 1176.45,
-        "E5b": 1207.14,
-        "E6": 1278.75,
-        "E5ab": 1191.795,
-    },
-    "C": {"B1": 1561.098, "B2": 1207.14, "B3": 1268.52},
-    "S": {"L1": 1575.42},
-    "J": {"L1": 1575.42, "L2": 1227.60, "L5": 1176.45},
-}
-
-# Compatibility names for reporting/plotting
-CONSTELLATION_NAMES = {
-    "G": "GPS",
-    "R": "GLONASS",
-    "E": "Galileo",
-    "C": "BeiDou",
-    "S": "SBAS",
-    "J": "QZSS",
-}
-CONSTELLATION_COLORS = {
-    "G": "#1f77b4",
-    "R": "#d62728",
-    "E": "#2ca02c",
-    "C": "#ff7f0e",
-    "S": "#9467bd",
-    "J": "#8c564b",
-}
-RTKLIB_bands = {"single": ["L1", "G1", "E1", "B1"], "dual": ["L2", "G2", "E5b", "B2"]}
-
-
-def get_frequency_band(constellation, freq_code):
-    if constellation == "C":
-        return {"2": "B1", "7": "B2", "6": "B3", "1": "B1C", "5": "B2a"}.get(
-            freq_code, f"B{freq_code}"
-        )
-    if constellation == "E":
-        return {"1": "E1", "5": "E5a", "7": "E5b", "8": "E5ab", "6": "E6"}.get(
-            freq_code, f"E{freq_code}"
-        )
-    if constellation == "R":
-        return {"1": "G1", "2": "G2"}.get(freq_code, f"G{freq_code}")
-    return {"1": "L1", "2": "L2", "5": "L5"}.get(freq_code, f"L{freq_code}")
-
-
-def get_dual_freq_bands(constellation):
-    return {
-        "G": ("L1", "L2"),
-        "R": ("G1", "G2"),
-        "E": ("E1", "E5b"),
-        "C": ("B1", "B2"),
-        "S": ("L1", None),
-        "J": ("L1", "L2"),
-    }.get(constellation, (None, None))
+# Backwards compatibility aliases
+CONSTELLATION_COLORS = GNSSColors.CONSTELLATION_COLORS
+RTKLIB_bands = RTKLIB_BANDS
 
 
 # =============================================================================
@@ -83,25 +35,84 @@ def get_dual_freq_bands(constellation):
 
 
 class RINEXAnalyzer:
-    def __init__(self, filepath):
-        self.filepath = filepath
-        self.filename = os.path.basename(filepath)
-        self.df = pl.DataFrame()
+    """High-performance RINEX quality analyzer using Polars.
+
+    Analyzes GNSS RINEX observation files for data quality assessment,
+    including SNR analysis, multipath detection, cycle slip detection,
+    and satellite geometry metrics.
+
+    Attributes
+    ----------
+    obspath : str
+        Path to RINEX file
+    filename : str
+        Name of RINEX file
+    df : pl.DataFrame
+        Parsed observations data
+    header_info : dict
+        Header metadata from RINEX file
+    obs_types : dict
+        Observation types by constellation
+    epochs : list
+        List of observation epochs
+    azel_df : pl.DataFrame
+        Azimuth-elevation data for satellites
+    glo_slots : dict
+        GLONASS frequency slot assignments
+
+    Examples
+    --------
+    >>> analyzer = RINEXAnalyzer('station.obs')
+    >>> analyzer.parse()
+    >>> quality = analyzer.assess_data_quality()
+    >>> print(f"Quality score: {quality['score']}")
+    """
+
+    def __init__(self, obspath: Path, navpath: Optional[Path] = None) -> None:
+        """Initialize RINEX analyzer.
+
+        Args:
+            obspath: Path to RINEX observation file
+        """
+        self.obspath = obspath
+        self.obsname = Path(obspath).name
+
+        if navpath is not None:
+            self.navpath = navpath
+            self.navname = Path(navpath).name
+
+        self.df_obs = pl.DataFrame()
         self.header_info = {}
         self.obs_types = {}
         self.epochs = []
         self.azel_df = pl.DataFrame()
         self.glo_slots = {}
 
-    def parse(self, snr_only=False, sample_rate=1):
-        """Full fidelity RINEX parsing into Polars DataFrame."""
-        print(f"📂 Heavy-duty Polars decomposition of {self.filename}...")
+    def parse_obs_file(self, snr_only: bool = False, sample_rate: int = 1):
+        """Parse RINEX file into Polars DataFrame.
+
+        Performs full-fidelity parsing of RINEX observation file,
+        extracting all observation types and metadata.
+
+        Args:
+            snr_only: If True, only parse SNR observations
+            sample_rate: Epoch sampling rate (1 = all epochs)
+
+        Returns:
+            Polars DataFrame with parsed observations
+
+        Examples:
+            >>> analyzer = RINEXAnalyzer('file.obs')
+            >>> df = analyzer.parse(sample_rate=30)  # Every 30s
+            >>> print(df.shape)
+        """
+        logger.info(f"Parsing RINEX file: {self.obsname}")
         in_header = True
         records = []
         epoch_counter = 0
         current_epoch = None  # Initialize before loop to avoid unbound errors
 
-        with open(self.filepath, "r") as f:
+        with open(self.obspath, "r") as f:
             for line in f:
                 if in_header:
                     if "END OF HEADER" in line:
@@ -192,19 +203,18 @@ class RINEXAnalyzer:
                     except:
                         pass
 
-        self.df = pl.DataFrame(records)
-        print(f"  ✓ Unified {len(self.df)} observations across {len(self.epochs)} epochs")
-        return self
+        self.df_obs = pl.DataFrame(records)
+        logger.info(f"Parsed {len(self.df_obs)} observations across {len(self.epochs)} epochs")
 
-    def parse_nav_file(self, nav_filepath):
+    def parse_nav_file(self):
         """Robust RINEX 3 NAV parser for GPS, Galileo, BeiDou, and GLONASS."""
         self.nav_data = {}
-        if not os.path.exists(nav_filepath):
-            print(f"⚠️ NAV file not found: {nav_filepath}")
+        if not self.navpath.exists():
+            logger.warning(f"NAV file not found: {self.navpath}")
             return
 
-        print(f"📡 Parsing NAV data from {os.path.basename(nav_filepath)}...")
-        with open(nav_filepath, "r") as f:
+        logger.info(f"Parsing NAV data from {self.navpath.name}")
+        with open(self.navpath, "r") as f:
             header_end = False
             for line in f:
                 if "END OF HEADER" in line:
@@ -322,15 +332,26 @@ class RINEXAnalyzer:
                 i += 1 + n_data_lines
 
     def compute_satellite_azel(self):
-        """Propagates satellite positions for precise Az/El calculation."""
+        """Propagates satellite positions for precise Az/El calculation.
+        
+        Uses broadcast ephemeris to calculate satellite positions and
+        compute azimuth/elevation angles from receiver position.
+        
+        Examples:
+            >>> analyzer = RINEXAnalyzer('file.obs', navpath='file.nav')
+            >>> analyzer.parse_obs_file()
+            >>> analyzer.parse_nav_file()
+            >>> analyzer.compute_satellite_azel()
+            >>> print(analyzer.azel_df.head())
+        """
         if not hasattr(self, "nav_data") or not self.nav_data:
-            print("⚠️ No NAV data loaded. Falling back to mock geometry.")
+            logger.warning("No NAV data loaded. Falling back to mock geometry")
             return self._mock_azel()
 
-        print("🌍 Computing precise Az/El from NAV ephemeris...")
+        logger.info("Computing precise Az/El from NAV ephemeris")
         receiver_pos = self.header_info.get("position")
         if not receiver_pos:
-            print("⚠️ Receiver position unknown. Mocking Az/El.")
+            logger.warning("Receiver position unknown. Mocking Az/El")
             return self._mock_azel()
 
         # Constants
@@ -338,7 +359,7 @@ class RINEXAnalyzer:
         OMEGA_E = 7.2921151467e-5
 
         azel_list = []
-        for sat in self.df["satellite"].unique():
+        for sat in self.df_obs["satellite"].unique():
             if sat not in self.nav_data:
                 continue
 
@@ -431,9 +452,20 @@ class RINEXAnalyzer:
         self.azel_df = pl.DataFrame(azel_list)
 
     def _mock_azel(self):
+        """Generate mock azimuth/elevation data when navigation unavailable.
+        
+        Creates simulated satellite tracks for visualization when
+        precise ephemeris is not available.
+        
+        Examples:
+            >>> analyzer = RINEXAnalyzer('file.obs')  # No nav file
+            >>> analyzer.parse_obs_file()
+            >>> analyzer._mock_azel()
+            >>> print(f"Mock tracks for {analyzer.azel_df['satellite'].n_unique()} satellites")
+        """
         """Unified mock logic if NAV is missing."""
         azel_list = []
-        for sat in self.df["satellite"].unique():
+        for sat in self.df_obs["satellite"].unique():
             seed = sum(ord(c) for c in sat)
             start_az, start_el = (seed * 137.5) % 360, 20 + (seed * 17.3) % 50
             for t in self.epochs:
@@ -449,9 +481,32 @@ class RINEXAnalyzer:
 
     # STATISTICS
     def get_snr(self):
-        return self.df.filter(pl.col("obs_type") == "S")
+        """Extract SNR observations from parsed data.
+        
+        Returns:
+            DataFrame containing only SNR ('S') observations
+        
+        Examples:
+            >>> analyzer = RINEXAnalyzer('file.obs')
+            >>> analyzer.parse_obs_file()
+            >>> snr_df = analyzer.get_snr()
+            >>> print(f"SNR observations: {len(snr_df)}")
+        """
+        return self.df_obs.filter(pl.col("obs_type") == "S")
 
     def get_snr_statistics(self):
+        """Calculate SNR statistics per satellite and frequency.
+        
+        Returns:
+            DataFrame with mean, std, and count grouped by satellite and frequency
+        
+        Examples:
+            >>> analyzer = RINEXAnalyzer('file.obs')
+            >>> analyzer.parse_obs_file()
+            >>> stats = analyzer.get_snr_statistics()
+            >>> gps_l1 = stats.filter(pl.col('frequency') == 'L1')
+            >>> print(gps_l1)
+        """
         return (
             self.get_snr()
             .group_by(["satellite", "frequency"])
@@ -464,7 +519,22 @@ class RINEXAnalyzer:
             )
         )
 
-    def get_global_frequency_summary(self):
+    def get_global_frequency_summary(self) -> pl.DataFrame:
+        """Compute global statistics summary for all frequency bands.
+
+        Calculates mean/std SNR, multipath RMS, satellite count,
+        and observation count for each frequency band.
+
+        Returns:
+            DataFrame with columns: frequency, mean, std, mean_MP_RMS,
+            n_satellites, count
+
+        Examples:
+            >>> analyzer = RINEXAnalyzer('file.obs')
+            >>> analyzer.parse()
+            >>> summary = analyzer.get_global_frequency_summary()
+            >>> print(summary.filter(pl.col('frequency') == 'L1'))
+        """
         snr_summary = (
             self.get_snr()
             .group_by(["constellation", "frequency"])
@@ -491,18 +561,33 @@ class RINEXAnalyzer:
 
     # ADVANCED GEODETIC ANALYSIS
     def estimate_multipath(self):
+        """Estimate multipath error using code-phase combinations.
+        
+        Implements RTKLIB multipath algorithm using dual-frequency
+        data to isolate multipath effects from other errors.
+        
+        Returns:
+            DataFrame with multipath estimates (MP) for each observation
+        
+        Examples:
+            >>> analyzer = RINEXAnalyzer('file.obs')
+            >>> analyzer.parse_obs_file()
+            >>> mp_df = analyzer.estimate_multipath()
+            >>> high_mp = mp_df.filter(pl.col('MP').abs() > 1.0)
+            >>> print(f"High multipath: {len(high_mp)} observations")
+        """
         """
         Implements the RTKLIB multipath algorithm (Plot::updateMp).
         1. Calculate reference ionosphere I from available dual-frequency data.
         2. Compute raw MP for all frequencies.
         3. Remove mean bias per arc (separated by jumps or cycle slips).
         """
-        if self.df.is_empty():
+        if self.df_obs.is_empty():
             return pl.DataFrame()
 
         # 1. Prepare frequency information
         # Get all phase (L) and code (P) obs
-        obs = self.df.filter(pl.col("obs_type").is_in(["L", "C", "P"]))
+        obs = self.df_obs.filter(pl.col("obs_type").is_in(["L", "C", "P"]))
         if obs.is_empty():
             return pl.DataFrame()
 
@@ -657,6 +742,17 @@ class RINEXAnalyzer:
         return res.select(["time", "satellite", "constellation", "frequency", "MP"])
 
     def get_multipath_rms(self):
+        """Calculate RMS multipath per satellite and frequency.
+        
+        Returns:
+            DataFrame with MP_RMS values grouped by satellite, constellation, frequency
+        
+        Examples:
+            >>> analyzer = RINEXAnalyzer('file.obs')
+            >>> analyzer.parse_obs_file()
+            >>> mp_rms = analyzer.get_multipath_rms()
+            >>> print(f"Average L1 multipath: {mp_rms.filter(pl.col('frequency')=='L1')['MP_RMS'].mean():.2f}m")
+        """
         mp = self.estimate_multipath()
         if mp.is_empty():
             return pl.DataFrame()
@@ -665,9 +761,28 @@ class RINEXAnalyzer:
         )
 
     def detect_cycle_slips(self, threshold_gf=0.08, threshold_mw=2.5):
+        """Detect cycle slips using dual-frequency combinations.
+        
+        Uses geometry-free (GF) and Melbourne-Wübbena (MW) combinations
+        to identify carrier phase cycle slips.
+        
+        Args:
+            threshold_gf: Geometry-free jump threshold in meters (default: 0.08)
+            threshold_mw: Melbourne-Wübbena jump threshold in cycles (default: 2.5)
+        
+        Returns:
+            DataFrame with detected slips including time, satellite, and type
+        
+        Examples:
+            >>> analyzer = RINEXAnalyzer('file.obs')
+            >>> analyzer.parse_obs_file()
+            >>> slips = analyzer.detect_cycle_slips(threshold_gf=0.1, threshold_mw=3.0)
+            >>> print(f"Total cycle slips detected: {len(slips)}")
+            >>> gps_slips = slips.filter(pl.col('satellite').str.starts_with('G'))
+        """
         """Restores dual-combination (GF + MW) Slip Detection."""
         slips = []
-        for sat in self.df["satellite"].unique().to_list():
+        for sat in self.df_obs["satellite"].unique().to_list():
             const = sat[0]
             b1, b2 = get_dual_freq_bands(const)
             if not b2 or const not in GNSS_FREQUENCIES:
@@ -679,7 +794,7 @@ class RINEXAnalyzer:
             l2_wl = C / (f2 * 1e6)
             wl_wl = C / ((f1 - f2) * 1e6)
 
-            sub = self.df.filter(pl.col("satellite") == sat)
+            sub = self.df_obs.filter(pl.col("satellite") == sat)
 
             def get_t(kind, band):
                 return sub.filter(
@@ -746,17 +861,46 @@ class RINEXAnalyzer:
         return pl.concat(slips) if slips else pl.DataFrame()
 
     def get_completeness_metrics(self):
+        """Calculate observation completeness percentage.
+        
+        Computes ratio of actual observations to expected observations
+        assuming dual-frequency tracking for all satellites.
+        
+        Returns:
+            Completeness percentage (0-100)
+        
+        Examples:
+            >>> analyzer = RINEXAnalyzer('file.obs')
+            >>> analyzer.parse_obs_file()
+            >>> completeness = analyzer.get_completeness_metrics()
+            >>> print(f"Data completeness: {completeness:.1f}%")
+        """
         """Calculates observation rate vs expected capacity (Obs / (Sats * Epochs * 2))."""
-        if not self.epochs or self.df.is_empty():
+        if not self.epochs or self.df_obs.is_empty():
             return 0.0
         n_epochs = len(self.epochs)
-        n_sats = self.df["satellite"].n_unique()
+        n_sats = self.df_obs["satellite"].n_unique()
         # Expecting at least 2 bands (L1/L2) per satellite per epoch for RTK
         expected = n_epochs * n_sats * 2
-        actual = self.df.filter(pl.col("obs_type").is_in(["L", "C", "P"])).shape[0]
+        actual = self.df_obs.filter(pl.col("obs_type").is_in(["L", "C", "P"])).shape[0]
         return min(100.0, (actual / expected) * 100.0) if expected > 0 else 0.0
 
     def get_gap_metrics(self):
+        """Detect data gaps in observation epochs.
+        
+        Identifies periods where expected observations are missing
+        based on median epoch interval.
+        
+        Returns:
+            Dictionary with max_gap, n_gaps, and expected_interval
+        
+        Examples:
+            >>> analyzer = RINEXAnalyzer('file.obs')
+            >>> analyzer.parse_obs_file()
+            >>> gaps = analyzer.get_gap_metrics()
+            >>> print(f"Maximum gap: {gaps['max_gap']:.1f} seconds")
+            >>> print(f"Number of gaps: {gaps['n_gaps']}")
+        """
         """Detects periods with no observations."""
         if len(self.epochs) < 2:
             return {"max_gap": 0, "n_gaps": 0}
@@ -774,12 +918,23 @@ class RINEXAnalyzer:
         }
 
     def get_integrity_metrics(self):
+        """Calculate cycle slip rates for data integrity assessment.
+        
+        Returns:
+            Dictionary with slip_rate (per satellite per hour) and total_slips
+        
+        Examples:
+            >>> analyzer = RINEXAnalyzer('file.obs')
+            >>> analyzer.parse_obs_file()
+            >>> integrity = analyzer.get_integrity_metrics()
+            >>> print(f"Slip rate: {integrity['slip_rate']:.2f} per sat/hour")
+        """
         """Calculates LLI/Slip rates."""
         slips = self.detect_cycle_slips()
-        if self.df.is_empty():
+        if self.df_obs.is_empty():
             return {"slip_rate": 0, "total_slips": 0}
 
-        n_sats = self.df["satellite"].n_unique()
+        n_sats = self.df_obs["satellite"].n_unique()
         duration_hours = (
             (max(self.epochs) - min(self.epochs)).total_seconds() / 3600.0
             if len(self.epochs) > 1
@@ -792,6 +947,22 @@ class RINEXAnalyzer:
         return {"slip_rate": slip_rate_per_sat_hour, "total_slips": total_slips}
 
     def get_geometric_metrics(self):
+        """Assess satellite geometric distribution.
+        
+        Evaluates azimuth quadrant coverage and elevation spread
+        for current satellite constellation.
+        
+        Returns:
+            Dictionary with quadrants, el_spread, and diversity_score
+        
+        Examples:
+            >>> analyzer = RINEXAnalyzer('file.obs')
+            >>> analyzer.parse_obs_file()
+            >>> analyzer.compute_satellite_azel()
+            >>> geom = analyzer.get_geometric_metrics()
+            >>> print(f"Quadrant coverage: {geom['quadrants']}/4")
+            >>> print(f"Diversity score: {geom['diversity_score']:.1f}/100")
+        """
         """Assesses geometric distribution (quadrants and elevation spread)."""
         if self.azel_df.is_empty():
             return {"quadrants": 0, "el_spread": 0, "diversity_score": 0}
@@ -838,23 +1009,90 @@ class RINEXAnalyzer:
         res = self.assess_data_quality()
         return res["sat_scores"]
 
-    def assess_data_quality(self):
+    def assess_data_quality(self) -> Dict[str, Any]:
+        """Comprehensive GNSS data quality assessment.
+
+        Implements 4-step quality algorithm evaluating:
+        1. Good satellite count (>35 dBHz SNR)
+        2. Sky cell coverage (12 cells)
+        3. Elevation span (0-90°)
+        4. Azimuth balance
+
+        Returns:
+            Dictionary containing:
+            - score: Overall quality score (0-100)
+            - status_icon: Visual status indicator
+            - metrics: Detailed metric values
+            - red_flags: List of identified issues
+            - sat_scores: Per-satellite quality ratings
+            - epoch_df: Time-series quality metrics
+
+        Examples:
+            >>> quality = analyzer.assess_data_quality()
+            >>> print(f"Score: {quality['score']:.1f}/100")
+            >>> for flag in quality['red_flags']:
+            ...     print(f"Warning: {flag}")
+        """
         """
         Calculates session quality based on the 4-Step Algorithm in quality.md.
         Strictly epoch-based per-satellite and session evaluation.
         """
-        if self.df.is_empty() or self.azel_df.is_empty():
+        if self.df_obs.is_empty():
             return {
                 "status": "UNCERTAIN",
+                "status_icon": "UNCERTAIN",
                 "score": 0,
-                "reason": "Missing data",
+                "reason": "No observation data",
+                "metrics": {
+                    "avg_good_sats": 0,
+                    "avg_cells": 0,
+                    "avg_el_span": 0,
+                    "avg_balance": 0,
+                },
+                "epoch_df": pl.DataFrame(),
                 "sat_scores": pl.DataFrame(),
+                "red_flags": ["No observation data available"],
+            }
+
+        if self.azel_df.is_empty():
+            logger.warning("NAV file not provided - cannot compute geometric quality metrics")
+            # Provide basic SNR/MP quality assessment without geometry
+            snr = self.get_snr()
+            if snr.is_empty():
+                basic_score = 0
+                sat_count = 0
+            else:
+                avg_snr = snr.group_by("time").agg(pl.col("value").mean().alias("avg_snr"))
+
+                mean_snr = avg_snr.select(pl.col("avg_snr").mean()).item()
+
+                basic_score = (
+                    float(min(100, (mean_snr / 45.0) * 100))
+                    if avg_snr["avg_snr"].mean()
+                    else 0
+                )
+                sat_count = snr["satellite"].n_unique()
+
+            return {
+                "status": "UNCERTAIN",
+                "status_icon": "UNCERTAIN",
+                "score": basic_score,
+                "reason": "NAV file missing - limited quality assessment",
+                "metrics": {
+                    "avg_good_sats": sat_count,
+                    "avg_cells": 0,
+                    "avg_el_span": 0,
+                    "avg_balance": 0,
+                },
+                "epoch_df": pl.DataFrame(),
+                "sat_scores": pl.DataFrame(),
+                "red_flags": ["NAV file not provided - geometric quality metrics unavailable"],
             }
 
         # 1. Prepare Data
         snr = self.get_snr()
         mp_est = self.estimate_multipath()
-        lli_df = self.df.filter(pl.col("obs_type") == "L")
+        lli_df = self.df_obs.filter(pl.col("obs_type") == "L")
 
         primary_bands = ["L1", "G1", "E1", "B1"]
         secondary_bands = ["L2", "G2", "E5b", "B2"]
@@ -982,6 +1220,24 @@ class RINEXAnalyzer:
             )
 
         epoch_df = pl.DataFrame(epoch_stats)
+
+        # Handle empty epoch_df case
+        if epoch_df.is_empty():
+            return {
+                "status": "UNCERTAIN",
+                "status_icon": "UNCERTAIN",
+                "score": 0,
+                "metrics": {
+                    "avg_good_sats": 0,
+                    "avg_cells": 0,
+                    "avg_el_span": 0,
+                    "avg_balance": 0,
+                },
+                "epoch_df": epoch_df,
+                "sat_scores": pl.DataFrame(),
+                "red_flags": ["No valid epochs found"],
+            }
+
         session_score = epoch_df["score"].mean()
 
         # 4. Calculate Per-Satellite Session Scores
@@ -1027,17 +1283,17 @@ class RINEXAnalyzer:
         return {
             "status": status,
             "status_icon": {
-                "Excellent": "🟢 EXCELLENT",
-                "Good": "🟢 GOOD",
-                "Fair": "🟡 FAIR",
-                "Poor": "🔴 POOR",
+                "Excellent": "EXCELLENT",
+                "Good": "GOOD",
+                "Fair": "FAIR",
+                "Poor": "POOR",
             }.get(status),
-            "score": session_score,
+            "score": session_score if session_score is not None else 0,
             "metrics": {
-                "avg_good_sats": epoch_df["n_good"].mean(),
-                "avg_cells": epoch_df["cells"].mean(),
-                "avg_el_span": epoch_df["el_span"].mean(),
-                "avg_balance": epoch_df["balance"].mean(),
+                "avg_good_sats": epoch_df["n_good"].mean() or 0,
+                "avg_cells": epoch_df["cells"].mean() or 0,
+                "avg_el_span": epoch_df["el_span"].mean() or 0,
+                "avg_balance": epoch_df["balance"].mean() or 0,
             },
             "epoch_df": epoch_df,
             "sat_scores": sat_quality,
@@ -1049,6 +1305,18 @@ class RINEXAnalyzer:
         }
 
     def get_time_span(self):
+        """Get observation time span.
+        
+        Returns:
+            Tuple of (start_datetime, end_datetime)
+        
+        Examples:
+            >>> analyzer = RINEXAnalyzer('file.obs')
+            >>> analyzer.parse_obs_file()
+            >>> start, end = analyzer.get_time_span()
+            >>> duration = (end - start).total_seconds() / 3600
+            >>> print(f"Session duration: {duration:.1f} hours")
+        """
         if not self.epochs:
             return None, None
         return min(self.epochs), max(self.epochs)

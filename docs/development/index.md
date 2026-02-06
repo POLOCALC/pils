@@ -46,6 +46,14 @@ Contributing to and extending PILS.
     
     Python style • Type hints • Documentation
 
+-   :material-format-paint: **[Code Style](versioning.md)**
+    
+    Versioning rules for PILS
+    
+    ---
+    
+    Versioninig rules explained
+
 </div>
 
 ## Quick Links

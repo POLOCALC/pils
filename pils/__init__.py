@@ -18,6 +18,8 @@ Example Usage:
     # Initialize with STOUT database
     handler = FlightDataHandler(use_stout=True)
 
+__version__ = "0.1.0"
+
     # Load and decode all flights from a campaign
     flights = handler.load_campaign_flights(campaign_id="camp-123")
 

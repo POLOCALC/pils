@@ -1,25 +1,67 @@
-import os
+"""RTKLIB Position Solution Analyzer."""
+
 from datetime import datetime
+from pathlib import Path
+from typing import Union
 
 import numpy as np
 import polars as pl
 
 
 class POSAnalyzer:
-    """
-    Polars-based analyzer for RTKLIB .pos solution files.
+    """Polars-based analyzer for RTKLIB .pos solution files.
+
+    Parses and analyzes RTK position solutions from RTKLIB,
+    computing statistics and ENU offsets.
+
+    Attributes
+    ----------
+    filepath : str
+        Path to .pos file
+    df : pl.DataFrame
+        Parsed position data
+    header : list
+        Header lines from .pos file
+
+    Examples
+    --------
+    >>> analyzer = POSAnalyzer('solution.pos')
+    >>> df = analyzer.parse()
+    >>> stats = analyzer.get_statistics()
+    >>> print(f"Fix rate: {stats['fix_rate']:.1f}%")
     """
 
-    def __init__(self, filepath):
+    def __init__(self, filepath: Union[str, Path]) -> None:
+        """Initialize position analyzer.
+
+        Args:
+            filepath: Path to RTKLIB .pos file
+        """
         self.filepath = filepath
         self.df = pl.DataFrame()
         self.header = []
 
-    def parse(self):
+    def parse(self) -> pl.DataFrame:
+        """Parse .pos file into Polars DataFrame.
+
+        Reads RTKLIB position solution file and converts to structured
+        DataFrame with time, coordinates, quality indicators, and
+        computed ENU offsets.
+
+        Returns:
+            DataFrame with columns: time, lat, lon, height, Q, ns,
+            sdn, sde, sdu, age, ratio, E, N, U
+
+        Raises:
+            FileNotFoundError: If .pos file doesn't exist
+
+        Examples:
+            >>> analyzer = POSAnalyzer('rtk.pos')
+            >>> df = analyzer.parse()
+            >>> fix_epochs = df.filter(pl.col('Q') == 1)
+            >>> print(f"Fix epochs: {len(fix_epochs)}")
         """
-        Parses the .pos file into a Polars DataFrame.
-        """
-        if not os.path.exists(self.filepath):
+        if not Path(self.filepath).exists():
             raise FileNotFoundError(f"POS file not found: {self.filepath}")
 
         with open(self.filepath, "r") as f:
@@ -69,7 +111,17 @@ class POSAnalyzer:
         return self.df
 
     def _compute_enu(self):
-        """Converts Lat/Lon/Height to ENU offsets relative to the mean position."""
+        """Converts Lat/Lon/Height to ENU offsets relative to the mean position.
+        
+        Internal method that transforms geodetic coordinates to local
+        East-North-Up frame for position analysis.
+        
+        Examples:
+            >>> analyzer = POSAnalyzer('solution.pos')
+            >>> df = analyzer.parse()
+            >>> # ENU columns automatically computed after parse()
+            >>> print(df.select(['east', 'north', 'up']).head())
+        """
         # Mean position as origin
         lat_mean = self.df["lat"].mean()
         lon_mean = self.df["lon"].mean()
@@ -115,6 +167,27 @@ class POSAnalyzer:
         )
 
     def get_statistics(self):
+        """Calculate position statistics (fix rate, avg ratio, etc.).
+        
+        Returns:
+            Dictionary with processing quality metrics:
+            - total_epochs: Total number of position solutions
+            - fix_epochs: Number of fixed ambiguity solutions
+            - float_epochs: Number of float ambiguity solutions
+            - single_epochs: Number of single point solutions
+            - fix_rate: Percentage of fixed solutions
+            - avg_ratio: Average ambiguity ratio
+            - max_ratio: Maximum ambiguity ratio
+        
+        Examples:
+            >>> analyzer = POSAnalyzer('solution.pos')
+            >>> analyzer.parse()
+            >>> stats = analyzer.get_statistics()
+            >>> print(f"Fix rate: {stats['fix_rate']:.1f}%")
+            >>> print(f"Average ratio: {stats['avg_ratio']:.2f}")
+            >>> if stats['fix_rate'] < 95:
+            ...     print("Warning: Low fix rate detected")
+        """
         """
         Calculates position statistics (Fix rate, etc.)
         """
