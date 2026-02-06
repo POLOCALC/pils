@@ -33,6 +33,14 @@ dependencies = [
     "pyyaml>=6.0",
 ]
 
+docs = [
+    "mkdocs>=1.5.0",
+    "mkdocs-material>=9.0.0",
+    "mkdocs-autorefs>=0.5.0",
+    "mkdocstrings>=0.24.0",
+    "mkdocstrings-python>=1.7.0",
+]
+
 [project.optional-dependencies]
 stout = ["stout>=2.0.0"]
 dev = [
