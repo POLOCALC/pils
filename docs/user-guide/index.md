@@ -53,7 +53,7 @@ flowchart TB
 
     ---
 
-    Mathematical description of the syncrhonization process between the different dataset
+    Mathematical description of the synchronization process between the different dataset
 
 -   :material-quadcopter:{ .lg .middle } __[DJI Data](dji-drone.md)__
 
