@@ -24,29 +24,44 @@ jobs:
         with:
           python-version: '3.10'
       
-      - name: Install commitizen
+      - name: Install bumpver
         run: |
-          pip install commitizen
+          pip install bumpver
       
       - name: Configure git
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
       
+      - name: Get current date for calver
+        id: date
+        run: |
+          echo "year=$(date +%Y)" >> $GITHUB_OUTPUT
+          echo "month=$(date +%-m)" >> $GITHUB_OUTPUT
+      
       - name: Check if version bump needed
         id: check
         run: |
-          if cz bump --yes --dry-run > /dev/null 2>&1; then
+          CURRENT_VERSION=$(grep '^current_version' pyproject.toml | cut -d'"' -f2)
+          EXPECTED_VERSION="${{ steps.date.outputs.year }}.${{ steps.date.outputs.month }}.0"
+          
+          # Extract year and month from current version
+          CURRENT_YM=$(echo $CURRENT_VERSION | cut -d'.' -f1-2)
+          EXPECTED_YM="${{ steps.date.outputs.year }}.${{ steps.date.outputs.month }}"
+          
+          if [ "$CURRENT_YM" != "$EXPECTED_YM" ]; then
             echo "bump_needed=true" >> $GITHUB_OUTPUT
+            echo "bump_type=minor" >> $GITHUB_OUTPUT
           else
-            echo "bump_needed=false" >> $GITHUB_OUTPUT
+            echo "bump_needed=true" >> $GITHUB_OUTPUT
+            echo "bump_type=patch" >> $GITHUB_OUTPUT
           fi
       
       - name: Bump version
         if: steps.check.outputs.bump_needed == 'true'
         run: |
-          echo "[AUTO-VERSION] Bumping version based on commits..."
-          cz bump --yes
+          echo "[AUTO-VERSION] Bumping version (calver)..."
+          bumpver update --${{ steps.check.outputs.bump_type }} --no-fetch
           echo "[SUCCESS] Version bumped successfully"
       
       - name: Push changes
@@ -54,8 +69,3 @@ jobs:
         run: |
           git push --follow-tags
           echo "[AUTO-VERSION] Pushed version commit and tags"
-      
-      - name: No bump needed
-        if: steps.check.outputs.bump_needed == 'false'
-        run: |
-          echo "[INFO] No version bump needed (no feat/fix commits)"

@@ -4,60 +4,39 @@ This project uses **Calendar Versioning (CalVer)** with automatic version bumpin
 
 ## Version Format
 
-**YYYY.MM.MICRO** (e.g., `2026.02.1`, `2026.02.2`, `2026.03.1`)
+**YYYY.MM.PATCH** (e.g., `2026.2.0`, `2026.2.1`, `2026.3.0`)
 
 - **YYYY**: Year (4 digits)
-- **MM**: Month (1-2 digits, no leading zero)
-- **MICRO**: Incrementing number within the month
+- **MM**: Month (no leading zero)
+- **PATCH**: Incrementing number within the month
 
 ## How It Works
 
-1. Developers create feature branches and make commits using conventional commit messages
+1. Developers create feature branches and make commits
 2. When PR is merged to `main`, GitHub Actions automatically:
-   - Analyzes commits since last version
-   - Bumps version if `feat:` or `fix:` commits found
+   - Checks if month has changed (bumps to YYYY.MM.0)
+   - Otherwise increments patch version (YYYY.MM.PATCH+1)
    - Updates `pyproject.toml` and `pils/__init__.py`
    - Creates git tag
-   - Updates CHANGELOG.md
    - Pushes version commit and tag back to main
 
 No local setup required - versioning happens automatically in CI/CD.
 
 ## Setup
 
-No setup needed for developers. Just use conventional commit messages.
+No setup needed for developers. Versioning is calendar-based and automatic.
 
 ## Usage
 
-### Commit with Conventional Commit Messages
+### Regular Commits
 
-Use these prefixes for your commits:
-
-| Prefix | Description | Version Bump |
-|--------|-------------|--------------|
-| `feat:` | New feature | MINOR (month or micro) |
-| `fix:` | Bug fix | PATCH (micro) |
-| `docs:` | Documentation only | None |
-| `style:` | Code style (formatting) | None |
-| `refactor:` | Code refactoring | PATCH (micro) |
-| `perf:` | Performance improvement | PATCH (micro) |
-| `test:` | Adding tests | None |
-| `chore:` | Maintenance tasks | None |
-
-### Examples
+Since this project uses CalVer (calendar versioning), you don't need to follow any specific commit message format. Version bumps are calendar-based, not commit-based.
 
 ```bash
-# Feature (bumps version)
-git commit -m "feat: add PPK analysis cleanup on failure"
-
-# Bug fix (bumps version)
-git commit -m "fix: correct GPS timestamp parsing"
-
-# Documentation (no version bump)
-git commit -m "docs: update README with new examples"
-
-# Refactoring (bumps version)
-git commit -m "refactor: simplify flight data loading"
+# Any commit message works
+git commit -m "Add PPK analysis cleanup on failure"
+git commit -m "Fix GPS timestamp parsing"
+git commit -m "Update README with examples"
 ```
 
 ### Push and Create PR
@@ -66,26 +45,27 @@ git commit -m "refactor: simplify flight data loading"
 git push origin feature-branch
 ```
 
-Create a PR and merge to main. GitHub Actions automatically handles versioning.
+Create a PR and merge to main. GitHub Actions automatically handles versioning based on the current date.
 
 ## Manual Version Bump
 
-If maintainers need to manually bump the version (requires commitizen installed locally):
+If maintainers need to manually bump the version (requires bumpver installed locally):
 
 ```bash
-# Install commitizen
-pip install commitizen
+# Install bumpver
+pip install bumpver
 
-# Auto-detect bump type from commits
-cz bump
+# Bump patch version (2026.2.0 -> 2026.2.1)
+bumpver update --patch
 
-# Manually specify bump type
-cz bump --increment PATCH
-cz bump --increment MINOR
-cz bump --increment MAJOR
+# Bump to new month (2026.2.1 -> 2026.3.0)
+bumpver update --minor
+
+# Bump to new year (2026.2.1 -> 2027.0.0)
+bumpver update --major
 
 # Dry-run to see what would happen
-cz bump --dry-run
+bumpver update --patch --dry
 ```
 
 ## Check Current Version
