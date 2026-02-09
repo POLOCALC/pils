@@ -176,12 +176,13 @@ class Flight:
         self.set_metadata()
 
         self.raw_data = RawData()
-        self.sync_data: pl.DataFrame = pl.DataFrame()
+        self.sync_data: pl.DataFrame | None = None
         self.adc_gain_config = None
 
+    @classmethod
     def from_hdf5(
-        self,
-        filepath: str | Path | None = None,
+        cls,
+        filepath: str | Path,
         sync_version: str | None | bool = None,
         load_raw: bool = True,
     ) -> "Flight":
@@ -193,8 +194,8 @@ class Flight:
 
         Parameters
         ----------
-        filepath : Optional[Union[str, Path]], default=None
-            Path to HDF5 file. If None, uses self.flight_info["proc_data_folder_path"]
+        filepath : Union[str, Path]
+            Path to HDF5 file
         sync_version : Union[str, None, bool], default=None
             Specific sync version to load (e.g., 'rev_20260202_1430').
             If None and synchronized data exists, loads latest version.
@@ -205,7 +206,7 @@ class Flight:
         Returns
         -------
         Flight
-            Returns self for method chaining
+            Returns new Flight instance
 
         Raises
         ------
@@ -218,36 +219,48 @@ class Flight:
 
         Examples
         --------
-        >>> # Load from default location
-        >>> flight = Flight(flight_info).from_hdf5()
-        >>> # Load from specific file
-        >>> flight = Flight(flight_info).from_hdf5('flight_001.h5')
+        >>> # Load from file
+        >>> flight = Flight.from_hdf5('flight_001.h5')
         >>> # Load specific sync version
-        >>> flight = Flight(flight_info).from_hdf5('flight_001.h5', sync_version='rev_20260202_1430')
+        >>> flight = Flight.from_hdf5('flight_001.h5', sync_version='rev_20260202_1430')
         >>> # Load only metadata and raw data
-        >>> flight = Flight(flight_info).from_hdf5('flight_001.h5', sync_version=False)
+        >>> flight = Flight.from_hdf5('flight_001.h5', sync_version=False)
         """
 
-        if filepath is None:
-            filepath = Path(self.flight_info["proc_data_folder_path"])
-        else:
-            filepath = Path(filepath)
+        filepath = Path(filepath)
 
         if not filepath.exists():
             raise FileNotFoundError(f"HDF5 file not found: {filepath}")
 
         with h5py.File(str(filepath), "r") as f:
             # Load metadata
+            metadata_dict = {}
+            flight_info_dict = {}
             if "metadata" in f:
                 metadata_group = f["metadata"]
                 assert isinstance(metadata_group, h5py.Group)
-                self._load_metadata_from_hdf5(metadata_group, self)
+                for key in metadata_group.attrs:
+                    if key.startswith("flight_info_"):
+                        # Strip prefix and add to flight_info
+                        clean_key = key.replace("flight_info_", "", 1)
+                        flight_info_dict[clean_key] = metadata_group.attrs[key]
+                    else:
+                        metadata_dict[key] = metadata_group.attrs[key]
+
+            # Create new instance
+            flight = cls(flight_info=flight_info_dict if flight_info_dict else metadata_dict)
+
+            # Load metadata
+            if "metadata" in f:
+                metadata_group = f["metadata"]
+                assert isinstance(metadata_group, h5py.Group)
+                flight._load_metadata_from_hdf5(metadata_group, flight)
 
             # Load raw data
             if load_raw and "raw_data" in f:
                 raw_data_group = f["raw_data"]
                 assert isinstance(raw_data_group, h5py.Group)
-                self._load_raw_data_from_hdf5(raw_data_group, self)
+                flight._load_raw_data_from_hdf5(raw_data_group, flight)
 
             # Load sync_data if available
             if "sync_data" in f:
@@ -256,9 +269,9 @@ class Flight:
                 if "data" in sync_data_group:
                     data_group = sync_data_group["data"]
                     assert isinstance(data_group, h5py.Group)
-                    loaded_sync = self._load_dataframe_from_hdf5(data_group)
+                    loaded_sync = flight._load_dataframe_from_hdf5(data_group)
                     if loaded_sync is not None:
-                        self.sync_data = loaded_sync
+                        flight.sync_data = loaded_sync
 
             # Load synchronized data
             if sync_version is not False and "synchronized_data" in f:
@@ -280,9 +293,9 @@ class Flight:
                     # Load the specified version
                     version_group = sync_group[sync_version]
                     assert isinstance(version_group, h5py.Group)
-                    self._load_synchronized_data_from_hdf5(version_group, self)
+                    flight._load_synchronized_data_from_hdf5(version_group, flight)
 
-        return self
+        return flight
 
     @staticmethod
     def _load_metadata_from_hdf5(
@@ -943,7 +956,7 @@ class Flight:
             self._save_raw_data_to_hdf5(f)
 
             # Save sync_data if available
-            if len(self.sync_data) > 0:
+            if self.sync_data is not None and len(self.sync_data) > 0:
                 self._save_sync_data_to_hdf5(f)
 
         return _get_current_timestamp()

@@ -1084,26 +1084,33 @@ class TestVersionManagement:
 class TestRunAnalysisIntegration:
     """Test run_analysis integration with HDF5 save."""
 
-    @patch("pils.analyze.ppk.RTKLIBRunner")
+    @patch("pils.analyze.ppk.subprocess.run")
     @patch("pils.analyze.ppk.POSAnalyzer")
     @patch("pils.analyze.ppk.STATAnalyzer")
     def test_run_analysis_saves_to_hdf5(
-        self, mock_stat, mock_pos, mock_rtklib, tmp_path, mock_rtklib_files
+        self, mock_stat, mock_pos, mock_subprocess, tmp_path, mock_rtklib_files
     ):
         """Test that run_analysis automatically saves to HDF5."""
         flight_path, config_path, rover_path, base_path, nav_path = mock_rtklib_files
 
-        # Mock RTKLIB runner
-        mock_rtklib_instance = MagicMock()
-        mock_rtklib_instance.check_overlap.return_value = True
+        # Mock subprocess.run to create output files
+        def mock_run(*args, **kwargs):
+            # Extract command and output file from args
+            cmd = args[0] if args else kwargs.get('args', [])
+            if cmd and len(cmd) > 2 and cmd[0] == 'rnx2rtkp':
+                # Find output file argument (-o index + 1)
+                try:
+                    o_idx = cmd.index('-o')
+                    output_file = cmd[o_idx + 1]
+                    # Create mock output files
+                    Path(output_file).write_text("# Mock position file\n")
+                    Path(str(output_file) + ".stat").write_text("# Mock statistics file\n")
+                except (ValueError, IndexError):
+                    pass
+            from unittest.mock import MagicMock
+            return MagicMock(returncode=0)
 
-        def mock_run_ppk(rover, base, nav, config, output):
-            # Create mock output files that RTKLIB would create
-            Path(output).write_text("# Mock position file\n")
-            Path(str(output) + ".stat").write_text("# Mock statistics file\n")
-
-        mock_rtklib_instance.run_ppk.side_effect = mock_run_ppk
-        mock_rtklib.return_value = mock_rtklib_instance
+        mock_subprocess.side_effect = mock_run
 
         # Mock analyzers
         mock_pos_instance = MagicMock()
@@ -1132,26 +1139,30 @@ class TestRunAnalysisIntegration:
         with h5py.File(ppk.hdf5_path, "r") as f:
             assert version.version_name in f
 
-    @patch("pils.analyze.ppk.RTKLIBRunner")
+    @patch("pils.analyze.ppk.subprocess.run")
     @patch("pils.analyze.ppk.POSAnalyzer")
     @patch("pils.analyze.ppk.STATAnalyzer")
     def test_run_analysis_version_loadable(
-        self, mock_stat, mock_pos, mock_rtklib, tmp_path, mock_rtklib_files
+        self, mock_stat, mock_pos, mock_subprocess, tmp_path, mock_rtklib_files
     ):
         """Test that version created by run_analysis can be loaded."""
         flight_path, config_path, rover_path, base_path, nav_path = mock_rtklib_files
 
-        # Mock RTKLIB runner
-        mock_rtklib_instance = MagicMock()
-        mock_rtklib_instance.check_overlap.return_value = True
+        # Mock subprocess.run to create output files
+        def mock_run(*args, **kwargs):
+            cmd = args[0] if args else kwargs.get('args', [])
+            if cmd and len(cmd) > 2 and cmd[0] == 'rnx2rtkp':
+                try:
+                    o_idx = cmd.index('-o')
+                    output_file = cmd[o_idx + 1]
+                    Path(output_file).write_text("# Mock position file\n")
+                    Path(str(output_file) + ".stat").write_text("# Mock statistics file\n")
+                except (ValueError, IndexError):
+                    pass
+            from unittest.mock import MagicMock
+            return MagicMock(returncode=0)
 
-        def mock_run_ppk(rover, base, nav, config, output):
-            # Create mock output files that RTKLIB would create
-            Path(output).write_text("# Mock position file\n")
-            Path(str(output) + ".stat").write_text("# Mock statistics file\n")
-
-        mock_rtklib_instance.run_ppk.side_effect = mock_run_ppk
-        mock_rtklib.return_value = mock_rtklib_instance
+        mock_subprocess.side_effect = mock_run
 
         # Mock analyzers
         mock_pos_instance = MagicMock()
@@ -1178,26 +1189,31 @@ class TestRunAnalysisIntegration:
         assert version2.version_name == version1.version_name
         assert version2.metadata["config_hash"] == version1.metadata["config_hash"]
 
-    @patch("pils.analyze.ppk.RTKLIBRunner")
+    @patch("pils.analyze.ppk.subprocess.run")
     @patch("pils.analyze.ppk.POSAnalyzer")
     @patch("pils.analyze.ppk.STATAnalyzer")
     def test_run_analysis_multiple_versions_persisted(
-        self, mock_stat, mock_pos, mock_rtklib, tmp_path, mock_rtklib_files
+        self, mock_stat, mock_pos, mock_subprocess, tmp_path, mock_rtklib_files
     ):
         """Test that multiple run_analysis calls persist all versions."""
         flight_path, config_path, rover_path, base_path, nav_path = mock_rtklib_files
 
-        # Mock RTKLIB runner
-        mock_rtklib_instance = MagicMock()
-        mock_rtklib_instance.check_overlap.return_value = True
+        # Mock subprocess.run to create output files
+        def mock_run(*args, **kwargs):
+            cmd = args[0] if args else kwargs.get('args', [])
+            if cmd and len(cmd) > 2 and cmd[0] == 'rnx2rtkp':
+                try:
+                    o_idx = cmd.index('-o')
+                    output_file = cmd[o_idx + 1]
+                    # Create mock output files
+                    Path(output_file).write_text("# Mock position file\n")
+                    Path(str(output_file) + ".stat").write_text("# Mock statistics file\n")
+                except (ValueError, IndexError):
+                    pass
+            from unittest.mock import MagicMock
+            return MagicMock(returncode=0)
 
-        def mock_run_ppk(rover, base, nav, config, output):
-            # Create mock output files that RTKLIB would create
-            Path(output).write_text("# Mock position file\n")
-            Path(str(output) + ".stat").write_text("# Mock statistics file\n")
-
-        mock_rtklib_instance.run_ppk.side_effect = mock_run_ppk
-        mock_rtklib.return_value = mock_rtklib_instance
+        mock_subprocess.side_effect = mock_run
 
         # Mock analyzers
         mock_pos_instance = MagicMock()

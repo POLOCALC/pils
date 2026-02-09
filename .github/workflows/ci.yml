@@ -54,7 +54,7 @@ jobs:
     
     - name: Lint with ruff
       run: |
-        python -m ruff check pils/ tests/
+        python -m ruff check pils/ tests/ --fix
     
     - name: Type check with mypy
       run: |

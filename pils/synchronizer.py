@@ -1010,7 +1010,7 @@ class Synchronizer:
         # Add drone GPS with offset correction
         if self.drone_gps is not None and "drone_gps" in self.offsets:
             offset = self.offsets["drone_gps"]["time_offset"]
-            drone_time = self.drone_gps["correct_timestamp"].to_numpy() + offset
+            drone_time = self.drone_gps["timestamp"].to_numpy() + offset
 
             for col in self.drone_gps.columns:
                 if col != "timestamp":

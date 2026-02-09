@@ -16,12 +16,12 @@ class TestLLAtoENU:
 
     def test_lla_to_enu_zero_offset(self):
         """Test conversion when target equals reference (should be zero)."""
-        from pils.synchronizer import CorrelationSynchronizer
+        from pils.synchronizer import Synchronizer
 
         ref_lat, ref_lon, ref_alt = 45.0, 10.0, 100.0
         target_lat, target_lon, target_alt = 45.0, 10.0, 100.0
 
-        e, n, u = CorrelationSynchronizer._lla_to_enu(
+        e, n, u = Synchronizer._lla_to_enu(
             ref_lat, ref_lon, ref_alt, target_lat, target_lon, target_alt
         )
 
@@ -31,14 +31,14 @@ class TestLLAtoENU:
 
     def test_lla_to_enu_known_offset(self):
         """Test conversion with known offset (1 degree north ≈ 111 km)."""
-        from pils.synchronizer import CorrelationSynchronizer
+        from pils.synchronizer import Synchronizer
 
         ref_lat, ref_lon, ref_alt = 45.0, 10.0, 100.0
         target_lat = 46.0  # 1 degree north
         target_lon = 10.0
         target_alt = 100.0
 
-        e, n, u = CorrelationSynchronizer._lla_to_enu(
+        e, n, u = Synchronizer._lla_to_enu(
             ref_lat, ref_lon, ref_alt, target_lat, target_lon, target_alt
         )
 
@@ -49,13 +49,13 @@ class TestLLAtoENU:
 
     def test_lla_to_enu_altitude_change(self):
         """Test altitude conversion."""
-        from pils.synchronizer import CorrelationSynchronizer
+        from pils.synchronizer import Synchronizer
 
         ref_lat, ref_lon, ref_alt = 45.0, 10.0, 100.0
         target_lat, target_lon = 45.0, 10.0
         target_alt = 150.0  # 50m higher
 
-        e, n, u = CorrelationSynchronizer._lla_to_enu(
+        e, n, u = Synchronizer._lla_to_enu(
             ref_lat, ref_lon, ref_alt, target_lat, target_lon, target_alt
         )
 
@@ -67,7 +67,7 @@ class TestSubsamplePeak:
 
     def test_subsample_peak_perfect_integer(self):
         """Test when peak is exactly at an integer index."""
-        from pils.synchronizer import CorrelationSynchronizer
+        from pils.synchronizer import Synchronizer
 
         # Create correlation with peak at index 50
         corr = np.zeros(100)
@@ -75,37 +75,37 @@ class TestSubsamplePeak:
         corr[49] = 0.8
         corr[51] = 0.8
 
-        peak_idx = CorrelationSynchronizer._find_subsample_peak(corr)
+        peak_idx = Synchronizer._find_subsample_peak(corr)
 
         # Should be very close to 50.0
         assert abs(peak_idx - 50.0) < 0.1
 
     def test_subsample_peak_shifted(self):
         """Test parabolic interpolation with shifted peak."""
-        from pils.synchronizer import CorrelationSynchronizer
+        from pils.synchronizer import Synchronizer
 
         # Create parabola with peak between indices
         x = np.arange(100)
         true_peak = 50.3
         corr = 1.0 - 0.01 * (x - true_peak) ** 2
 
-        peak_idx = CorrelationSynchronizer._find_subsample_peak(corr)
+        peak_idx = Synchronizer._find_subsample_peak(corr)
 
         # Should recover true peak within tolerance
         assert abs(peak_idx - true_peak) < 0.1
 
     def test_subsample_peak_boundary_handling(self):
         """Test handling when peak is at array boundary."""
-        from pils.synchronizer import CorrelationSynchronizer
+        from pils.synchronizer import Synchronizer
 
         # Peak at start
         corr = np.array([1.0, 0.8, 0.6, 0.4])
-        peak_idx = CorrelationSynchronizer._find_subsample_peak(corr)
+        peak_idx = Synchronizer._find_subsample_peak(corr)
         assert 0 <= peak_idx <= 1
 
         # Peak at end
         corr = np.array([0.4, 0.6, 0.8, 1.0])
-        peak_idx = CorrelationSynchronizer._find_subsample_peak(corr)
+        peak_idx = Synchronizer._find_subsample_peak(corr)
         assert 2 <= peak_idx <= 3
 
 
@@ -117,7 +117,7 @@ class TestGPSOffsetDetection:
 
     def test_gps_offset_zero_offset(self):
         """Test GPS offset detection with identical synchronized data."""
-        from pils.synchronizer import CorrelationSynchronizer
+        from pils.synchronizer import Synchronizer
 
         # Create identical GPS data (no offset)
         t = np.linspace(0, 100, 1000)
@@ -125,7 +125,7 @@ class TestGPSOffsetDetection:
         lon = 10.0 + 0.001 * np.cos(0.1 * t)
         alt = 100.0 + 10.0 * np.sin(0.05 * t)
 
-        result = CorrelationSynchronizer._find_gps_offset(
+        result = Synchronizer._find_gps_offset(
             time1=t,
             lat1=lat,
             lon1=lon,
@@ -142,7 +142,7 @@ class TestGPSOffsetDetection:
 
     def test_gps_offset_known_time_shift(self):
         """Test GPS offset detection with known time shift."""
-        from pils.synchronizer import CorrelationSynchronizer
+        from pils.synchronizer import Synchronizer
 
         # Create smooth GPS trajectory with good dynamics
         t = np.linspace(0, 200, 2000)
@@ -169,7 +169,7 @@ class TestGPSOffsetDetection:
             np.sin(0.03 * (t + time_shift)) + 0.3 * np.sin(0.07 * (t + time_shift))
         )
 
-        result = CorrelationSynchronizer._find_gps_offset(
+        result = Synchronizer._find_gps_offset(
             time1=t1,
             lat1=lat1,
             lon1=lon1,
@@ -196,7 +196,7 @@ class TestGPSOffsetDetection:
 
     def test_gps_offset_no_overlap(self):
         """Test GPS offset detection with no temporal overlap."""
-        from pils.synchronizer import CorrelationSynchronizer
+        from pils.synchronizer import Synchronizer
 
         # Non-overlapping time ranges
         t1 = np.linspace(0, 50, 500)
@@ -206,7 +206,7 @@ class TestGPSOffsetDetection:
         lon = 10.0 + 0.001 * np.cos(0.1 * np.arange(500))
         alt = 100.0 + 10.0 * np.sin(0.05 * np.arange(500))
 
-        result = CorrelationSynchronizer._find_gps_offset(
+        result = Synchronizer._find_gps_offset(
             time1=t1,
             lat1=lat,
             lon1=lon,
@@ -221,7 +221,7 @@ class TestGPSOffsetDetection:
 
     def test_gps_offset_metadata_structure(self):
         """Test that GPS offset returns complete metadata."""
-        from pils.synchronizer import CorrelationSynchronizer
+        from pils.synchronizer import Synchronizer
 
         # Simple GPS data
         t = np.linspace(0, 100, 1000)
@@ -229,7 +229,7 @@ class TestGPSOffsetDetection:
         lon = 10.0 + 0.001 * np.cos(0.1 * t)
         alt = 100.0 + 10.0 * np.sin(0.05 * t)
 
-        result = CorrelationSynchronizer._find_gps_offset(
+        result = Synchronizer._find_gps_offset(
             time1=t,
             lat1=lat,
             lon1=lon,
@@ -258,13 +258,13 @@ class TestPitchOffsetDetection:
 
     def test_pitch_offset_zero_offset(self):
         """Test pitch offset detection with synchronized data."""
-        from pils.synchronizer import CorrelationSynchronizer
+        from pils.synchronizer import Synchronizer
 
         # Create identical pitch data (no offset)
         t = np.linspace(0, 100, 1000)
         pitch = 45.0 + 10.0 * np.sin(0.1 * t)
 
-        result = CorrelationSynchronizer._find_pitch_offset(
+        result = Synchronizer._find_pitch_offset(
             time1=t,
             pitch1=pitch,
             time2=t,
@@ -277,7 +277,7 @@ class TestPitchOffsetDetection:
 
     def test_pitch_offset_known_time_shift(self):
         """Test pitch offset detection with known time shift."""
-        from pils.synchronizer import CorrelationSynchronizer
+        from pils.synchronizer import Synchronizer
 
         # Create smooth pitch trajectory
         t = np.linspace(0, 200, 2000)
@@ -290,7 +290,7 @@ class TestPitchOffsetDetection:
             np.sin(0.05 * (t + time_shift)) + 0.3 * np.sin(0.12 * (t + time_shift))
         )
 
-        result = CorrelationSynchronizer._find_pitch_offset(
+        result = Synchronizer._find_pitch_offset(
             time1=t,
             pitch1=pitch1,
             time2=t2,
@@ -307,7 +307,7 @@ class TestPitchOffsetDetection:
 
     def test_pitch_offset_no_overlap(self):
         """Test pitch offset detection with no temporal overlap."""
-        from pils.synchronizer import CorrelationSynchronizer
+        from pils.synchronizer import Synchronizer
 
         # Non-overlapping time ranges
         t1 = np.linspace(0, 50, 500)
@@ -315,7 +315,7 @@ class TestPitchOffsetDetection:
 
         pitch = 45.0 + 10.0 * np.sin(0.1 * np.arange(500))
 
-        result = CorrelationSynchronizer._find_pitch_offset(
+        result = Synchronizer._find_pitch_offset(
             time1=t1,
             pitch1=pitch,
             time2=t2,
@@ -326,13 +326,13 @@ class TestPitchOffsetDetection:
 
     def test_pitch_offset_metadata_structure(self):
         """Test that pitch offset returns complete metadata."""
-        from pils.synchronizer import CorrelationSynchronizer
+        from pils.synchronizer import Synchronizer
 
         # Simple pitch data
         t = np.linspace(0, 100, 1000)
         pitch = 45.0 + 10.0 * np.sin(0.1 * t)
 
-        result = CorrelationSynchronizer._find_pitch_offset(
+        result = Synchronizer._find_pitch_offset(
             time1=t,
             pitch1=pitch,
             time2=t,
@@ -348,8 +348,8 @@ class TestPitchOffsetDetection:
 # Phase 4 Tests: Synchronizer Class
 
 
-class TestCorrelationSynchronizerClass:
-    """Test complete CorrelationSynchronizer class."""
+class TestSynchronizerClass:
+    """Test complete Synchronizer class."""
 
     @pytest.fixture
     def sample_gps_payload(self):
@@ -382,32 +382,57 @@ class TestCorrelationSynchronizerClass:
 
     def test_add_gps_reference(self, sample_gps_payload):
         """Test adding GPS payload reference."""
-        from pils.synchronizer import CorrelationSynchronizer
+        from pils.synchronizer import Synchronizer
 
-        sync = CorrelationSynchronizer()
-        sync.add_gps_reference(sample_gps_payload)
+        sync = Synchronizer()
+        sync.add_gps_reference(
+            sample_gps_payload,
+            lat_col="latitude",
+            lon_col="longitude",
+            alt_col="altitude",
+        )
 
         assert sync.gps_payload is not None
         assert len(sync.gps_payload) == 1000
 
     def test_add_drone_gps(self, sample_gps_payload, sample_drone_gps):
         """Test adding drone GPS."""
-        from pils.synchronizer import CorrelationSynchronizer
+        from pils.synchronizer import Synchronizer
 
-        sync = CorrelationSynchronizer()
-        sync.add_gps_reference(sample_gps_payload)
-        sync.add_drone_gps(sample_drone_gps)
+        sync = Synchronizer()
+        sync.add_gps_reference(
+            sample_gps_payload,
+            lat_col="latitude",
+            lon_col="longitude",
+            alt_col="altitude",
+        )
+        sync.add_drone_gps(
+            sample_drone_gps,
+            lat_col="latitude",
+            lon_col="longitude",
+            alt_col="altitude",
+        )
 
         assert sync.drone_gps is not None
         assert len(sync.drone_gps) == 1000
 
     def test_synchronize_gps_only(self, sample_gps_payload, sample_drone_gps):
         """Test synchronization with GPS sources only."""
-        from pils.synchronizer import CorrelationSynchronizer
+        from pils.synchronizer import Synchronizer
 
-        sync = CorrelationSynchronizer()
-        sync.add_gps_reference(sample_gps_payload)
-        sync.add_drone_gps(sample_drone_gps)
+        sync = Synchronizer()
+        sync.add_gps_reference(
+            sample_gps_payload,
+            lat_col="latitude",
+            lon_col="longitude",
+            alt_col="altitude",
+        )
+        sync.add_drone_gps(
+            sample_drone_gps,
+            lat_col="latitude",
+            lon_col="longitude",
+            alt_col="altitude",
+        )
 
         result = sync.synchronize(target_rate_hz=10.0)
 
@@ -417,11 +442,21 @@ class TestCorrelationSynchronizerClass:
 
     def test_get_offset_summary(self, sample_gps_payload, sample_drone_gps):
         """Test offset summary generation."""
-        from pils.synchronizer import CorrelationSynchronizer
+        from pils.synchronizer import Synchronizer
 
-        sync = CorrelationSynchronizer()
-        sync.add_gps_reference(sample_gps_payload)
-        sync.add_drone_gps(sample_drone_gps)
+        sync = Synchronizer()
+        sync.add_gps_reference(
+            sample_gps_payload,
+            lat_col="latitude",
+            lon_col="longitude",
+            alt_col="altitude",
+        )
+        sync.add_drone_gps(
+            sample_drone_gps,
+            lat_col="latitude",
+            lon_col="longitude",
+            alt_col="altitude",
+        )
         sync.synchronize(target_rate_hz=10.0)
 
         summary = sync.get_offset_summary()
