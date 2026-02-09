@@ -580,9 +580,9 @@ class Flight:
 
         Parameters
         ----------
-        dji_drone_loader : str, default=True
-            Data loader type for DJI drones.
-            Options: 'dat', 'csv'.
+        dji_dat_loader : bool, default=True
+            If True, uses .DAT format for DJI drones.
+            If False, uses .CSV format.
         drone_model : Optional[str], default=None
             Drone model to load. If None, will auto-detect.
 

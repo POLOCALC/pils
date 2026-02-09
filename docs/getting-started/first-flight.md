@@ -5,7 +5,7 @@ A complete walkthrough of loading, analyzing, and exporting your first flight da
 ## Prerequisites
 
 - PILS installed and working
-- A flight directory with data (see [Directory Structure](../data-formats/directory-structure.md))
+- A flight directory with data (see [Directory Structure](../user-guide/directory-structure.md))
 
 ---
 
@@ -348,5 +348,5 @@ print("\nDone!")
 ## Next Steps
 
 - [User Guide](../user-guide/index.md) - Detailed feature documentation
-- [PPK Analysis](../user-guide/ppk-analysis.md) - Post-processed kinematics
+- [PPK Analysis](../api/analysis/ppk.md) - Post-processed kinematics
 - [API Reference](../api/index.md) - Complete API documentation

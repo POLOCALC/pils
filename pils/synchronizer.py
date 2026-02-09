@@ -831,8 +831,8 @@ class Synchronizer:
         ----------
         inclinometer_data : pl.DataFrame
             Polars DataFrame with inclinometer data
-        litchi_data : Optional[pl.DataFrame], default=None
-            Optional Litchi DataFrame for pitch reference
+        inclinometer_type : str
+            Type of inclinometer sensor (e.g., 'imx5')
         timestamp_col : str, default='timestamp'
             Name of timestamp column
         pitch_col : str, default='pitch'

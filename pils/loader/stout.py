@@ -54,13 +54,8 @@ class StoutLoader:
         """
         Initialize the StoutDataLoader.
 
-        Parameters
-        ----------
-        use_stout : bool
-            If True, uses stout services to query database.
-            If False, queries filesystem directly.
-        base_data_path : Optional[Path]
-            Base path for data storage. If None, uses stout config.
+        Initializes the loader and attempts to connect to stout campaign service.
+        Falls back to filesystem queries if stout import fails.
         """
 
         self.campaign_service = None
@@ -107,19 +102,19 @@ class StoutLoader:
         self, campaign_id: str | None = None, campaign_name: str | None = None
     ) -> dict[str, Any] | None:
         """
-        Load data for a single flight.
+        Load all flights from a specific campaign.
 
         Parameters
         ----------
-        flight_id : Optional[str]
-            Flight ID to load
-        flight_name : Optional[str]
-            Flight name to load (alternative to flight_id)
+        campaign_id : Optional[str]
+            Campaign ID to load
+        campaign_name : Optional[str]
+            Campaign name to load (alternative to campaign_id)
 
         Returns
         -------
         Optional[dict[str, Any]]
-            Flight dictionary with metadata and paths, or None if not found.
+            Campaign dictionary with metadata and paths, or None if not found.
         """
         if not campaign_id and not campaign_name:
             raise ValueError("Either flight_id or flight_name must be provided")

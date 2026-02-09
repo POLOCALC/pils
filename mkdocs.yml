@@ -82,8 +82,6 @@ nav:
     - Directory Structure: user-guide/directory-structure.md
     - Time Synchronization: user-guide/synchronization.md
     - Drone: user-guide/dji-drone.md
-  - Data Formats:
-    - data-formats/index.md
   - Development:
     - development/index.md
     - Architecture: development/architecture.md

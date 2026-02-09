@@ -141,21 +141,20 @@ class STATAnalyzer:
     def get_global_stats(self):
         """Aggregates residuals and SNR per frequency band.
 
-        Returns:
+        Returns
+        -------
+        pl.DataFrame
             DataFrame with global statistics by frequency:
             - mean_snr: Average SNR for the frequency
             - mean_resid_phase: Average phase residual
             - mean_resid_code: Average code residual
 
-        Examples:
-            >>> analyzer = STATAnalyzer('solution.pos.stat')
-            >>> analyzer.parse()
-            >>> global_stats = analyzer.get_global_stats()
-            >>> print(global_stats)
-            >>> l1_snr = global_stats.filter(pl.col('frequency') == 1)['mean_snr'][0]
-        """
-        """
-        Aggregates residuals and SNR per frequency band.
+        Examples
+        --------
+        >>> analyzer = STATAnalyzer('solution.pos.stat')
+        >>> analyzer.parse()
+        >>> global_stats = analyzer.get_global_stats()
+        >>> print(global_stats)
         """
         if self.df.is_empty():
             return pl.DataFrame()

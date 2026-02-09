@@ -689,5 +689,4 @@ When adding a new sensor:
 ## See Also
 
 - [Sensors API](../api/sensors/index.md) - Existing sensors
-- [Data Formats](../data-formats/index.md) - Schema reference
 - [Testing](testing.md) - Test guidelines

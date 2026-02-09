@@ -41,4 +41,3 @@ if version:
 ## Detailed Documentation
 
 - [PPK](ppk.md) - Post-processed positioning with version control
-- [RTK](rtk.md) - Real-time positioning analysis
