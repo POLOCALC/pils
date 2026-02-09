@@ -9,7 +9,6 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
   bump-version:
@@ -24,12 +23,12 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.PAT_TOKEN }}  # You need a PAT with bypass permissions
       
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.11'
       
       - name: Install bumpver
         run: pip install bumpver
@@ -50,31 +49,7 @@ jobs:
           echo "New version after bump:"
           bumpver show --no-fetch
       
-      - name: Get new version
-        id: get_version
+      - name: Push changes
         run: |
-          VERSION=$(bumpver show --no-fetch | grep "Current Version" | awk '{print $3}')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-      
-      - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore: bump version to ${{ steps.get_version.outputs.version }}"
-          branch: version-bump-${{ github.run_number }}
-          delete-branch: true
-          title: "chore: bump version to ${{ steps.get_version.outputs.version }}"
-          body: |
-            ## Automated Version Bump
-            
-            This PR was automatically created after merging PR #${{ github.event.pull_request.number }}.
-            
-            **New Version:** `${{ steps.get_version.outputs.version }}`
-            
-            **Triggered by:** ${{ github.event.pull_request.title }}
-            **Merged PR:** #${{ github.event.pull_request.number }}
-            
-            Please review and merge to complete the version bump.
-          labels: |
-            automated
-            version-bump
+          git push origin main --follow-tags
+          echo "Version bumped and pushed successfully"
