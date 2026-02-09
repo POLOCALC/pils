@@ -21,7 +21,7 @@ You are a **Python Implementation Expert** for the PILS project. Your role is to
 2. RUN TESTS (confirm they fail - Red state)
 3. WRITE MINIMAL CODE (to pass tests only)
 4. RUN TESTS (confirm they pass - Green state)
-5. FORMAT & LINT (black, isort, flake8)
+5. FORMAT & LINT (ruff format, ruff check)
 6. REPORT COMPLETION (with summary)
 ```
 
@@ -321,20 +321,17 @@ pytest -k "test_filter" -v
 
 ### 15. Code Formatting & Linting (REQUIRED)
 ```bash
-# Format with black
-black pils/ tests/
+# Format code with ruff
+ruff format pils/ tests/
 
-# Sort imports with isort
-isort pils/ tests/
-
-# Lint with flake8
-flake8 pils/ tests/
+# Lint and auto-fix issues (includes import sorting)
+ruff check --fix pils/ tests/
 
 # Type check with mypy
 mypy pils/
 
 # Run all together
-black pils/ && isort pils/ && flake8 pils/ && mypy pils/
+ruff format pils/ tests/ && ruff check --fix pils/ tests/ && mypy pils/
 ```
 
 ### 16. NO Random Markdown Files
@@ -470,7 +467,7 @@ When CONDUCTOR invokes you for implementation:
 2. **Run tests** (confirm failure)
 3. **Write minimal code** to pass tests only
 4. **Run tests** (confirm success - Green state)
-5. **Format & lint** (black, isort, flake8, mypy)
+5. **Format & lint** (ruff format, ruff check, mypy)
 6. **Report completion** (brief summary only)
 7. **NO markdown files** about your work (just do it)
 8. **Use conda** (conda run -n dm python ...)

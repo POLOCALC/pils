@@ -24,7 +24,7 @@ import importlib
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from pils.config import DRONE_MAP, SENSOR_MAP
 
@@ -76,14 +76,14 @@ class StoutLoader:
             logger.warning(f"Could not import stout: {e}. Falling back to filesystem queries.")
             self.use_stout = False
 
-    def load_all_flights(self) -> List[Dict[str, Any]]:
+    def load_all_flights(self) -> list[dict[str, Any]]:
         """
         Load all flights from all campaigns.
 
         Returns
         -------
-        List[Dict[str, Any]]
-            List of flight dictionaries containing flight metadata and paths.
+        list[dict[str, Any]]
+            list of flight dictionaries containing flight metadata and paths.
             Each flight dict includes: flight_id, flight_name, campaign_id,
             takeoff_datetime, landing_datetime, and folder paths.
         """
@@ -101,7 +101,7 @@ class StoutLoader:
 
     def load_all_campaign_flights(
         self, campaign_id: Optional[str] = None, campaign_name: Optional[str] = None
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Optional[dict[str, Any]]:
         """
         Load data for a single flight.
 
@@ -114,7 +114,7 @@ class StoutLoader:
 
         Returns
         -------
-        Optional[Dict[str, Any]]
+        Optional[dict[str, Any]]
             Flight dictionary with metadata and paths, or None if not found.
         """
         if not campaign_id and not campaign_name:
@@ -139,7 +139,7 @@ class StoutLoader:
 
     def load_single_flight(
         self, flight_id: Optional[str] = None, flight_name: Optional[str] = None
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Optional[dict[str, Any]]:
         """
         Load data for a single flight.
 
@@ -152,7 +152,7 @@ class StoutLoader:
 
         Returns
         -------
-        Optional[Dict[str, Any]]
+        Optional[dict[str, Any]]
             Flight dictionary with metadata and paths, or None if not found.
         """
         if not flight_id and not flight_name:
@@ -173,7 +173,7 @@ class StoutLoader:
 
     def load_flights_by_date(
         self, start_date: str, end_date: str, campaign_id: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Load flights within a date range.
 
@@ -188,8 +188,8 @@ class StoutLoader:
 
         Returns
         -------
-        List[Dict[str, Any]]
-            List of flight dictionaries matching the date range.
+        list[dict[str, Any]]
+            list of flight dictionaries matching the date range.
         """
         try:
             start_dt = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
@@ -226,8 +226,8 @@ class StoutLoader:
             raise
 
     def load_specific_data(
-        self, flight_id: str, data_types: Optional[List[str]] = None
-    ) -> Dict[str, List[str]]:
+        self, flight_id: str, data_types: Optional[list[str]] = None
+    ) -> dict[str, list[str]]:
         """
         Load specific data types from a flight.
 
@@ -243,13 +243,13 @@ class StoutLoader:
         ----------
         flight_id : str
             Flight ID to load data from
-        data_types : Optional[List[str]]
-            List of data types to load. If None, loads all available.
+        data_types : Optional[list[str]]
+            list of data types to load. If None, loads all available.
 
         Returns
         -------
-        Dict[str, List[str]]
-            Dictionary mapping data_type to list of file paths.
+        dict[str, list[str]]
+            dictionary mapping data_type to list of file paths.
         """
         if not flight_id:
             raise ValueError("flight_id is required")
@@ -267,7 +267,7 @@ class StoutLoader:
 
     def _load_flights_by_date_from_db(
         self, start_dt: datetime, end_dt: datetime, campaign_id: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Load flights by date range from stout database."""
         if self.campaign_service is None:
             raise RuntimeError("Campaign service not initialized")
@@ -295,7 +295,7 @@ class StoutLoader:
 
     # ==================== Filesystem Methods ====================
 
-    def _load_all_flights_from_filesystem(self) -> List[Dict[str, Any]]:
+    def _load_all_flights_from_filesystem(self) -> list[dict[str, Any]]:
         """Load all flights by scanning filesystem structure."""
         flights = []
         if self.base_data_path is None:
@@ -334,7 +334,7 @@ class StoutLoader:
 
     def _load_single_flight_from_filesystem(
         self, flight_id: Optional[str] = None, flight_name: Optional[str] = None
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Optional[dict[str, Any]]:
         """Load single flight from filesystem."""
         all_flights = self._load_all_flights_from_filesystem()
 
@@ -348,7 +348,7 @@ class StoutLoader:
 
     def _load_flights_by_date_from_filesystem(
         self, start_dt: datetime, end_dt: datetime, campaign_id: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Load flights by date range from filesystem."""
         all_flights = self._load_all_flights_from_filesystem()
 
@@ -368,7 +368,7 @@ class StoutLoader:
 
     def _build_flight_dict_from_filesystem(
         self, campaign_name: str, date_folder: str, flight_name: str, flight_path: str
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Optional[dict[str, Any]]:
         """Build flight dictionary from filesystem structure."""
         try:
             # Extract date from folder name (YYYYMMDD format)
@@ -393,22 +393,22 @@ class StoutLoader:
     # ==================== Data Collection Methods ====================
 
     def _collect_specific_data(
-        self, flight: Dict[str, Any], data_types: Optional[List[str]] = None
-    ) -> Dict[str, List[str]]:
+        self, flight: dict[str, Any], data_types: Optional[list[str]] = None
+    ) -> dict[str, list[str]]:
         """
         Collect specific data types from a flight.
 
         Parameters
         ----------
-        flight : Dict[str, Any]
+        flight : dict[str, Any]
             Flight dictionary from database
-        data_types : Optional[List[str]]
-            List of data types to collect. If None, all available.
+        data_types : Optional[list[str]]
+            list of data types to collect. If None, all available.
 
         Returns
         -------
-        Dict[str, List[str]]
-            Dictionary mapping data_type to list of file paths.
+        dict[str, list[str]]
+            dictionary mapping data_type to list of file paths.
         """
         result = {}
 
@@ -420,21 +420,21 @@ class StoutLoader:
 
         return result
 
-    def _get_data_files(self, flight: Dict[str, Any], data_type: str) -> List[str]:
+    def _get_data_files(self, flight: dict[str, Any], data_type: str) -> list[str]:
         """
         Get list of files for a specific data type within a flight.
 
         Parameters
         ----------
-        flight : Dict[str, Any]
+        flight : dict[str, Any]
             Flight dictionary
         data_type : str
             Type of data to retrieve
 
         Returns
         -------
-        List[str]
-            List of file paths
+        list[str]
+            list of file paths
         """
         files = []
 
@@ -467,7 +467,7 @@ class StoutLoader:
 
         return files
 
-    def _list_files_recursive(self, directory: str) -> List[str]:
+    def _list_files_recursive(self, directory: str) -> list[str]:
         """
         Recursively list all files in a directory.
 
@@ -478,8 +478,8 @@ class StoutLoader:
 
         Returns
         -------
-        List[str]
-            List of absolute file paths
+        list[str]
+            list of absolute file paths
         """
         files = []
         try:
@@ -494,14 +494,14 @@ class StoutLoader:
 
     # ==================== Utility Methods ====================
 
-    def get_campaign_list(self) -> List[Dict[str, Any]]:
+    def get_campaign_list(self) -> list[dict[str, Any]]:
         """
         Get list of all campaigns.
 
         Returns
         -------
-        List[Dict[str, Any]]
-            List of campaign dictionaries with metadata.
+        list[dict[str, Any]]
+            list of campaign dictionaries with metadata.
         """
         if self.use_stout and self.campaign_service:
             try:
@@ -512,7 +512,7 @@ class StoutLoader:
         else:
             return self._get_campaigns_from_filesystem()
 
-    def _get_campaigns_from_filesystem(self) -> List[Dict[str, Any]]:
+    def _get_campaigns_from_filesystem(self) -> list[dict[str, Any]]:
         """Get campaigns from filesystem."""
         campaigns = []
         if self.base_data_path is None:
@@ -537,14 +537,14 @@ class StoutLoader:
         self,
         flight_id: Optional[str] = None,
         flight_name: Optional[str] = None,
-        sensors: Optional[List[str]] = None,
-        drones: Optional[List[str]] = None,
+        sensors: Optional[list[str]] = None,
+        drones: Optional[list[str]] = None,
         freq_interpolation: Optional[float] = None,
         dji_drone_type: Optional[str] = None,
         drone_correct_timestamp: Optional[bool] = True,
         polars_interpolation: Optional[bool] = True,
         align_drone: Optional[bool] = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Load flight data and return dataframes for requested sensors and drones.
 
@@ -569,15 +569,15 @@ class StoutLoader:
             Flight ID to load
         flight_name : Optional[str]
             Flight name to load (alternative to flight_id)
-        sensors : Optional[List[str]]
-            List of sensor types to load. If None, loads ['gps'].
-        drones : Optional[List[str]]
-            List of drone types to load. If None, loads ['dji'].
+        sensors : Optional[list[str]]
+            list of sensor types to load. If None, loads ['gps'].
+        drones : Optional[list[str]]
+            list of drone types to load. If None, loads ['dji'].
 
         Returns
         -------
-        Dict[str, Any]
-            Dictionary containing:
+        dict[str, Any]
+            dictionary containing:
                 - 'flight_info': Flight metadata dictionary
                 - '<sensor_type>': DataFrame for each requested sensor
                 - '<drone_type>': DataFrame for each requested drone
@@ -603,7 +603,7 @@ class StoutLoader:
         if not flight_info:
             raise ValueError(f"Flight not found: flight_id={flight_id}, flight_name={flight_name}")
 
-        result: Dict[str, Any] = {"flight_info": flight_info}
+        result: dict[str, Any] = {"flight_info": flight_info}
 
         # Load requested sensors
         for sensor_type in sensors:
@@ -640,7 +640,7 @@ class StoutLoader:
 
     def _load_sensor_dataframe(
         self,
-        flight_info: Dict[str, Any],
+        flight_info: dict[str, Any],
         sensor_type: str,
         freq_interpolation: Optional[float] = None,
     ) -> Optional[Any]:
@@ -649,7 +649,7 @@ class StoutLoader:
 
         Parameters
         ----------
-        flight_info : Dict[str, Any]
+        flight_info : dict[str, Any]
             Flight metadata dictionary
         sensor_type : str
             Type of sensor to load (must be in SENSOR_MAP)
@@ -706,7 +706,7 @@ class StoutLoader:
 
     def _load_drone_dataframe(
         self,
-        flight_info: Dict[str, Any],
+        flight_info: dict[str, Any],
         drone_type: str = "dji",
         dji_drone_type: Optional[str] = None,
         drone_correct_timestamp: Optional[bool] = True,
@@ -718,7 +718,7 @@ class StoutLoader:
 
         Parameters
         ----------
-        flight_info : Dict[str, Any]
+        flight_info : dict[str, Any]
             Flight metadata dictionary
         drone_type : str
             Type of drone to load (must be in DRONE_MAP)
@@ -766,10 +766,10 @@ class StoutLoader:
 
         return drone.data
 
-    def get_available_sensors(self) -> List[str]:
+    def get_available_sensors(self) -> list[str]:
         """Return list of available sensor types."""
         return list(SENSOR_MAP.keys())
 
-    def get_available_drones(self) -> List[str]:
+    def get_available_drones(self) -> list[str]:
         """Return list of available drone types."""
         return list(DRONE_MAP.keys())

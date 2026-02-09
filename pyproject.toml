@@ -46,8 +46,7 @@ stout = ["stout>=2.0.0"]
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
-    "black>=23.0",
-    "flake8>=6.0",
+    "ruff>=0.1.0",
     "mypy>=1.0",
     "bumpver>=2023.0",
 ]
@@ -61,25 +60,26 @@ where = ["."]
 include = ["pils*"]
 exclude = ["tests*", "site*", "plans*", "examples*", "docs*", "htmlcov*"]
 
-[tool.black]
-line-length = 100
-target-version = ['py310']
-include = '\.pyi?$'
+[tool.ruff]
+line-length = 88
+target-version = "py311"
 
-[tool.isort]
-profile = "black"
-line_length = 100
-multi_line_output = 3
-
-[tool.flake8]
-max-line-length = 100
-max-complexity = 15
-exclude = [".git", "__pycache__", ".venv", "venv", "build", "dist", "*.egg-info", ".tox", "htmlcov"]
-ignore = ["E203", "E501", "W503", "F401", "F841", "C901", "E266", "E722", "F541"]
-per-file-ignores = [
-    "__init__.py:F401",
-    "tests/*.py:F401,F841",
+[tool.ruff.lint]
+select = [
+  "A",    # builtins shadowing
+  "B",    # bugbear
+  "C90",  # complexity
+  "E",    # pycodestyle errors
+  "F",    # pyflakes
+  "W",    # pycodestyle warnings
+  "UP",   # pyupgrade
+  "I"     # import sorting
 ]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
