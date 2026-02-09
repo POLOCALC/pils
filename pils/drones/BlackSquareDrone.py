@@ -202,8 +202,13 @@ def get_leapseconds(year: int, month: int) -> int:
         Number of leap seconds to subtract from GPS time.
     """
     # Load and prepare DataFrame
-    ls_pd = LeapSeconds.auto_open().to_pandas()
-    ls_df = pl.from_pandas(ls_pd)
+    ls_table = LeapSeconds.auto_open()
+    ls_df = pl.DataFrame({
+        "year": ls_table["year"].tolist(),
+        "month": ls_table["month"].tolist(),
+        "day": ls_table["day"].tolist(),
+        "tai_utc": ls_table["tai_utc"].tolist(),
+    })
     ls_df = ls_df.with_columns(
         [pl.date(pl.col("year"), pl.col("month"), pl.col("day")).alias("date")]
     )
