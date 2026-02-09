@@ -1,31 +1,35 @@
 name: Auto Version Bump
 
 on:
-  push:
+  pull_request:
+    types:
+      - closed
     branches:
       - main
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   bump-version:
     runs-on: ubuntu-latest
     
-    # Skip if the commit was made by the bot itself
-    if: "github.event.head_commit.author.name != 'github-actions[bot]'"
+    # Only run if the PR was merged (not just closed)
+    if: github.event.pull_request.merged == true
     
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
       
       - name: Install bumpver
         run: pip install bumpver
@@ -46,7 +50,31 @@ jobs:
           echo "New version after bump:"
           bumpver show --no-fetch
       
-      - name: Push changes
+      - name: Get new version
+        id: get_version
         run: |
-          git push origin main --follow-tags
-          echo "Version bumped and pushed successfully"
+          VERSION=$(bumpver show --no-fetch | grep "Current Version" | awk '{print $3}')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+      
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: bump version to ${{ steps.get_version.outputs.version }}"
+          branch: version-bump-${{ github.run_number }}
+          delete-branch: true
+          title: "chore: bump version to ${{ steps.get_version.outputs.version }}"
+          body: |
+            ## Automated Version Bump
+            
+            This PR was automatically created after merging PR #${{ github.event.pull_request.number }}.
+            
+            **New Version:** `${{ steps.get_version.outputs.version }}`
+            
+            **Triggered by:** ${{ github.event.pull_request.title }}
+            **Merged PR:** #${{ github.event.pull_request.number }}
+            
+            Please review and merge to complete the version bump.
+          labels: |
+            automated
+            version-bump
