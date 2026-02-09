@@ -35,7 +35,7 @@ tests/*.db
 data*.csv
 
 # Agent artifacts and development files
-.agents/
+*/agents/
 htmlcov/
 plans/*
 site/
