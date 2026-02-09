@@ -99,7 +99,9 @@ class RINEXReport:
             >>> print(f"Report generated at: {report_path}")
         """
         if self.analyzer is None:
-            raise ValueError("Analyzer not initialized. Provide rinex file or analyzer instance.")
+            raise ValueError(
+                "Analyzer not initialized. Provide rinex file or analyzer instance."
+            )
         if self.plotter is None:
             raise ValueError("Plotter not initialized.")
 
@@ -145,10 +147,16 @@ class RINEXReport:
         report += "#### 🛰️ 4-Step Algorithm Metrics (Session Avg)\n"
         report += "| Good Sats (40%) | Cell Coverage (30%) | Elevation Span (15%) | Azimuth Balance (15%) |\n"
         report += "|---|---|---|---|\n"
-        avg_sats = f"{m['avg_good_sats']:.1f}" if m["avg_good_sats"] is not None else "N/A"
+        avg_sats = (
+            f"{m['avg_good_sats']:.1f}" if m["avg_good_sats"] is not None else "N/A"
+        )
         avg_cells = f"{m['avg_cells']:.1f}" if m["avg_cells"] is not None else "N/A"
-        avg_el_span = f"{m['avg_el_span']:.1f}°" if m["avg_el_span"] is not None else "N/A"
-        avg_balance = f"{m['avg_balance']:.2f}" if m["avg_balance"] is not None else "N/A"
+        avg_el_span = (
+            f"{m['avg_el_span']:.1f}°" if m["avg_el_span"] is not None else "N/A"
+        )
+        avg_balance = (
+            f"{m['avg_balance']:.2f}" if m["avg_balance"] is not None else "N/A"
+        )
         report += f"| {avg_sats} / 20 | {avg_cells} / 12 | {avg_el_span} | {avg_balance} |\n\n"
 
         # Good Satellites Trend Plot
@@ -163,11 +171,23 @@ class RINEXReport:
         report += "| Sat | Rating | Score | SNR L1 | SNR L2 | MP RMS | Slips/h |\n"
         report += "|---|---|---|---|---|---|---|\n"
         for row in quality["sat_scores"].iter_rows(named=True):
-            s1 = f"{row['snr_l1']:.1f}" if row["snr_l1"] is not None and row["snr_l1"] > 0 else "-"
-            s2 = f"{row['snr_l2']:.1f}" if row["snr_l2"] is not None and row["snr_l2"] > 0 else "-"
-            score_val = f"{row['total_score']:.1f}" if row["total_score"] is not None else "N/A"
+            s1 = (
+                f"{row['snr_l1']:.1f}"
+                if row["snr_l1"] is not None and row["snr_l1"] > 0
+                else "-"
+            )
+            s2 = (
+                f"{row['snr_l2']:.1f}"
+                if row["snr_l2"] is not None and row["snr_l2"] > 0
+                else "-"
+            )
+            score_val = (
+                f"{row['total_score']:.1f}" if row["total_score"] is not None else "N/A"
+            )
             mp_val = f"{row['mp_val']:.3f}" if row["mp_val"] is not None else "N/A"
-            slip_val = f"{row['slip_rate']:.1f}" if row["slip_rate"] is not None else "N/A"
+            slip_val = (
+                f"{row['slip_rate']:.1f}" if row["slip_rate"] is not None else "N/A"
+            )
             report += f"| {row['satellite']} | {row['rating']} | {score_val} | {s1} | {s2} | {mp_val} | {slip_val} |\n"
         report += "\n"
 
@@ -196,7 +216,9 @@ class RINEXReport:
         for row in freq_summary.iter_rows(named=True):
             mean_val = f"{row['mean']:.1f}" if row["mean"] is not None else "N/A"
             std_val = f"{row['std']:.2f}" if row["std"] is not None else "N/A"
-            mp_val = f"{row['mean_MP_RMS']:.3f}" if row["mean_MP_RMS"] is not None else "N/A"
+            mp_val = (
+                f"{row['mean_MP_RMS']:.3f}" if row["mean_MP_RMS"] is not None else "N/A"
+            )
             report += f"| {row['frequency']} | {mean_val} | {std_val} | {mp_val} | {row['n_satellites']} | {row['count']} |\n"
 
         # 2. Pooled Distribution & Elevation Dependency
@@ -215,19 +237,21 @@ class RINEXReport:
             sky_path = assets_dir / f"sky_{pool}.png"
             self.plotter.plot_skyplot_snr(pool=pool, save_path=str(sky_path))
             if sky_path.exists():
-                report += (
-                    f"### {name} Tracking & Quality\n![Skyplot]({plot_folder}/sky_{pool}.png)\n\n"
-                )
+                report += f"### {name} Tracking & Quality\n![Skyplot]({plot_folder}/sky_{pool}.png)\n\n"
 
             # Elevation Dependence
             el_path = assets_dir / f"elevation_{pool}.png"
-            self.plotter.plot_elevation_dependent_stats(pool=pool, save_path=str(el_path))
+            self.plotter.plot_elevation_dependent_stats(
+                pool=pool, save_path=str(el_path)
+            )
             if el_path.exists():
                 report += f"#### Elevation Dependency (SNR & MP)\n![Elevation]({plot_folder}/elevation_{pool}.png)\n\n"
 
         # 3. Detailed Constellation Performance
         report += "## Constellation-Specific Analysis\n"
-        constellations = sorted(self.analyzer.df_obs["constellation"].unique().to_list())
+        constellations = sorted(
+            self.analyzer.df_obs["constellation"].unique().to_list()
+        )
         for const in constellations:
             cname = CONSTELLATION_NAMES.get(const, const)
 
@@ -239,7 +263,9 @@ class RINEXReport:
             self.plotter.plot_constellation_histograms(
                 const,
                 sorted(
-                    self.analyzer.df_obs.filter(pl.col("constellation") == const)["frequency"]
+                    self.analyzer.df_obs.filter(pl.col("constellation") == const)[
+                        "frequency"
+                    ]
                     .unique()
                     .to_list()
                 ),
@@ -255,7 +281,9 @@ class RINEXReport:
 
             # Detailed Time Series
             bands = sorted(
-                self.analyzer.df_obs.filter(pl.col("constellation") == const)["frequency"]
+                self.analyzer.df_obs.filter(pl.col("constellation") == const)[
+                    "frequency"
+                ]
                 .unique()
                 .to_list()
             )
@@ -263,7 +291,8 @@ class RINEXReport:
                 logger.debug(f"Detailed plots for {cname} {band}")
                 sats = sorted(
                     self.analyzer.df_obs.filter(
-                        (pl.col("constellation") == const) & (pl.col("frequency") == band)
+                        (pl.col("constellation") == const)
+                        & (pl.col("frequency") == band)
                     )["satellite"]
                     .unique()
                     .to_list()

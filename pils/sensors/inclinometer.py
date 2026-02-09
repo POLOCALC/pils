@@ -426,25 +426,37 @@ class KernelInclinometer:
 
         if self.logpath is not None:
             # Convert Path to str if needed
-            logfile_path = str(self.logpath) if isinstance(self.logpath, Path) else self.logpath
+            logfile_path = (
+                str(self.logpath) if isinstance(self.logpath, Path) else self.logpath
+            )
             self.read_log_time(logfile=logfile_path)
             if self.tstart is not None:
                 tstart = self.tstart
                 # Calculate datetime for each row
                 timestamps = inclino_data["counter_timestamp"].to_list()
                 datetimes = [tstart + timedelta(seconds=t) for t in timestamps]
-                inclino_data = inclino_data.with_columns([pl.Series("datetime", datetimes)])
                 inclino_data = inclino_data.with_columns(
-                    [(pl.col("datetime").dt.epoch(time_unit="ns") / 1e9).alias("timestamp")]
+                    [pl.Series("datetime", datetimes)]
+                )
+                inclino_data = inclino_data.with_columns(
+                    [
+                        (pl.col("datetime").dt.epoch(time_unit="ns") / 1e9).alias(
+                            "timestamp"
+                        )
+                    ]
                 )
 
         # Rename Euler angles to match drone convention
-        inclino_data = inclino_data.rename({"Roll": "pitch", "Pitch": "roll", "Heading": "yaw"})
+        inclino_data = inclino_data.rename(
+            {"Roll": "pitch", "Pitch": "roll", "Heading": "yaw"}
+        )
         inclino_data = inclino_data.with_columns([(-pl.col("pitch")).alias("pitch")])
 
         # Drop helper columns
         cols_to_drop = ["new_counter", "ind_good"]
-        inclino_data = inclino_data.drop([c for c in cols_to_drop if c in inclino_data.columns])
+        inclino_data = inclino_data.drop(
+            [c for c in cols_to_drop if c in inclino_data.columns]
+        )
 
         inclino_data = drop_nan_and_zero_cols(inclino_data)
 

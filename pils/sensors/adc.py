@@ -119,7 +119,9 @@ def decode_adc_file_ascii(adc_path: str | Path, gain_config: int = 16) -> pl.Dat
     adc_data = adc_data.with_columns(
         [
             (pl.col("amplitude") * gain / 2048 * 1e3).alias("amplitude"),
-            (pl.col("timestamp") / 1e6).alias("timestamp"),  # convert from us to seconds
+            (pl.col("timestamp") / 1e6).alias(
+                "timestamp"
+            ),  # convert from us to seconds
         ]
     )
 

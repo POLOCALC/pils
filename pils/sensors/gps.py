@@ -130,7 +130,9 @@ class GPS:
                 nav_dataframes[msg_type] = df
 
         # Get the date from log file to compute GPS week
-        time_start, date = read_log_time(keyphrase="Sensor ZED-F9P started", logfile=self.logpath)
+        time_start, date = read_log_time(
+            keyphrase="Sensor ZED-F9P started", logfile=self.logpath
+        )
 
         if date is None:
             self.data = pl.DataFrame()
@@ -183,7 +185,9 @@ class GPS:
         gps_data = gps_data.with_columns(
             (pl.from_epoch(pl.col("unix_time_ms"), time_unit="ms")).alias("datetime")
         )
-        gps_data = gps_data.with_columns((pl.col("unix_time_ms") / 1000.0).alias("timestamp"))
+        gps_data = gps_data.with_columns(
+            (pl.col("unix_time_ms") / 1000.0).alias("timestamp")
+        )
         gps_data = gps_data.with_columns(pl.col("posllh_height") / 1000.0)
 
         self.data = gps_data
@@ -270,11 +274,16 @@ class GPS:
 
             # Include datetime_relative if present (take from first dataframe that has it)
             cols_to_join = ["unix_time_ms"] + numeric_cols
-            if "datetime_relative" in df.columns and "datetime_relative" not in merged_df.columns:
+            if (
+                "datetime_relative" in df.columns
+                and "datetime_relative" not in merged_df.columns
+            ):
                 cols_to_join.append("datetime_relative")
 
             # Join with time grid using asof join (nearest previous value)
             df_to_join = df.select(cols_to_join)
-            merged_df = merged_df.join_asof(df_to_join, on="unix_time_ms", strategy="nearest")
+            merged_df = merged_df.join_asof(
+                df_to_join, on="unix_time_ms", strategy="nearest"
+            )
 
         return merged_df

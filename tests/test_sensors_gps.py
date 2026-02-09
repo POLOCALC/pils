@@ -66,7 +66,9 @@ class TestGPS:
 
     @patch("pils.sensors.gps.UBXReader")
     @patch("pils.sensors.gps.read_log_time")
-    def test_load_data_creates_dataframe(self, mock_read_log, mock_ubx, gps_dir, log_file):
+    def test_load_data_creates_dataframe(
+        self, mock_read_log, mock_ubx, gps_dir, log_file
+    ):
         """Test load_data creates polars DataFrame."""
         # Mock log reading
         mock_read_log.return_value = (
@@ -87,7 +89,9 @@ class TestGPS:
 
     @patch("pils.sensors.gps.UBXReader")
     @patch("pils.sensors.gps.read_log_time")
-    def test_load_data_with_freq_interpolation(self, mock_read_log, mock_ubx, gps_dir, log_file):
+    def test_load_data_with_freq_interpolation(
+        self, mock_read_log, mock_ubx, gps_dir, log_file
+    ):
         """Test load_data with frequency interpolation parameter."""
         # Mock log reading
         mock_read_log.return_value = (
@@ -108,7 +112,9 @@ class TestGPS:
 
     @patch("pils.sensors.gps.UBXReader")
     @patch("pils.sensors.gps.read_log_time")
-    def test_load_data_returns_none_type(self, mock_read_log, mock_ubx, gps_dir, log_file):
+    def test_load_data_returns_none_type(
+        self, mock_read_log, mock_ubx, gps_dir, log_file
+    ):
         """Test load_data return type is None."""
         mock_read_log.return_value = (
             datetime(2024, 1, 15, 10, 30, 45),
@@ -133,7 +139,9 @@ class TestGPS:
 
     @patch("pils.sensors.gps.UBXReader")
     @patch("pils.sensors.gps.read_log_time")
-    def test_merge_nav_dataframes_with_empty_dict(self, mock_read_log, mock_ubx, gps_dir, log_file):
+    def test_merge_nav_dataframes_with_empty_dict(
+        self, mock_read_log, mock_ubx, gps_dir, log_file
+    ):
         """Test _merge_nav_dataframes handles empty input."""
         gps = GPS(gps_dir, logpath=log_file)
         result = gps._merge_nav_dataframes({})
@@ -141,12 +149,16 @@ class TestGPS:
 
     @patch("pils.sensors.gps.UBXReader")
     @patch("pils.sensors.gps.read_log_time")
-    def test_merge_nav_dataframes_with_freq(self, mock_read_log, mock_ubx, gps_dir, log_file):
+    def test_merge_nav_dataframes_with_freq(
+        self, mock_read_log, mock_ubx, gps_dir, log_file
+    ):
         """Test _merge_nav_dataframes with frequency parameter."""
         gps = GPS(gps_dir, logpath=log_file)
 
         # Create simple nav dataframe for testing
-        nav_df = pl.DataFrame({"unix_time_ms": [1000, 2000, 3000], "lat": [40.0, 40.1, 40.2]})
+        nav_df = pl.DataFrame(
+            {"unix_time_ms": [1000, 2000, 3000], "lat": [40.0, 40.1, 40.2]}
+        )
 
         result = gps._merge_nav_dataframes({"NAV-POSLLH": nav_df}, freq=10.0)
 

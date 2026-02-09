@@ -100,7 +100,10 @@ class PPKPlotter:
                 )
 
         ax.set_title(
-            "Skyplot: Satellite Tracks (Colored by SNR)", fontweight="bold", fontsize=14, pad=30
+            "Skyplot: Satellite Tracks (Colored by SNR)",
+            fontweight="bold",
+            fontsize=14,
+            pad=30,
         )
         GNSSColors.apply_theme(ax)
         plt.tight_layout()
@@ -173,7 +176,9 @@ class PPKPlotter:
         fig, ax = plt.subplots(figsize=(14, 5))
         fig.patch.set_alpha(0)
 
-        ax.plot(df["time"].to_numpy(), df["ratio"].to_numpy(), color="purple", linewidth=1.5)
+        ax.plot(
+            df["time"].to_numpy(), df["ratio"].to_numpy(), color="purple", linewidth=1.5
+        )
         ax.axhline(3.0, color="red", linestyle="--", label="Fix Threshold (3.0)")
 
         ax.set_title("AR Ratio vs Time", fontweight="bold")
@@ -208,7 +213,11 @@ class PPKPlotter:
         fig.patch.set_alpha(0)
 
         bands = sorted(df["frequency"].unique().to_list())
-        colors = [GNSSColors.BAND_PRIMARY, GNSSColors.BAND_SECONDARY, GNSSColors.BAND_TERTIARY]
+        colors = [
+            GNSSColors.BAND_PRIMARY,
+            GNSSColors.BAND_SECONDARY,
+            GNSSColors.BAND_TERTIARY,
+        ]
 
         for i, b in enumerate(bands):
             sub = df.filter(pl.col("frequency") == b)
@@ -262,7 +271,11 @@ class PPKPlotter:
 
         for i, (col, label) in enumerate(zip(cols, labels, strict=False)):
             axes[i].plot(
-                df["time"].to_numpy(), df[col].to_numpy(), color="black", linewidth=0.5, alpha=0.2
+                df["time"].to_numpy(),
+                df[col].to_numpy(),
+                color="black",
+                linewidth=0.5,
+                alpha=0.2,
             )
             for q in sorted(df["Q"].unique().to_list()):
                 sub = df.filter(pl.col("Q") == q)
@@ -277,7 +290,9 @@ class PPKPlotter:
             GNSSColors.apply_theme(axes[i])
 
         axes[0].set_title(
-            "ENU Position Deviations Over Time (Colored by Fix Q)", fontweight="bold", fontsize=14
+            "ENU Position Deviations Over Time (Colored by Fix Q)",
+            fontweight="bold",
+            fontsize=14,
         )
         axes[2].set_xlabel("Time", fontweight="bold")
         axes[2].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
@@ -389,7 +404,9 @@ class PPKPlotter:
             y = sub["avg_snr"].to_numpy()
             s = sub["std_snr"].fill_null(0).to_numpy()
 
-            line_color = GNSSColors.BAND_PRIMARY if i == 0 else GNSSColors.BAND_SECONDARY
+            line_color = (
+                GNSSColors.BAND_PRIMARY if i == 0 else GNSSColors.BAND_SECONDARY
+            )
             ax.plot(t, y, color=line_color, label=f"Band {b} Mean", linewidth=2)
             # Increased alpha and better contrast for shading
             ax.fill_between(t, y - s, y + s, color=line_color, alpha=0.2)
@@ -398,7 +415,9 @@ class PPKPlotter:
             ax.scatter(t, y, color=line_color, s=15, alpha=0.6)
 
         ax.set_title(
-            "Average Signal Strength (SNR) Stability Over Time", fontweight="bold", fontsize=14
+            "Average Signal Strength (SNR) Stability Over Time",
+            fontweight="bold",
+            fontsize=14,
         )
         ax.set_xlabel("Time (TOW)")
         ax.set_ylabel("SNR (dB-Hz)")
@@ -493,7 +512,9 @@ class PPKPlotter:
             return
 
         bands = sorted(df["frequency"].unique().to_list())
-        fig, axes = plt.subplots(len(bands), 1, figsize=(14, 5 * len(bands)), sharex=True)
+        fig, axes = plt.subplots(
+            len(bands), 1, figsize=(14, 5 * len(bands)), sharex=True
+        )
         if len(bands) == 1:
             axes = [axes]
         fig.patch.set_alpha(0)
@@ -505,12 +526,17 @@ class PPKPlotter:
             for sat in sats:
                 sat_data = sub_b.filter(pl.col("satellite") == sat).sort("tow")
                 axes[i].plot(
-                    sat_data["tow"].to_numpy(), sat_data["snr"].to_numpy(), label=sat, alpha=0.7
+                    sat_data["tow"].to_numpy(),
+                    sat_data["snr"].to_numpy(),
+                    label=sat,
+                    alpha=0.7,
                 )
 
             axes[i].set_title(f"SNR stability - Band {b}", fontweight="bold")
             axes[i].set_ylabel("SNR (dB-Hz)")
-            axes[i].legend(bbox_to_anchor=(1.01, 1), loc="upper left", fontsize="x-small", ncol=2)
+            axes[i].legend(
+                bbox_to_anchor=(1.01, 1), loc="upper left", fontsize="x-small", ncol=2
+            )
             GNSSColors.apply_theme(axes[i])
 
         axes[-1].set_xlabel("Time (TOW)")
@@ -535,7 +561,9 @@ class PPKPlotter:
         """Bar chart of P95 phase residuals per satellite."""
         if not self.stat or self.stat.df.is_empty():
             return
-        stats = self.stat.get_satellite_stats().filter(pl.col("satellite").str.starts_with(const))
+        stats = self.stat.get_satellite_stats().filter(
+            pl.col("satellite").str.starts_with(const)
+        )
         if stats.is_empty():
             return
 
@@ -553,7 +581,9 @@ class PPKPlotter:
             vals = []
             for s in sats:
                 match = sub.filter(pl.col("satellite") == s)
-                vals.append(match["p95_resid_phase"].sum() if not match.is_empty() else 0)
+                vals.append(
+                    match["p95_resid_phase"].sum() if not match.is_empty() else 0
+                )
 
             ax.bar(
                 x + i * width - 0.4 + width / 2,

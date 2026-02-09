@@ -154,11 +154,13 @@ class RTKLIBRunner:
 
         if duration <= 0:
             logger.critical("NO OVERLAP DETECTED!")
-            logger.critical("The Base data ends before the Rover starts (or vice versa)")
+            logger.critical(
+                "The Base data ends before the Rover starts (or vice versa)"
+            )
             logger.critical(f"Gap: {abs(duration):.1f} seconds")
             return False
 
-        logger.info(f"Common window: {duration:.1f} seconds ({duration/60:.1f} min)")
+        logger.info(f"Common window: {duration:.1f} seconds ({duration / 60:.1f} min)")
 
         if duration < 600:  # Less than 10 mins
             logger.warning("Overlap is very short (<10 min). Solution may be unstable")

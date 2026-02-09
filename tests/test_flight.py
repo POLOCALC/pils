@@ -114,7 +114,9 @@ class TestFlightTypeGuards:
         """Test that payload_data is not None after add_sensor_data()."""
         # Mock sensor loading
         mock_sensor = Mock()
-        mock_sensor.data = pl.DataFrame({"timestamp": [1, 2, 3], "value": [1.0, 2.0, 3.0]})
+        mock_sensor.data = pl.DataFrame(
+            {"timestamp": [1, 2, 3], "value": [1.0, 2.0, 3.0]}
+        )
 
         with patch("pils.flight.sensor_config") as mock_config:
             # Setup mock sensor config

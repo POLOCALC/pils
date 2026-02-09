@@ -93,7 +93,9 @@ class DJIDrone:
             Optional format specification ('csv' or 'dat').
         """
         self.path = path
-        self.data: dict[str, pl.DataFrame] | pl.DataFrame = {}  # Dictionary or DataFrame
+        self.data: (
+            dict[str, pl.DataFrame] | pl.DataFrame
+        ) = {}  # Dictionary or DataFrame
         self.sync_params: tuple[float, float] | None = (
             None  # Store (slope, intercept) from Gaussian sync
         )
@@ -153,7 +155,9 @@ class DJIDrone:
             logger.info("Converting timestamps to milliseconds")
             if self.source_format == "csv":
                 # For CSV format, self.data is a DataFrame
-                assert isinstance(self.data, pl.DataFrame), "Expected DataFrame for CSV format"
+                assert isinstance(self.data, pl.DataFrame), (
+                    "Expected DataFrame for CSV format"
+                )
                 # Calculate mean offset from actual data, not expressions
                 timestamp_vals = self.data.get_column("timestamp").to_numpy()
                 tags = np.where(np.diff(timestamp_vals) > 0.5)[0] + 1
@@ -202,7 +206,11 @@ class DJIDrone:
             if data["GPS:dateTimeStamp"].dtype == pl.Datetime:
                 # Already parsed, just use it
                 data = data.with_columns(
-                    [pl.col("GPS:dateTimeStamp").dt.replace_time_zone(None).alias("datetime")]
+                    [
+                        pl.col("GPS:dateTimeStamp")
+                        .dt.replace_time_zone(None)
+                        .alias("datetime")
+                    ]
                 )
             elif (
                 data["GPS:dateTimeStamp"].dtype == pl.String
@@ -226,7 +234,9 @@ class DJIDrone:
                     data = data.with_columns(
                         [
                             pl.col("GPS:dateTimeStamp")
-                            .str.to_datetime(format="%Y-%m-%d %H:%M:%S%.f", strict=False)
+                            .str.to_datetime(
+                                format="%Y-%m-%d %H:%M:%S%.f", strict=False
+                            )
                             .alias("GPS:dateTimeStamp")
                         ]
                     )
@@ -328,7 +338,7 @@ class DJIDrone:
             removed_count = original_len - len(filtered_df)
             if removed_count > 0:
                 logger.info(
-                    f"Removed {removed_count} consecutive duplicate position samples from {data_key} data ({original_len} -> {len(filtered_df)} samples, {removed_count/original_len*100:.1f}% removed)"
+                    f"Removed {removed_count} consecutive duplicate position samples from {data_key} data ({original_len} -> {len(filtered_df)} samples, {removed_count / original_len * 100:.1f}% removed)"
                 )
                 if isinstance(self.data, pl.DataFrame):
                     self.data = filtered_df
@@ -466,7 +476,11 @@ class DJIDrone:
             return []
 
     def _decode_message_data(
-        self, decrypted_payload: bytes, msg_type: int, tick_val: int, msg_def: dict[str, Any]
+        self,
+        decrypted_payload: bytes,
+        msg_type: int,
+        tick_val: int,
+        msg_def: dict[str, Any],
     ) -> dict[str, Any] | None:
         """Unified message decoder using message definition template.
 
@@ -567,7 +581,9 @@ class DJIDrone:
             if year < 2000 or month < 1 or month > 12 or day < 1 or day > 31:
                 return None
 
-            return f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
+            return (
+                f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
+            )
         except Exception as e:
             logger.debug(f"Failed to format datetime: {e}")
             return None
@@ -605,7 +621,7 @@ class DJIDrone:
             if diff < 0 and tick_values[i] < wrap_threshold:
                 offset += 2**32  # Add uint32 max value
                 logger.info(
-                    f"Tick unwrap at index {i}: {tick_values[i-1]:,} -> {tick_values[i]:,} (adding offset 2^32, total offset: {offset:,})"
+                    f"Tick unwrap at index {i}: {tick_values[i - 1]:,} -> {tick_values[i]:,} (adding offset 2^32, total offset: {offset:,})"
                 )
 
             unwrapped.append(tick_values[i] + offset)
@@ -723,11 +739,9 @@ class DJIDrone:
         assert isinstance(self.data, dict), "Expected dict for DAT format"
 
         if correct_timestamp:
-
             _ = self.get_tick_offset()
 
             if polars_interpolation:
-
                 tmp = pl.DataFrame(
                     {
                         "tick": pl.Series([], dtype=pl.Int64),
@@ -736,7 +750,6 @@ class DJIDrone:
                 )
 
                 for _i, key in enumerate(self.data):
-
                     tmp = tmp.join(
                         self.data[key],
                         on=["tick", "msg_type"],
@@ -753,12 +766,13 @@ class DJIDrone:
 
                 for col in numeric_cols:
                     if col not in exclude_cols:
-                        tmp = tmp.with_columns(pl.col(col).interpolate_by("tick").alias(col))
+                        tmp = tmp.with_columns(
+                            pl.col(col).interpolate_by("tick").alias(col)
+                        )
 
                 aligned_df = tmp
 
             else:
-
                 gps_df: pl.DataFrame = self.data["GPS"]
                 rtk_df: pl.DataFrame = self.data["RTK"]
 
@@ -768,7 +782,12 @@ class DJIDrone:
                 rtk_min = rtk_df.get_column("tick").min()
                 rtk_max = rtk_df.get_column("tick").max()
 
-                if gps_min is None or gps_max is None or rtk_min is None or rtk_max is None:
+                if (
+                    gps_min is None
+                    or gps_max is None
+                    or rtk_min is None
+                    or rtk_max is None
+                ):
                     logger.warning("Could not determine tick range for alignment.")
                     return None
 
@@ -871,7 +890,6 @@ class DJIDrone:
             )
 
             for _, key in enumerate(self.data):
-
                 tmp = tmp.join(
                     self.data[key], on=["tick", "msg_type"], how="full", coalesce=True
                 ).sort("tick")
@@ -885,7 +903,9 @@ class DJIDrone:
 
             for col in numeric_cols:
                 if col not in exclude_cols:
-                    tmp = tmp.with_columns(pl.col(col).interpolate_by("tick").alias(col))
+                    tmp = tmp.with_columns(
+                        pl.col(col).interpolate_by("tick").alias(col)
+                    )
 
             aligned_df = tmp
 
@@ -903,7 +923,9 @@ class DJIDrone:
             mean_offset = float(np.mean(timestamp_vals - offset_vals))
 
             aligned_df = aligned_df.with_columns(
-                ((pl.col("offset") + mean_offset).cast(pl.Float64)).alias("correct_timestamp")
+                ((pl.col("offset") + mean_offset).cast(pl.Float64)).alias(
+                    "correct_timestamp"
+                )
             )
 
         return aligned_df

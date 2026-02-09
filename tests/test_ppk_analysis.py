@@ -143,7 +143,9 @@ class TestPPKAnalysisInit:
         # Manually set flight_path to None to simulate invalid state
         flight.flight_path = None
 
-        with pytest.raises(ValueError, match="Flight object must have a valid flight_path"):
+        with pytest.raises(
+            ValueError, match="Flight object must have a valid flight_path"
+        ):
             PPKAnalysis(flight)
 
     def test_init_validates_flight_path_is_directory(self, tmp_path):
@@ -162,7 +164,9 @@ class TestPPKAnalysisInit:
         flight = Flight(flight_info)
         flight.flight_path = file_path
 
-        with pytest.raises(ValueError, match="flight_path must be an existing directory"):
+        with pytest.raises(
+            ValueError, match="flight_path must be an existing directory"
+        ):
             PPKAnalysis(flight)
 
 
@@ -200,7 +204,9 @@ class TestPPKAnalysisFromHDF5:
         flight = Flight(flight_info)
         flight.flight_path = None
 
-        with pytest.raises(ValueError, match="Flight object must have a valid flight_path"):
+        with pytest.raises(
+            ValueError, match="Flight object must have a valid flight_path"
+        ):
             PPKAnalysis.from_hdf5(flight)
 
 
@@ -931,7 +937,11 @@ class TestVersionManagement:
         ppk = PPKAnalysis(flight)
 
         # Add versions in random order
-        for name in ["rev_20260204_150000", "rev_20260204_140000", "rev_20260204_160000"]:
+        for name in [
+            "rev_20260204_150000",
+            "rev_20260204_140000",
+            "rev_20260204_160000",
+        ]:
             version = PPKVersion(
                 version_name=name,
                 pos_data=pl.DataFrame({"timestamp": [1.0]}),
@@ -945,7 +955,11 @@ class TestVersionManagement:
         versions = ppk.list_versions()
 
         # Should be sorted chronologically
-        assert versions == ["rev_20260204_140000", "rev_20260204_150000", "rev_20260204_160000"]
+        assert versions == [
+            "rev_20260204_140000",
+            "rev_20260204_150000",
+            "rev_20260204_160000",
+        ]
 
     def test_get_version_by_name(self, tmp_path):
         """Test retrieving specific version by name."""
@@ -1093,7 +1107,9 @@ class TestRunAnalysisIntegration:
 
         # Mock analyzers
         mock_pos_instance = MagicMock()
-        mock_pos_instance.parse.return_value = pl.DataFrame({"lat": [45.0], "lon": [10.0]})
+        mock_pos_instance.parse.return_value = pl.DataFrame(
+            {"lat": [45.0], "lon": [10.0]}
+        )
         mock_pos.return_value = mock_pos_instance
 
         mock_stat_instance = MagicMock()
@@ -1103,7 +1119,9 @@ class TestRunAnalysisIntegration:
         flight = create_flight_from_path(flight_path)
         ppk = PPKAnalysis(flight)
 
-        version = ppk.run_analysis(config_path, rover_path, base_path, nav_path, force=True)
+        version = ppk.run_analysis(
+            config_path, rover_path, base_path, nav_path, force=True
+        )
 
         # HDF5 file should exist
         assert ppk.hdf5_path.exists()
@@ -1137,7 +1155,9 @@ class TestRunAnalysisIntegration:
 
         # Mock analyzers
         mock_pos_instance = MagicMock()
-        mock_pos_instance.parse.return_value = pl.DataFrame({"lat": [45.0], "lon": [10.0]})
+        mock_pos_instance.parse.return_value = pl.DataFrame(
+            {"lat": [45.0], "lon": [10.0]}
+        )
         mock_pos.return_value = mock_pos_instance
 
         mock_stat_instance = MagicMock()
@@ -1146,7 +1166,9 @@ class TestRunAnalysisIntegration:
 
         flight = create_flight_from_path(flight_path)
         ppk1 = PPKAnalysis(flight)
-        version1 = ppk1.run_analysis(config_path, rover_path, base_path, nav_path, force=True)
+        version1 = ppk1.run_analysis(
+            config_path, rover_path, base_path, nav_path, force=True
+        )
 
         # Load from HDF5
         ppk2 = PPKAnalysis.from_hdf5(flight)
@@ -1179,7 +1201,9 @@ class TestRunAnalysisIntegration:
 
         # Mock analyzers
         mock_pos_instance = MagicMock()
-        mock_pos_instance.parse.return_value = pl.DataFrame({"lat": [45.0], "lon": [10.0]})
+        mock_pos_instance.parse.return_value = pl.DataFrame(
+            {"lat": [45.0], "lon": [10.0]}
+        )
         mock_pos.return_value = mock_pos_instance
 
         mock_stat_instance = MagicMock()
@@ -1190,14 +1214,18 @@ class TestRunAnalysisIntegration:
         ppk = PPKAnalysis(flight)
 
         # Run analysis twice with force
-        version1 = ppk.run_analysis(config_path, rover_path, base_path, nav_path, force=True)
+        version1 = ppk.run_analysis(
+            config_path, rover_path, base_path, nav_path, force=True
+        )
 
         # Sleep to ensure different timestamp
         import time
 
         time.sleep(1.1)
 
-        version2 = ppk.run_analysis(config_path, rover_path, base_path, nav_path, force=True)
+        version2 = ppk.run_analysis(
+            config_path, rover_path, base_path, nav_path, force=True
+        )
 
         # Both should be different and persisted
         assert version1.version_name != version2.version_name
@@ -1236,7 +1264,9 @@ class TestRevisionFolderCleanup:
         ppk = PPKAnalysis(flight)
 
         # Run analysis - should fail because pos file not created
-        result = ppk.run_analysis(config_path, rover_path, base_path, nav_path, force=True)
+        result = ppk.run_analysis(
+            config_path, rover_path, base_path, nav_path, force=True
+        )
 
         # Should return None
         assert result is None
@@ -1247,7 +1277,9 @@ class TestRevisionFolderCleanup:
 
     @patch("subprocess.run")
     @patch("pils.analyze.ppk.POSAnalyzer")
-    def test_cleanup_folder_when_parsing_fails(self, mock_pos_analyzer, mock_subprocess, tmp_path):
+    def test_cleanup_folder_when_parsing_fails(
+        self, mock_pos_analyzer, mock_subprocess, tmp_path
+    ):
         """Test that revision folder is removed when position file parsing fails."""
         flight_path = tmp_path / "flight_parse_fail"
         flight_path.mkdir()
@@ -1280,7 +1312,9 @@ class TestRevisionFolderCleanup:
         ppk = PPKAnalysis(flight)
 
         # Run analysis - should fail during parsing
-        result = ppk.run_analysis(config_path, rover_path, base_path, nav_path, force=True)
+        result = ppk.run_analysis(
+            config_path, rover_path, base_path, nav_path, force=True
+        )
 
         # Should return None
         assert result is None
@@ -1292,7 +1326,9 @@ class TestRevisionFolderCleanup:
     @patch("subprocess.run")
     @patch("pils.analyze.ppk.POSAnalyzer")
     @patch("pils.analyze.ppk.STATAnalyzer")
-    def test_preserves_folder_on_success(self, mock_stat, mock_pos, mock_subprocess, tmp_path):
+    def test_preserves_folder_on_success(
+        self, mock_stat, mock_pos, mock_subprocess, tmp_path
+    ):
         """Test that revision folder is preserved when analysis succeeds."""
         flight_path = tmp_path / "flight_success"
         flight_path.mkdir()
@@ -1321,14 +1357,18 @@ class TestRevisionFolderCleanup:
         mock_subprocess.side_effect = create_output_files
 
         # Mock analyzers to succeed
-        mock_pos.return_value.parse.return_value = pl.DataFrame({"lat": [45.0], "lon": [10.0]})
+        mock_pos.return_value.parse.return_value = pl.DataFrame(
+            {"lat": [45.0], "lon": [10.0]}
+        )
         mock_stat.return_value.parse.return_value = pl.DataFrame({"sat": [12]})
 
         flight = create_flight_from_path(flight_path)
         ppk = PPKAnalysis(flight)
 
         # Run analysis - should succeed
-        result = ppk.run_analysis(config_path, rover_path, base_path, nav_path, force=True)
+        result = ppk.run_analysis(
+            config_path, rover_path, base_path, nav_path, force=True
+        )
 
         # Should return PPKVersion
         assert result is not None

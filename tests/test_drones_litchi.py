@@ -1,6 +1,5 @@
 """Test suite for Litchi drone module following TDD methodology."""
 
-
 import polars as pl
 import pytest
 
@@ -83,7 +82,9 @@ class TestLitchi:
         csv_path.write_text(csv_content)
 
         litchi = Litchi(csv_path)
-        litchi.load_data(cols=["latitude", "longitude", "datetime(utc)", "allzero", "allnan"])
+        litchi.load_data(
+            cols=["latitude", "longitude", "datetime(utc)", "allzero", "allnan"]
+        )
         # Columns with all zeros or NaN should be dropped
         assert "allzero" not in litchi.data.columns or litchi.data.shape[1] < 5
 
@@ -103,7 +104,9 @@ class TestLitchiInit:
     def test_init_attributes(self, tmp_path):
         """Test that all attributes are initialized correctly."""
         csv_path = tmp_path / "test.csv"
-        csv_path.write_text("latitude,longitude,datetime(utc)\n40.0,-74.0,2024-01-15T10:00:00Z")
+        csv_path.write_text(
+            "latitude,longitude,datetime(utc)\n40.0,-74.0,2024-01-15T10:00:00Z"
+        )
 
         litchi = Litchi(csv_path)
         assert litchi.path == csv_path
@@ -119,5 +122,7 @@ class TestLitchiInit:
     def test_load_data_file_not_found(self):
         """Test that load_data raises error for non-existent file."""
         litchi = Litchi("nonexistent.csv")
-        with pytest.raises((ValueError, FileNotFoundError)):  # pl.read_csv will raise an error
+        with pytest.raises(
+            (ValueError, FileNotFoundError)
+        ):  # pl.read_csv will raise an error
             litchi.load_data()

@@ -70,7 +70,9 @@ FLIGHTMODES = {
 }
 
 
-def messages_to_df(messages: list[list[str]], columns: list[str], format_str: str) -> pl.DataFrame:
+def messages_to_df(
+    messages: list[list[str]], columns: list[str], format_str: str
+) -> pl.DataFrame:
     """Convert ArduPilot log messages to Polars DataFrame.
 
     Parameters
@@ -293,7 +295,9 @@ class BlackSquareDrone:
 
             gps_dt = []
             for row in gps.iter_rows(named=True):
-                dt = gps_epoch + timedelta(weeks=int(row["GWk"]), milliseconds=int(row["GMS"]))
+                dt = gps_epoch + timedelta(
+                    weeks=int(row["GWk"]), milliseconds=int(row["GMS"])
+                )
                 gps_dt.append(dt)
 
             # Get leap seconds

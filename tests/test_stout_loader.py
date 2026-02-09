@@ -21,7 +21,9 @@ def mock_stout_available():
             if name == "stout.config":
                 return type("Module", (), {"Config": mock_config})()
             elif name == "stout.services.campaigns":
-                return type("Module", (), {"CampaignService": lambda: mock_campaign_service})()
+                return type(
+                    "Module", (), {"CampaignService": lambda: mock_campaign_service}
+                )()
             raise ImportError(f"Module {name} not found")
 
         mock_importlib.import_module.side_effect = mock_import
@@ -120,7 +122,9 @@ class TestLoadAllFlightsFromFilesystem:
 
             assert flights == []
 
-    def test_load_all_flights_skips_non_directory_entries(self, mock_campaign_structure):
+    def test_load_all_flights_skips_non_directory_entries(
+        self, mock_campaign_structure
+    ):
         """Test that non-directory entries are skipped."""
         with patch("pils.loader.stout.importlib.import_module") as mock_import:
             mock_import.side_effect = ImportError("No module")
@@ -149,12 +153,16 @@ class TestLoadSingleFlightFromFilesystem:
             loader = StoutLoader()
             loader.base_data_path = mock_campaign_structure
 
-            flight = loader._load_single_flight_from_filesystem(flight_name="flight_20251208_1506")
+            flight = loader._load_single_flight_from_filesystem(
+                flight_name="flight_20251208_1506"
+            )
 
             assert flight is not None
             assert flight["flight_name"] == "flight_20251208_1506"
 
-    def test_load_single_flight_returns_none_when_not_found(self, mock_campaign_structure):
+    def test_load_single_flight_returns_none_when_not_found(
+        self, mock_campaign_structure
+    ):
         """Test returns None when flight not found."""
         with patch("pils.loader.stout.importlib.import_module") as mock_import:
             mock_import.side_effect = ImportError("No module")
@@ -162,7 +170,9 @@ class TestLoadSingleFlightFromFilesystem:
             loader = StoutLoader()
             loader.base_data_path = mock_campaign_structure
 
-            flight = loader._load_single_flight_from_filesystem(flight_name="nonexistent_flight")
+            flight = loader._load_single_flight_from_filesystem(
+                flight_name="nonexistent_flight"
+            )
 
             assert flight is None
 

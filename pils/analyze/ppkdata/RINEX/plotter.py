@@ -80,9 +80,14 @@ class RINEXPlotter:
         fig.patch.set_alpha(0)
 
         # 1. Avg SNR by Band
-        colors = [GNSSColors.get_constellation_color(b[0]) for b in summary["frequency"]]
+        colors = [
+            GNSSColors.get_constellation_color(b[0]) for b in summary["frequency"]
+        ]
         axes[0, 0].bar(
-            summary["frequency"].to_list(), summary["mean"].to_numpy(), color=colors, alpha=0.8
+            summary["frequency"].to_list(),
+            summary["mean"].to_numpy(),
+            color=colors,
+            alpha=0.8,
         )
         axes[0, 0].axhline(35, color="red", ls="--")
         axes[0, 0].set_title("Average SNR by Frequency Band", fontweight="bold")
@@ -102,7 +107,10 @@ class RINEXPlotter:
 
         # 3. Observation Count
         paired_cmap = plt.get_cmap("Paired")
-        colors = [paired_cmap(i / paired_cmap.N) for i in range(min(len(summary), paired_cmap.N))]
+        colors = [
+            paired_cmap(i / paired_cmap.N)
+            for i in range(min(len(summary), paired_cmap.N))
+        ]
         axes[1, 0].pie(
             summary["count"].to_numpy(),
             labels=summary["frequency"].to_list(),
@@ -127,7 +135,9 @@ class RINEXPlotter:
         else:
             plt.show()
 
-    def plot_skyplot_snr(self, pool: str = "single", save_path: str | None = None) -> None:
+    def plot_skyplot_snr(
+        self, pool: str = "single", save_path: str | None = None
+    ) -> None:
         """Generate polar skyplot showing satellite tracks colored by SNR.
 
         Args:
@@ -162,7 +172,9 @@ class RINEXPlotter:
         # Use numpy directly
         az = np.deg2rad(data["azimuth"].to_numpy())
         dist = 90 - data["elevation"].to_numpy()
-        sc = ax.scatter(az, dist, c=data["value"].to_numpy(), cmap="viridis", s=8, alpha=0.6)
+        sc = ax.scatter(
+            az, dist, c=data["value"].to_numpy(), cmap="viridis", s=8, alpha=0.6
+        )
         plt.colorbar(sc, ax=ax, label="SNR (dB-Hz)")
 
         # Labels - label the middle of each track
@@ -275,11 +287,19 @@ class RINEXPlotter:
             )
             ax2.set_xlabel("Elevation (deg)", fontweight="bold")
             ax2.set_ylabel("AVG Multipath (m)", fontweight="bold")
-            ax2.set_title(f"{pool.capitalize()} Pool: MP vs Elevation", fontweight="bold")
+            ax2.set_title(
+                f"{pool.capitalize()} Pool: MP vs Elevation", fontweight="bold"
+            )
             plt.colorbar(sc2, ax=ax2, label="# Satellites")
             GNSSColors.apply_theme(ax2)
         else:
-            ax2.text(0.5, 0.5, "No Multipath Data Available", ha="center", transform=ax2.transAxes)
+            ax2.text(
+                0.5,
+                0.5,
+                "No Multipath Data Available",
+                ha="center",
+                transform=ax2.transAxes,
+            )
             GNSSColors.apply_theme(ax2)
 
         plt.tight_layout()
@@ -321,7 +341,9 @@ class RINEXPlotter:
                 )
 
         ax.set_ylabel("SNR (dB-Hz)", fontweight="bold")
-        ax.set_title(f"Signal Strength Time Series: {freq_band}", fontweight="bold", fontsize=14)
+        ax.set_title(
+            f"Signal Strength Time Series: {freq_band}", fontweight="bold", fontsize=14
+        )
         ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left", ncol=2)
         GNSSColors.apply_theme(ax)
         plt.tight_layout()
@@ -352,10 +374,14 @@ class RINEXPlotter:
         for sat in satellites:
             sub = mp.filter(pl.col("satellite") == sat)
             if not sub.is_empty():
-                ax.plot(sub["time"].to_numpy(), sub["MP"].to_numpy(), label=sat, alpha=0.7)
+                ax.plot(
+                    sub["time"].to_numpy(), sub["MP"].to_numpy(), label=sat, alpha=0.7
+                )
 
         ax.set_ylabel("MP (meters)", fontweight="bold")
-        ax.set_title(f"Multipath Time Series: {freq_band}", fontweight="bold", fontsize=14)
+        ax.set_title(
+            f"Multipath Time Series: {freq_band}", fontweight="bold", fontsize=14
+        )
         ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left", ncol=2)
         ax.grid(True, alpha=0.2)
         plt.tight_layout()
@@ -381,13 +407,19 @@ class RINEXPlotter:
         if snr.is_empty():
             return
 
-        fig, axes = plt.subplots(1, len(bands), figsize=(14, 5), squeeze=False, sharex=True)
+        fig, axes = plt.subplots(
+            1, len(bands), figsize=(14, 5), squeeze=False, sharex=True
+        )
         fig.patch.set_alpha(0)
         color = GNSSColors.get_constellation_color(const)
         for i, band in enumerate(bands):
             sub = snr.filter(pl.col("frequency") == band)
             axes[0, i].hist(
-                sub["value"].to_numpy(), bins=30, color=color, alpha=0.7, edgecolor="black"
+                sub["value"].to_numpy(),
+                bins=30,
+                color=color,
+                alpha=0.7,
+                edgecolor="black",
             )
             axes[0, i].set_title(f"SNR Band {band}", fontweight="bold")
             axes[0, i].axvline(35, color="red", linestyle="--", alpha=0.5)
@@ -426,7 +458,9 @@ class RINEXPlotter:
         for i, band in enumerate(bands):
             vals = []
             for sat in sats:
-                row = stats.filter((pl.col("satellite") == sat) & (pl.col("frequency") == band))
+                row = stats.filter(
+                    (pl.col("satellite") == sat) & (pl.col("frequency") == band)
+                )
                 vals.append(row["mean"][0] if not row.is_empty() else 0)
             ax.bar(
                 x + i * width - 0.4 + width / 2,
@@ -441,7 +475,8 @@ class RINEXPlotter:
         ax.set_xticklabels(sats, rotation=45)
         ax.set_ylabel("Mean SNR (dB-Hz)")
         ax.set_title(
-            f"Average SNR per {CONSTELLATION_NAMES.get(const, const)} Satellite", fontweight="bold"
+            f"Average SNR per {CONSTELLATION_NAMES.get(const, const)} Satellite",
+            fontweight="bold",
         )
         ax.legend()
         GNSSColors.apply_theme(ax)
@@ -481,7 +516,9 @@ class RINEXPlotter:
             ("GFMW", "o", GNSSColors.FIX),
         ]:
             subset = slips.filter(
-                pl.col("type").str.contains(t) if t != "GFMW" else pl.col("type") == "GFMW"
+                pl.col("type").str.contains(t)
+                if t != "GFMW"
+                else pl.col("type") == "GFMW"
             )
             if not subset.is_empty():
                 ax.scatter(
@@ -496,7 +533,9 @@ class RINEXPlotter:
 
         ax.set_yticks(range(len(sats)))
         ax.set_yticklabels(sats)
-        ax.set_title("Detected Cycle Slips (Integrity Events)", fontweight="bold", fontsize=14)
+        ax.set_title(
+            "Detected Cycle Slips (Integrity Events)", fontweight="bold", fontsize=14
+        )
         ax.legend()
         GNSSColors.apply_theme(ax)
         plt.tight_layout()
@@ -506,8 +545,12 @@ class RINEXPlotter:
 
     def plot_global_l1_l2_comparison_hist(self, save_path=None):
         snr = self.analyzer.get_snr()
-        l1 = snr.filter(pl.col("frequency").is_in(RTKLIB_bands["single"]))["value"].to_numpy()
-        l2 = snr.filter(pl.col("frequency").is_in(RTKLIB_bands["dual"]))["value"].to_numpy()
+        l1 = snr.filter(pl.col("frequency").is_in(RTKLIB_bands["single"]))[
+            "value"
+        ].to_numpy()
+        l2 = snr.filter(pl.col("frequency").is_in(RTKLIB_bands["dual"]))[
+            "value"
+        ].to_numpy()
 
         fig, ax = plt.subplots(figsize=(12, 7))
         fig.patch.set_alpha(0)
@@ -549,7 +592,9 @@ class RINEXPlotter:
 
         ax.set_ylabel("Satellite Count", fontweight="bold")
         ax.set_title(
-            "Constellation Health: 'Good' Satellites Over Time", fontweight="bold", fontsize=14
+            "Constellation Health: 'Good' Satellites Over Time",
+            fontweight="bold",
+            fontsize=14,
         )
         ax.legend(loc="upper right")
         GNSSColors.apply_theme(ax)
@@ -571,7 +616,12 @@ class RINEXPlotter:
             return
 
         # Define Primary vs Secondary mapping
-        bands_map = {"G": ("G1", "G2"), "E": ("E1", "E5b"), "C": ("B1", "B2"), "R": ("G1", "G2")}
+        bands_map = {
+            "G": ("G1", "G2"),
+            "E": ("E1", "E5b"),
+            "C": ("B1", "B2"),
+            "R": ("G1", "G2"),
+        }
 
         valid_constellations = []
         primary_vals = []
@@ -618,7 +668,9 @@ class RINEXPlotter:
 
         ax.set_ylabel("Mean SNR (dB-Hz)", fontweight="bold")
         ax.set_title(
-            "Primary vs Secondary Signal Strength Comparison", fontweight="bold", fontsize=16
+            "Primary vs Secondary Signal Strength Comparison",
+            fontweight="bold",
+            fontsize=16,
         )
         ax.set_xticks(x)
         ax.set_xticklabels(valid_constellations, fontweight="bold")
@@ -628,10 +680,14 @@ class RINEXPlotter:
         # Add values on top
         for i, v in enumerate(primary_vals):
             if v > 0:
-                ax.text(i - width / 2, v + 0.5, f"{v:.1f}", ha="center", fontweight="bold")
+                ax.text(
+                    i - width / 2, v + 0.5, f"{v:.1f}", ha="center", fontweight="bold"
+                )
         for i, v in enumerate(secondary_vals):
             if v > 0:
-                ax.text(i + width / 2, v + 0.5, f"{v:.1f}", ha="center", fontweight="bold")
+                ax.text(
+                    i + width / 2, v + 0.5, f"{v:.1f}", ha="center", fontweight="bold"
+                )
 
         plt.tight_layout()
         if save_path:

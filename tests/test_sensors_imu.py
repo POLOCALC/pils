@@ -15,7 +15,7 @@ class TestIMUSensor:
         baro_file = tmp_path / "barometer.bin"
         # Write space-separated data
         baro_file.write_text(
-            "1000000 101325.0 20.5\n" "2000000 101320.0 20.6\n" "3000000 101315.0 20.7\n"
+            "1000000 101325.0 20.5\n2000000 101320.0 20.6\n3000000 101315.0 20.7\n"
         )
         return baro_file
 
@@ -24,7 +24,7 @@ class TestIMUSensor:
         """Create sample accelerometer CSV file."""
         accel_file = tmp_path / "accelerometer.bin"
         accel_file.write_text(
-            "1000000 0.1 0.2 9.8\n" "2000000 0.15 0.25 9.85\n" "3000000 0.2 0.3 9.9\n"
+            "1000000 0.1 0.2 9.8\n2000000 0.15 0.25 9.85\n3000000 0.2 0.3 9.9\n"
         )
         return accel_file
 
@@ -81,21 +81,23 @@ class TestIMU:
         imu_path.mkdir()
 
         # Create barometer file
-        (imu_path / "barometer.bin").write_text("1000000 101325.0 20.5\n" "2000000 101320.0 20.6\n")
+        (imu_path / "barometer.bin").write_text(
+            "1000000 101325.0 20.5\n2000000 101320.0 20.6\n"
+        )
 
         # Create accelerometer file
         (imu_path / "accelerometer.bin").write_text(
-            "1000000 0.1 0.2 9.8\n" "2000000 0.15 0.25 9.85\n"
+            "1000000 0.1 0.2 9.8\n2000000 0.15 0.25 9.85\n"
         )
 
         # Create gyroscope file
         (imu_path / "gyroscope.bin").write_text(
-            "1000000 0.01 0.02 0.03\n" "2000000 0.015 0.025 0.035\n"
+            "1000000 0.01 0.02 0.03\n2000000 0.015 0.025 0.035\n"
         )
 
         # Create magnetometer file
         (imu_path / "magnetometer.bin").write_text(
-            "1000000 50.0 -20.0 30.0\n" "2000000 51.0 -21.0 31.0\n"
+            "1000000 50.0 -20.0 30.0\n2000000 51.0 -21.0 31.0\n"
         )
 
         return imu_path

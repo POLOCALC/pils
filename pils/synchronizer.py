@@ -410,7 +410,9 @@ class Synchronizer:
         overlap_duration = overlap_end - overlap_start
 
         if overlap_duration < 10.0:
-            logger.warning(f"Insufficient GPS overlap: {overlap_duration:.1f}s < 10s minimum")
+            logger.warning(
+                f"Insufficient GPS overlap: {overlap_duration:.1f}s < 10s minimum"
+            )
             return None
 
         # Use midpoint of first GPS as ENU reference
@@ -493,7 +495,9 @@ class Synchronizer:
             return None
 
         time_offset = (
-            offset_e * corr_e_strength + offset_n * corr_n_strength + offset_u * corr_u_strength
+            offset_e * corr_e_strength
+            + offset_n * corr_n_strength
+            + offset_u * corr_u_strength
         ) / total_weight
 
         # Combined correlation (weighted average)
@@ -507,7 +511,9 @@ class Synchronizer:
         u2_aligned = np.interp(time1, time2_corrected, u2, left=np.nan, right=np.nan)
 
         # Compute mean spatial offsets (after time alignment)
-        valid_mask = ~(np.isnan(e2_aligned) | np.isnan(n2_aligned) | np.isnan(u2_aligned))
+        valid_mask = ~(
+            np.isnan(e2_aligned) | np.isnan(n2_aligned) | np.isnan(u2_aligned)
+        )
         if valid_mask.sum() == 0:
             east_offset_m = 0.0
             north_offset_m = 0.0
@@ -517,7 +523,9 @@ class Synchronizer:
             north_offset_m = float(np.mean(n2_aligned[valid_mask] - n1[valid_mask]))
             up_offset_m = float(np.mean(u2_aligned[valid_mask] - u1[valid_mask]))
 
-        spatial_offset_m = np.sqrt(east_offset_m**2 + north_offset_m**2 + up_offset_m**2)
+        spatial_offset_m = np.sqrt(
+            east_offset_m**2 + north_offset_m**2 + up_offset_m**2
+        )
 
         return {
             "time_offset": float(time_offset),
@@ -605,7 +613,9 @@ class Synchronizer:
         overlap_duration = overlap_end - overlap_start
 
         if overlap_duration < 10.0:
-            logger.warning(f"Insufficient pitch overlap: {overlap_duration:.1f}s < 10s minimum")
+            logger.warning(
+                f"Insufficient pitch overlap: {overlap_duration:.1f}s < 10s minimum"
+            )
             return None
 
         # Create common timebase for correlation (high rate for precision)
@@ -793,7 +803,9 @@ class Synchronizer:
             raise ValueError("Litchi GPS data is empty")
 
         self.litchi_gps = gps_data
-        self.litchi_gps = self.litchi_gps.with_columns(pl.col(alt_col) + self.__ref_height)
+        self.litchi_gps = self.litchi_gps.with_columns(
+            pl.col(alt_col) + self.__ref_height
+        )
 
         self.__litchi_names = {
             "timestamp": timestamp_col,
@@ -832,7 +844,9 @@ class Synchronizer:
             If required columns are missing or data is empty
         """
         required_cols = [timestamp_col, pitch_col]
-        missing_cols = [col for col in required_cols if col not in inclinometer_data.columns]
+        missing_cols = [
+            col for col in required_cols if col not in inclinometer_data.columns
+        ]
 
         if missing_cols:
             raise ValueError(f"Inclinometer missing columns: {missing_cols}")
@@ -871,7 +885,9 @@ class Synchronizer:
             raise ValueError(f"Sensor {sensor_name} data is empty")
 
         self.other_payload[sensor_name] = sensor_data
-        logger.info(f"Added payload sensor '{sensor_name}' with {len(sensor_data)} samples")
+        logger.info(
+            f"Added payload sensor '{sensor_name}' with {len(sensor_data)} samples"
+        )
 
     def synchronize(
         self,
@@ -899,7 +915,9 @@ class Synchronizer:
             If GPS payload reference not set
         """
         if self.gps_payload is None:
-            raise RuntimeError("GPS payload reference not set. Call add_gps_reference() first.")
+            raise RuntimeError(
+                "GPS payload reference not set. Call add_gps_reference() first."
+            )
 
         # Get GPS payload timebase
         gps_time = self.gps_payload["timestamp"].to_numpy()
@@ -958,8 +976,12 @@ class Synchronizer:
                 result = self._find_pitch_offset(
                     time1=self.litchi_gps[self.__litchi_names["timestamp"]].to_numpy(),
                     pitch1=self.litchi_gps[self.__litchi_names["pitch"]].to_numpy(),
-                    time2=self.inclinometer[self.__inclinometer_names["timestamp"]].to_numpy(),
-                    pitch2=self.inclinometer[self.__inclinometer_names["pitch"]].to_numpy(),
+                    time2=self.inclinometer[
+                        self.__inclinometer_names["timestamp"]
+                    ].to_numpy(),
+                    pitch2=self.inclinometer[
+                        self.__inclinometer_names["pitch"]
+                    ].to_numpy(),
                 )
                 if result:
                     self.offsets["inclinometer"] = result
@@ -980,7 +1002,9 @@ class Synchronizer:
         for col in self.gps_payload.columns:
             if col != "timestamp":
                 values = self.gps_payload[col].to_numpy().astype(float)
-                interpolated = np.interp(target_time, gps_time, values, left=np.nan, right=np.nan)
+                interpolated = np.interp(
+                    target_time, gps_time, values, left=np.nan, right=np.nan
+                )
                 sync_data[f"payload_gps_{col}"] = interpolated
 
         # Add drone GPS with offset correction
@@ -1026,16 +1050,16 @@ class Synchronizer:
             )
 
             if isinstance(self.inclinometer, dict):
-
                 for key in self.inclinometer.keys():
-
                     inclinometer_time = (
                         self.inclinometer[key]["timestamp"].to_numpy() + total_offset
                     )
 
                     for col in self.inclinometer[key].columns:
                         if col != "timestamp":
-                            values = self.inclinometer[key][col].to_numpy().astype(float)
+                            values = (
+                                self.inclinometer[key][col].to_numpy().astype(float)
+                            )
                             interpolated = np.interp(
                                 target_time,
                                 inclinometer_time,
@@ -1046,8 +1070,9 @@ class Synchronizer:
                             sync_data[f"inclinometer_{key}_{col}"] = interpolated
 
             else:
-
-                inclinometer_time = self.inclinometer["timestamp"].to_numpy() + total_offset
+                inclinometer_time = (
+                    self.inclinometer["timestamp"].to_numpy() + total_offset
+                )
 
                 for col in self.inclinometer.columns:
                     if col != "timestamp":
@@ -1104,17 +1129,23 @@ class Synchronizer:
             # For inclinometer, show both relative offset and total offset
             if source_name == "inclinometer":
                 incl_offset = offset_data["time_offset"]
-                litchi_offset = self.offsets.get("litchi_gps", {}).get("time_offset", 0.0)
+                litchi_offset = self.offsets.get("litchi_gps", {}).get(
+                    "time_offset", 0.0
+                )
                 total_offset = incl_offset + litchi_offset
                 lines.append(f"  Time Offset (relative to Litchi): {incl_offset:.3f} s")
-                lines.append(f"  Time Offset (total, relative to GPS): {total_offset:.3f} s")
+                lines.append(
+                    f"  Time Offset (total, relative to GPS): {total_offset:.3f} s"
+                )
             else:
                 lines.append(f"  Time Offset: {offset_data['time_offset']:.3f} s")
 
             lines.append(f"  Correlation: {offset_data['correlation']:.3f}")
 
             if "spatial_offset_m" in offset_data:
-                lines.append(f"  Spatial Offset: {offset_data['spatial_offset_m']:.2f} m")
+                lines.append(
+                    f"  Spatial Offset: {offset_data['spatial_offset_m']:.2f} m"
+                )
                 lines.append(f"    East: {offset_data['east_offset_m']:.2f} m")
                 lines.append(f"    North: {offset_data['north_offset_m']:.2f} m")
                 lines.append(f"    Up: {offset_data['up_offset_m']:.2f} m")

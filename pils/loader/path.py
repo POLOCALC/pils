@@ -164,7 +164,9 @@ class PathLoader:
         if not flight_id and not flight_name:
             raise ValueError("Either flight_id or flight_name must be provided")
 
-        logger.info(f"Loading single flight: flight_id={flight_id}, flight_name={flight_name}")
+        logger.info(
+            f"Loading single flight: flight_id={flight_id}, flight_name={flight_name}"
+        )
 
         all_flights = self.load_all_flights()
 
@@ -198,5 +200,7 @@ class PathLoader:
             }
             return flight_dict
         except Exception as e:
-            logger.warning(f"Could not build flight dict for {flight_name} {flight_path}: {e}")
+            logger.warning(
+                f"Could not build flight dict for {flight_name} {flight_path}: {e}"
+            )
             return None

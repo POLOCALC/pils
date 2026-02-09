@@ -151,7 +151,9 @@ class TestLoadAllFlights:
         flights = loader.load_all_flights()
         assert flights == []
 
-    def test_load_all_flights_filters_telescope_data(self, mock_multi_campaign_structure):
+    def test_load_all_flights_filters_telescope_data(
+        self, mock_multi_campaign_structure
+    ):
         """Test that telescope_data campaign is filtered out."""
         base = mock_multi_campaign_structure
         loader = PathLoader(base)
@@ -164,7 +166,9 @@ class TestLoadAllFlights:
         assert "202511" in campaign_names
         assert "202512" in campaign_names
 
-    def test_load_all_flights_filters_base_calibration(self, mock_multi_campaign_structure):
+    def test_load_all_flights_filters_base_calibration(
+        self, mock_multi_campaign_structure
+    ):
         """Test that base and calibration folders are filtered out."""
         base = mock_multi_campaign_structure
         loader = PathLoader(base)
@@ -283,7 +287,9 @@ class TestBuildFlightDictFromFilesystem:
 class TestLoadAllCampaignFlights:
     """Test load_all_campaign_flights method."""
 
-    def test_load_all_campaign_flights_raises_if_campaign_provided(self, mock_campaign_structure):
+    def test_load_all_campaign_flights_raises_if_campaign_provided(
+        self, mock_campaign_structure
+    ):
         """Test that providing campaign_name raises ValueError."""
         base, _ = mock_campaign_structure
         loader = PathLoader(base)

@@ -31,7 +31,11 @@ class TestDecodeInclino:
 
         with patch("pils.decoders.KERNEL_utils.KernelMsg") as MockKernel:
             mock_instance = MockKernel.return_value
-            mock_instance.decode_single.return_value = {"Roll": 10.0, "Pitch": 5.0, "Heading": 90.0}
+            mock_instance.decode_single.return_value = {
+                "Roll": 10.0,
+                "Pitch": 5.0,
+                "Heading": 90.0,
+            }
 
             result = decode_inclino(inclino_file)
 
@@ -246,7 +250,9 @@ class TestKernelInclinometer:
                 kernel_inc.read_log_time(logfile=str(log_file))
 
             assert kernel_inc.tstart is None
-            assert any("start time" in record.message.lower() for record in caplog.records)
+            assert any(
+                "start time" in record.message.lower() for record in caplog.records
+            )
 
 
 class TestIMX5Inclinometer:

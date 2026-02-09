@@ -6,7 +6,6 @@ from pils.loader.stout import StoutLoader
 
 
 class PILS:
-
     def __init__(
         self,
         use_stout: bool = True,
@@ -25,13 +24,11 @@ class PILS:
         self.__stout_flag = use_stout
 
         if campaign_id or campaign_name:
-
             self._tmp_flight = self.loader.load_all_campaign_flights(
                 campaign_id=campaign_id, campaign_name=campaign_name
             )
 
         elif flight_id or flight_name:
-
             self._tmp_flight = self.loader.load_single_flight(
                 flight_id=flight_id, flight_name=flight_name
             )
@@ -50,7 +47,10 @@ class PILS:
                     )
                     if flight_data:
                         # flight_data might be a list with one element
-                        if isinstance(flight_data, (list, tuple)) and len(flight_data) > 0:
+                        if (
+                            isinstance(flight_data, (list, tuple))
+                            and len(flight_data) > 0
+                        ):
                             flight_info: dict[str, Any] = flight_data[0]  # type: ignore
                         elif isinstance(flight_data, dict):
                             flight_info = flight_data
@@ -69,13 +69,13 @@ class PILS:
     def load_drone_data(self, dji_dat_loader: bool = True, drone_model=None):
 
         for flight in self.flights:
-
-            flight.add_drone_data(dji_dat_loader=dji_dat_loader, drone_model=drone_model)
+            flight.add_drone_data(
+                dji_dat_loader=dji_dat_loader, drone_model=drone_model
+            )
 
     def load_sensor_data(self, sensor_name: list[str]):
 
         for flight in self.flights:
-
             flight.add_sensor_data(sensor_name=sensor_name)
 
     def load_all_data(self, dji_dat_loader: bool = True, drone_model=None):

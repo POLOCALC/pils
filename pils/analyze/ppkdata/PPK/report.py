@@ -70,7 +70,9 @@ class RTKLIBReport:
                 self.pos = POSAnalyzer(pos_file)
                 self.pos.parse()  # Parse the .pos file
             else:
-                logger.info(".pos file or pos_analyzer is necessary to generate the report")
+                logger.info(
+                    ".pos file or pos_analyzer is necessary to generate the report"
+                )
 
         if stat_analyzer is not None:
             self.stat = stat_analyzer
@@ -79,14 +81,18 @@ class RTKLIBReport:
                 self.stat = STATAnalyzer(stat_file)
                 self.stat.parse()  # Parse the .stat file
             else:
-                logger.info(".stat file or stat_analyzer is necessary to generate the report")
+                logger.info(
+                    ".stat file or stat_analyzer is necessary to generate the report"
+                )
 
         if plotter is not None:
             self.plotter = plotter
         else:
             self.plotter = PPKPlotter(self.pos, self.stat)
 
-    def generate(self, output_dir: str = "rtklib_quality_report", plot_dir: str = "assets") -> str:
+    def generate(
+        self, output_dir: str = "rtklib_quality_report", plot_dir: str = "assets"
+    ) -> str:
         """Generate high-fidelity markdown report for RTKLIB outputs.
 
         Args:
@@ -129,16 +135,20 @@ class RTKLIBReport:
             status = (
                 "EXCELLENT"
                 if fix_rate > 95
-                else "GOOD" if fix_rate > 80 else "FAIR" if fix_rate > 50 else "POOR"
+                else "GOOD"
+                if fix_rate > 80
+                else "FAIR"
+                if fix_rate > 50
+                else "POOR"
             )
 
             report += f"### Fix Rate: **{fix_rate:.1f}%** ({status})\n\n"
             report += "#### Epoch Distribution\n"
             report += "| Status | Epochs | Percentage |\n"
             report += "|---|---|---|\n"
-            report += f"| Fix (Q=1) | {stats['fix_epochs']} | {(stats['fix_epochs']/stats['total_epochs']*100):.1f}% |\n"
-            report += f"| Float (Q=2) | {stats['float_epochs']} | {(stats['float_epochs']/stats['total_epochs']*100):.1f}% |\n"
-            report += f"| Single (Q=5) | {stats['single_epochs']} | {(stats['single_epochs']/stats['total_epochs']*100):.1f}% |\n\n"
+            report += f"| Fix (Q=1) | {stats['fix_epochs']} | {(stats['fix_epochs'] / stats['total_epochs'] * 100):.1f}% |\n"
+            report += f"| Float (Q=2) | {stats['float_epochs']} | {(stats['float_epochs'] / stats['total_epochs'] * 100):.1f}% |\n"
+            report += f"| Single (Q=5) | {stats['single_epochs']} | {(stats['single_epochs'] / stats['total_epochs'] * 100):.1f}% |\n\n"
 
             report += f"**Total Epochs:** {stats['total_epochs']} | **Avg Ratio:** {stats['avg_ratio']:.2f} | **Avg Sat Count:** {stats['avg_ns']:.1f}\n\n"
 
@@ -184,7 +194,9 @@ class RTKLIBReport:
                     report += f"![SNR Stability]({plot_dir}/snr_stability.png)\n\n"
 
             report += "### Global Per-Band Metrics\n"
-            report += "| Band | Mean SNR | Mean Phase Resid (m) | Mean Code Resid (m) |\n"
+            report += (
+                "| Band | Mean SNR | Mean Phase Resid (m) | Mean Code Resid (m) |\n"
+            )
             report += "|---|---|---|---|\n"
             for row in global_stats.iter_rows(named=True):
                 report += f"| {row['frequency']} | {row['mean_snr']:.1f} | {row['mean_resid_phase']:.4f} | {row['mean_resid_code']:.3f} |\n"
@@ -219,7 +231,9 @@ class RTKLIBReport:
                 if self.plotter:
                     snr_t_path = assets_dir / f"snr_ts_{const}.png"
                     if hasattr(self.plotter, "plot_constellation_snr_time_series"):
-                        self.plotter.plot_constellation_snr_time_series(const, str(snr_t_path))
+                        self.plotter.plot_constellation_snr_time_series(
+                            const, str(snr_t_path)
+                        )
                     if snr_t_path.exists():
                         report += f"#### {c_full_name} SNR Stability over Time\n![SNR]({plot_dir}/snr_ts_{const}.png)\n\n"
 
@@ -227,7 +241,9 @@ class RTKLIBReport:
                 if self.plotter:
                     h_path = assets_dir / f"resid_hist_{const}.png"
                     if hasattr(self.plotter, "plot_stat_constellation_hists_dual"):
-                        self.plotter.plot_stat_constellation_hists_dual(const, str(h_path))
+                        self.plotter.plot_stat_constellation_hists_dual(
+                            const, str(h_path)
+                        )
                     if h_path.exists():
                         report += f"#### {c_full_name} Phase & Code Residuals\n![Hist]({plot_dir}/resid_hist_{const}.png)\n\n"
 
@@ -244,20 +260,28 @@ class RTKLIBReport:
 
             # Top 10 Best
             report += "### Top 10 Best Performers (Lowest Error)\n"
-            report += "| Sat | Band | Mean SNR | P95 Phase Resid (m) | Slips | Rejects |\n"
+            report += (
+                "| Sat | Band | Mean SNR | P95 Phase Resid (m) | Slips | Rejects |\n"
+            )
             report += "|---|---|---|---|---|---|\n"
             for row in (
-                sat_stats.sort("p95_resid_phase", descending=False).head(10).iter_rows(named=True)
+                sat_stats.sort("p95_resid_phase", descending=False)
+                .head(10)
+                .iter_rows(named=True)
             ):
                 report += f"| {row['satellite']} | {row['frequency']} | {row['avg_snr']:.1f} | {row['p95_resid_phase']:.4f} | {row['total_slips']} | {row['total_rejects']} |\n"
             report += "\n"
 
             # Top 10 Worst
             report += "### Top 10 Worst Performers (Highest Error)\n"
-            report += "| Sat | Band | Mean SNR | P95 Phase Resid (m) | Slips | Rejects |\n"
+            report += (
+                "| Sat | Band | Mean SNR | P95 Phase Resid (m) | Slips | Rejects |\n"
+            )
             report += "|---|---|---|---|---|---|\n"
             for row in (
-                sat_stats.sort("p95_resid_phase", descending=True).head(10).iter_rows(named=True)
+                sat_stats.sort("p95_resid_phase", descending=True)
+                .head(10)
+                .iter_rows(named=True)
             ):
                 report += f"| {row['satellite']} | {row['frequency']} | {row['avg_snr']:.1f} | {row['p95_resid_phase']:.4f} | {row['total_slips']} | {row['total_rejects']} |\n"
             report += "\n"

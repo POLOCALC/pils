@@ -83,7 +83,9 @@ class KernelMsg:
                 # mm = Kdb.MODES[modes[idx]]["Parameters"][i]  # noqa: F841 (unused)
 
                 fmt = "<" + "".join(Kdb.MODES[modes[idx]]["Type"][i])
-                val = msg[start : start + struct.calcsize(Kdb.MODES[modes[idx]]["Type"][i])]
+                val = msg[
+                    start : start + struct.calcsize(Kdb.MODES[modes[idx]]["Type"][i])
+                ]
 
                 if Kdb.MODES[modes[idx]]["Parameters"][i] != "USW":
                     (tmp,) = struct.unpack(fmt, val)

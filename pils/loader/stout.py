@@ -71,9 +71,13 @@ class StoutLoader:
 
             self.campaign_service = CampaignService()
             self.base_data_path = Config.MAIN_DATA_PATH
-            logger.info(f"Initialized with stout database, base path: {self.base_data_path}")
+            logger.info(
+                f"Initialized with stout database, base path: {self.base_data_path}"
+            )
         except ImportError as e:
-            logger.warning(f"Could not import stout: {e}. Falling back to filesystem queries.")
+            logger.warning(
+                f"Could not import stout: {e}. Falling back to filesystem queries."
+            )
             self.use_stout = False
 
     def load_all_flights(self) -> list[dict[str, Any]]:
@@ -120,7 +124,9 @@ class StoutLoader:
         if not campaign_id and not campaign_name:
             raise ValueError("Either flight_id or flight_name must be provided")
 
-        logger.info(f"Loading single flight: flight_id={campaign_id}, flight_name={campaign_name}")
+        logger.info(
+            f"Loading single flight: flight_id={campaign_id}, flight_name={campaign_name}"
+        )
 
         if self.campaign_service is None:
             raise RuntimeError("Campaign service not initialized")
@@ -158,12 +164,16 @@ class StoutLoader:
         if not flight_id and not flight_name:
             raise ValueError("Either flight_id or flight_name must be provided")
 
-        logger.info(f"Loading single flight: flight_id={flight_id}, flight_name={flight_name}")
+        logger.info(
+            f"Loading single flight: flight_id={flight_id}, flight_name={flight_name}"
+        )
 
         if self.campaign_service is None:
             raise RuntimeError("Campaign service not initialized")
         try:
-            flight = self.campaign_service.get_flight(flight_name=flight_name, flight_id=flight_id)
+            flight = self.campaign_service.get_flight(
+                flight_name=flight_name, flight_id=flight_id
+            )
             if flight:
                 logger.info(f"Loaded flight: {flight.get('flight_name')}")
             return flight
@@ -193,9 +203,9 @@ class StoutLoader:
         """
         try:
             start_dt = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=UTC)
-            end_dt = (datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)).replace(
-                tzinfo=UTC
-            )
+            end_dt = (
+                datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+            ).replace(tzinfo=UTC)
         except ValueError as e:
             raise ValueError(f"Invalid date format. Use 'YYYY-MM-DD': {e}") from e
 
@@ -599,9 +609,13 @@ class StoutLoader:
             drones = ["dji"]
 
         # Load flight metadata
-        flight_info = self.load_single_flight(flight_id=flight_id, flight_name=flight_name)
+        flight_info = self.load_single_flight(
+            flight_id=flight_id, flight_name=flight_name
+        )
         if not flight_info:
-            raise ValueError(f"Flight not found: flight_id={flight_id}, flight_name={flight_name}")
+            raise ValueError(
+                f"Flight not found: flight_id={flight_id}, flight_name={flight_name}"
+            )
 
         result: dict[str, Any] = {"flight_info": flight_info}
 
@@ -612,9 +626,13 @@ class StoutLoader:
                     f"Unknown sensor type: {sensor_type}. Available: {list(SENSOR_MAP.keys())}"
                 )
                 continue
-            df = self._load_sensor_dataframe(flight_info, sensor_type, freq_interpolation)
+            df = self._load_sensor_dataframe(
+                flight_info, sensor_type, freq_interpolation
+            )
             result[sensor_type] = df
-            logger.info(f"Loaded {sensor_type} data: {df.shape if df is not None else 'None'}")
+            logger.info(
+                f"Loaded {sensor_type} data: {df.shape if df is not None else 'None'}"
+            )
 
         # Load requested drones
         for drone_type in drones:
@@ -634,7 +652,9 @@ class StoutLoader:
                 align_drone,
             )
             result[drone_type] = df
-            logger.info(f"Loaded {drone_type} data: {'OK' if df is not None else 'None'}")
+            logger.info(
+                f"Loaded {drone_type} data: {'OK' if df is not None else 'None'}"
+            )
 
         return result
 

@@ -4,7 +4,6 @@ Tests for GPS-based correlation synchronizer.
 Tests core correlation functions, GPS offset detection, and full synchronization.
 """
 
-
 import numpy as np
 import polars as pl
 import pytest
@@ -185,12 +184,12 @@ class TestGPSOffsetDetection:
         # GPS2 shows future positions, offset detection should work
         # The exact value depends on correlation implementation details
         # Just verify it returns a reasonable offset and good correlation
-        assert (
-            abs(result["time_offset"]) < 10.0
-        ), f"Offset should be reasonable, got {result['time_offset']:.3f}s"
-        assert (
-            result["correlation"] > 0.5
-        ), f"Correlation should be reasonable, got {result['correlation']:.3f}"
+        assert abs(result["time_offset"]) < 10.0, (
+            f"Offset should be reasonable, got {result['time_offset']:.3f}s"
+        )
+        assert result["correlation"] > 0.5, (
+            f"Correlation should be reasonable, got {result['correlation']:.3f}"
+        )
         # Verify metadata structure is complete
         assert "east_offset_m" in result
         assert "offsets_enu" in result
@@ -299,12 +298,12 @@ class TestPitchOffsetDetection:
         )
 
         assert result is not None
-        assert (
-            abs(result["time_offset"]) < 10.0
-        ), f"Offset should be reasonable, got {result['time_offset']:.3f}s"
-        assert (
-            result["correlation"] > 0.5
-        ), f"Correlation should be reasonable, got {result['correlation']:.3f}"
+        assert abs(result["time_offset"]) < 10.0, (
+            f"Offset should be reasonable, got {result['time_offset']:.3f}s"
+        )
+        assert result["correlation"] > 0.5, (
+            f"Correlation should be reasonable, got {result['correlation']:.3f}"
+        )
 
     def test_pitch_offset_no_overlap(self):
         """Test pitch offset detection with no temporal overlap."""

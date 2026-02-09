@@ -145,7 +145,9 @@ class POSAnalyzer:
             return X, Y, Z
 
         X, Y, Z = llh_to_ecef(
-            self.df["lat"].to_numpy(), self.df["lon"].to_numpy(), self.df["height"].to_numpy()
+            self.df["lat"].to_numpy(),
+            self.df["lon"].to_numpy(),
+            self.df["height"].to_numpy(),
         )
         X0, Y0, Z0 = llh_to_ecef(np.rad2deg(lat0), np.rad2deg(lon0), h0)
 
@@ -155,8 +157,16 @@ class POSAnalyzer:
 
         # ECEF to ENU rotation matrix
         e = -np.sin(lon0) * dx + np.cos(lon0) * dy
-        n = -np.sin(lat0) * np.cos(lon0) * dx - np.sin(lat0) * np.sin(lon0) * dy + np.cos(lat0) * dz
-        u = np.cos(lat0) * np.cos(lon0) * dx + np.cos(lat0) * np.sin(lon0) * dy + np.sin(lat0) * dz
+        n = (
+            -np.sin(lat0) * np.cos(lon0) * dx
+            - np.sin(lat0) * np.sin(lon0) * dy
+            + np.cos(lat0) * dz
+        )
+        u = (
+            np.cos(lat0) * np.cos(lon0) * dx
+            + np.cos(lat0) * np.sin(lon0) * dy
+            + np.sin(lat0) * dz
+        )
 
         self.df = self.df.with_columns(
             [pl.Series("east", e), pl.Series("north", n), pl.Series("up", u)]
@@ -193,9 +203,21 @@ class POSAnalyzer:
         total_epochs = len(self.df)
         q_counts = self.df["Q"].value_counts()
 
-        fix_count = q_counts.filter(pl.col("Q") == 1)["count"].sum() if 1 in q_counts["Q"] else 0
-        float_count = q_counts.filter(pl.col("Q") == 2)["count"].sum() if 2 in q_counts["Q"] else 0
-        single_count = q_counts.filter(pl.col("Q") == 5)["count"].sum() if 5 in q_counts["Q"] else 0
+        fix_count = (
+            q_counts.filter(pl.col("Q") == 1)["count"].sum()
+            if 1 in q_counts["Q"]
+            else 0
+        )
+        float_count = (
+            q_counts.filter(pl.col("Q") == 2)["count"].sum()
+            if 2 in q_counts["Q"]
+            else 0
+        )
+        single_count = (
+            q_counts.filter(pl.col("Q") == 5)["count"].sum()
+            if 5 in q_counts["Q"]
+            else 0
+        )
 
         return {
             "total_epochs": total_epochs,

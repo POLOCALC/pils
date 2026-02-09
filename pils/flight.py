@@ -285,7 +285,9 @@ class Flight:
         return self
 
     @staticmethod
-    def _load_metadata_from_hdf5(metadata_group: "h5py.Group", flight: "Flight") -> None:
+    def _load_metadata_from_hdf5(
+        metadata_group: "h5py.Group", flight: "Flight"
+    ) -> None:
         """
         Load metadata from HDF5 group.
 
@@ -360,7 +362,9 @@ class Flight:
                     setattr(flight.raw_data.payload_data, sensor_name, sensor_df)
 
     @staticmethod
-    def _load_synchronized_data_from_hdf5(version_group: "h5py.Group", flight: "Flight") -> None:
+    def _load_synchronized_data_from_hdf5(
+        version_group: "h5py.Group", flight: "Flight"
+    ) -> None:
         """
         Load synchronized data from HDF5 group into flight object.
 
@@ -497,7 +501,9 @@ class Flight:
         # filename heuristics and does not modify the database.
         try:
             drone_id = (
-                self.flight_info.get("drone_id") if isinstance(self.flight_info, dict) else None
+                self.flight_info.get("drone_id")
+                if isinstance(self.flight_info, dict)
+                else None
             )
             if drone_id:
                 try:
@@ -506,9 +512,17 @@ class Flight:
                     inventory = InventoryService()
                     item = inventory.get_item_by_id(drone_id)
                     if item:
-                        specs_obj = item.get("specifications") if isinstance(item, dict) else None
+                        specs_obj = (
+                            item.get("specifications")
+                            if isinstance(item, dict)
+                            else None
+                        )
                         specs = specs_obj if isinstance(specs_obj, dict) else {}
-                        model_val = specs.get("model") or item.get("name") or item.get("category")
+                        model_val = (
+                            specs.get("model")
+                            or item.get("name")
+                            or item.get("category")
+                        )
                         if isinstance(model_val, str):
                             m = model_val.lower()
                             if "matrice" in m:
@@ -526,7 +540,9 @@ class Flight:
             if dji_pattern:
                 return "dji"
 
-            blacksquare_pattern = get_path_from_keyword(str(drone_folder), "blacksquare")
+            blacksquare_pattern = get_path_from_keyword(
+                str(drone_folder), "blacksquare"
+            )
             if blacksquare_pattern:
                 return "blacksquare"
 
@@ -580,7 +596,9 @@ class Flight:
 
         # Resolve drone folder
         if not isinstance(self.flight_info, dict):
-            raise ValueError("flight_info must be a dict containing 'drone_data_folder_path'")
+            raise ValueError(
+                "flight_info must be a dict containing 'drone_data_folder_path'"
+            )
 
         drone_folder = self.flight_info.get("drone_data_folder_path")
         if not drone_folder:
@@ -627,7 +645,8 @@ class Flight:
                 litchi_data = litchi_loader.data
 
         elif isinstance(self.__drone_model, str) and (
-            "black" in self.__drone_model.lower() or "blacksquare" in self.__drone_model.lower()
+            "black" in self.__drone_model.lower()
+            or "blacksquare" in self.__drone_model.lower()
         ):
             drone = BlackSquareDrone(drone_folder)
             drone.load_data()
@@ -794,7 +813,6 @@ class Flight:
             drone_df = drone_data
 
             if "dji" in self.__drone_model.lower():
-
                 timestamp_col = "correct_timestamp"
 
                 if use_rtk_data:
@@ -833,7 +851,9 @@ class Flight:
         # Add inclinometer if available
         if "inclinometer" in self.raw_data.payload_data:
             incl_sensor = self.raw_data.payload_data["inclinometer"]
-            incl_data = incl_sensor.data if hasattr(incl_sensor, "data") else incl_sensor
+            incl_data = (
+                incl_sensor.data if hasattr(incl_sensor, "data") else incl_sensor
+            )
             if self.__inclinometer == "imx5":
                 incl_data = incl_data["INS"]
             sync.add_inclinometer(incl_data, self.__inclinometer)
@@ -852,11 +872,17 @@ class Flight:
             imu_sensor = payload["imu"]
             if hasattr(imu_sensor, "barometer") and imu_sensor.barometer is not None:
                 sync.add_payload_sensor("imu_barometer", imu_sensor.barometer)
-            if hasattr(imu_sensor, "accelerometer") and imu_sensor.accelerometer is not None:
+            if (
+                hasattr(imu_sensor, "accelerometer")
+                and imu_sensor.accelerometer is not None
+            ):
                 sync.add_payload_sensor("imu_accelerometer", imu_sensor.accelerometer)
             if hasattr(imu_sensor, "gyroscope") and imu_sensor.gyroscope is not None:
                 sync.add_payload_sensor("imu_gyroscope", imu_sensor.gyroscope)
-            if hasattr(imu_sensor, "magnetometer") and imu_sensor.magnetometer is not None:
+            if (
+                hasattr(imu_sensor, "magnetometer")
+                and imu_sensor.magnetometer is not None
+            ):
                 sync.add_payload_sensor("imu_magnetometer", imu_sensor.magnetometer)
 
         # Perform synchronization
@@ -940,7 +966,9 @@ class Flight:
         if self.flight_info:
             for key, value in self.flight_info.items():
                 try:
-                    metadata_group.attrs[f"flight_info_{key}"] = _serialize_for_hdf5(value)
+                    metadata_group.attrs[f"flight_info_{key}"] = _serialize_for_hdf5(
+                        value
+                    )
                 except Exception as e:
                     print(f"Warning: Could not save flight_info[{key}]: {e}")
 
@@ -948,7 +976,9 @@ class Flight:
         if self.metadata:
             for key, value in self.metadata.items():
                 try:
-                    metadata_group.attrs[f"flight_metadata_{key}"] = _serialize_for_hdf5(value)
+                    metadata_group.attrs[f"flight_metadata_{key}"] = (
+                        _serialize_for_hdf5(value)
+                    )
                 except Exception as e:
                     print(f"Warning: Could not save metadata[{key}]: {e}")
 
@@ -994,7 +1024,9 @@ class Flight:
                 self._save_dataframe_to_hdf5(drone_group, "drone", drone_data)
 
             if len(self.raw_data.drone_data.litchi) > 0:
-                self._save_dataframe_to_hdf5(drone_group, "litchi", self.raw_data.drone_data.litchi)
+                self._save_dataframe_to_hdf5(
+                    drone_group, "litchi", self.raw_data.drone_data.litchi
+                )
 
         # Save payload data
         if len(self.raw_data.payload_data.list_loaded_sensors()) > 0:
@@ -1007,7 +1039,9 @@ class Flight:
             for sensor_name in self.raw_data.payload_data.list_loaded_sensors():
                 sensor_data = getattr(self.raw_data.payload_data, sensor_name)
                 if sensor_data is not None:
-                    self._save_dataframe_to_hdf5(payload_group, sensor_name, sensor_data)
+                    self._save_dataframe_to_hdf5(
+                        payload_group, sensor_name, sensor_data
+                    )
 
     def _save_sync_data_to_hdf5(self, h5file: "h5py.File") -> None:
         """
@@ -1221,7 +1255,9 @@ class DroneData:
         self.drone: dict[str, pl.DataFrame] | pl.DataFrame = (
             drone_df if drone_df is not None else pl.DataFrame()
         )
-        self.litchi: pl.DataFrame = litchi_df if litchi_df is not None else pl.DataFrame()
+        self.litchi: pl.DataFrame = (
+            litchi_df if litchi_df is not None else pl.DataFrame()
+        )
 
     def __getitem__(self, key: str) -> Union["pl.DataFrame", dict[str, "pl.DataFrame"]]:
         """
@@ -1322,9 +1358,13 @@ class PayloadData:
         # This will be called only if attribute doesn't exist via normal lookup
         available = self.list_loaded_sensors()
         if available:
-            raise AttributeError(f"Sensor '{name}' not loaded. Available sensors: {available}")
+            raise AttributeError(
+                f"Sensor '{name}' not loaded. Available sensors: {available}"
+            )
         else:
-            raise AttributeError(f"Sensor '{name}' not loaded. No sensors currently loaded.")
+            raise AttributeError(
+                f"Sensor '{name}' not loaded. No sensors currently loaded."
+            )
 
     @overload
     def __setattr__(self, name: str, value: pl.DataFrame) -> None: ...

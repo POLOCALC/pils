@@ -203,7 +203,9 @@ class PPKAnalysis:
         # Convert to Path and validate it's a directory
         flight_path = Path(flight.flight_path)
         if not flight_path.exists() or not flight_path.is_dir():
-            raise ValueError(f"flight_path must be an existing directory. " f"Got: {flight_path}")
+            raise ValueError(
+                f"flight_path must be an existing directory. Got: {flight_path}"
+            )
 
         self.flight_path = flight_path
         self.ppk_dir = self.flight_path / "proc" / "ppk"
@@ -492,7 +494,9 @@ class PPKAnalysis:
         print(f"  [OK] Common Window: {duration:.1f} seconds ({duration / 60:.1f} min)")
 
         if duration < 600:  # Less than 10 mins
-            print("  [Warning] Overlap is very short (<10 min). Solution may be unstable.")
+            print(
+                "  [Warning] Overlap is very short (<10 min). Solution may be unstable."
+            )
 
         return True
 
@@ -596,7 +600,6 @@ class PPKAnalysis:
                 rover_nav = nav_path
 
             else:
-
                 rover_path = self.flight_path / "aux" / "sensors"
 
                 rover_ubx = list(rover_path.glob("*_GPS.bin"))[0]
@@ -645,13 +648,14 @@ class PPKAnalysis:
                 base_obs = obs_path
                 base_nav = nav_path
             else:
-
                 day_path = self.flight_path.parent
                 base_path = day_path / "base"
 
                 # Check if rover bounds are valid
                 if start_rover is None or end_rover is None:
-                    raise ValueError("Could not determine rover observation time bounds")
+                    raise ValueError(
+                        "Could not determine rover observation time bounds"
+                    )
 
                 start = start_rover - timedelta(minutes=10)
                 date_start, time_start = start.strftime("%Y/%m/%d %H:%M:%S").split(" ")
@@ -715,14 +719,12 @@ class PPKAnalysis:
             raise FileNotFoundError(f"Navigation file not found: {nav_file}")
 
         if analyze_rinex:
-
             obs_files = [rover_obs, base_obs]
             nav_files = [rover_nav, base_nav]
 
             names = ["rover", "base"]
 
             for i, obs in enumerate(obs_files):
-
                 report_md = self.ppk_dir / f"report_{names[i]}.md"
 
                 if report_md.exists():
@@ -759,7 +761,6 @@ class PPKAnalysis:
         subprocess.run(cmd, check=True)
 
         if analyze_ppk:
-
             report_md = revision_path / "report_ppk.md"
 
             report = RTKLIBReport(pos_file, stat_file)
@@ -902,7 +903,9 @@ class PPKAnalysis:
             version_group.attrs["config_params"] = _serialize_for_hdf5(
                 version.metadata.get("config_params", {})
             )
-            version_group.attrs["revision_path"] = _serialize_for_hdf5(str(version.revision_path))
+            version_group.attrs["revision_path"] = _serialize_for_hdf5(
+                str(version.revision_path)
+            )
 
         logger.info(f"Saved version {version.version_name} to HDF5")
 
@@ -1015,7 +1018,9 @@ class PPKAnalysis:
             config_params = _deserialize_from_hdf5(
                 version_group.attrs.get("config_params"), hint="dict"
             )
-            revision_path_str = _deserialize_from_hdf5(version_group.attrs.get("revision_path"))
+            revision_path_str = _deserialize_from_hdf5(
+                version_group.attrs.get("revision_path")
+            )
 
             metadata = {
                 "config_hash": config_hash,
@@ -1030,7 +1035,9 @@ class PPKAnalysis:
                 stat_data=stat_data,
                 metadata=metadata,
                 revision_path=(
-                    Path(revision_path_str) if revision_path_str else self.ppk_dir / version_name
+                    Path(revision_path_str)
+                    if revision_path_str
+                    else self.ppk_dir / version_name
                 ),
             )
 

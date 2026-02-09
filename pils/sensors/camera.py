@@ -51,7 +51,9 @@ class Camera:
             Example: {"img_0001.jpg": datetime, ...}
         """
         self.path = path
-        self.logpath = logpath if logpath is not None else get_logpath_from_datapath(self.path)
+        self.logpath = (
+            logpath if logpath is not None else get_logpath_from_datapath(self.path)
+        )
 
         # Video attributes
         self.capture: Any | None = None
@@ -61,7 +63,9 @@ class Camera:
         # Image-sequence attributes
         self.is_image_sequence: bool = False
         self.images: list = []  # list of filepaths
-        self.time_index: dict[str, Any] | None = time_index  # optional timestamps for images
+        self.time_index: dict[str, Any] | None = (
+            time_index  # optional timestamps for images
+        )
 
     def load_data(self) -> None:
         """Load camera data from video file or image sequence.
@@ -87,7 +91,9 @@ class Camera:
         path_str = str(self.path)
         if path_str.lower().endswith((".mp4", ".avi", ".mov")):
             self.capture = cv2.VideoCapture(path_str)
-            self.tstart, _ = read_log_time("INFO:Camera Sony starts recording", self.logpath)
+            self.tstart, _ = read_log_time(
+                "INFO:Camera Sony starts recording", self.logpath
+            )
 
             frame_count = self.capture.get(cv2.CAP_PROP_FRAME_COUNT)
             fps = self.capture.get(cv2.CAP_PROP_FPS)
@@ -155,7 +161,9 @@ class Camera:
         # -------------------
         if not self.is_image_sequence:
             if self.capture is None:
-                raise ValueError("Video capture not initialized. Call load_data() first.")
+                raise ValueError(
+                    "Video capture not initialized. Call load_data() first."
+                )
             self.capture.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
             ret, frame = self.capture.read()
             if not ret or frame is None:

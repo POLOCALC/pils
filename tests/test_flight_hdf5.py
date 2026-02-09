@@ -129,7 +129,9 @@ class TestToHDF5RawDataOnly:
             assert isinstance(drone_data_group, h5py.Group)
             assert "drone" in drone_data_group
 
-    def test_save_raw_data_creates_payload_data_group(self, sample_flight, temp_h5_file):
+    def test_save_raw_data_creates_payload_data_group(
+        self, sample_flight, temp_h5_file
+    ):
         """Test that payload sensor data is saved correctly."""
         sample_flight.to_hdf5(str(temp_h5_file))
 
@@ -142,7 +144,9 @@ class TestToHDF5RawDataOnly:
             assert "gps" in payload_data_group
             assert "imu" in payload_data_group
 
-    def test_save_raw_data_preserves_dataframe_structure(self, sample_flight, temp_h5_file):
+    def test_save_raw_data_preserves_dataframe_structure(
+        self, sample_flight, temp_h5_file
+    ):
         """Test that DataFrame structure is preserved."""
         sample_flight.to_hdf5(str(temp_h5_file))
 
