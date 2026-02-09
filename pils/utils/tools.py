@@ -4,14 +4,13 @@ Utility functions for file handling, log parsing, and data processing.
 
 import datetime
 from pathlib import Path
-from typing import List, Optional, Union
 
 import polars as pl
 
 
 def read_log_time(
     keyphrase: str, logfile: str | Path
-) -> tuple[Optional[datetime.datetime], Optional[datetime.date]]:
+) -> tuple[datetime.datetime | None, datetime.date | None]:
     """
     Read a log file and find the line containing the given keyphrase.
     Return the timestamp extracted from this line.
@@ -31,7 +30,7 @@ def read_log_time(
         The date (YYYY-MM-DD) extracted from the log file, or None if not found.
     """
     logfile = Path(logfile)  # Convert to Path if string
-    with open(logfile, "r") as f:
+    with open(logfile) as f:
         lines = f.readlines()
 
     line_tstart = [line for line in lines if keyphrase in line]
@@ -85,7 +84,7 @@ def drop_nan_and_zero_cols(df: pl.DataFrame) -> pl.DataFrame:
     return df.select(cols_to_keep)
 
 
-def get_path_from_keyword(dirpath: str | Path, keyword: str) -> Optional[Union[str, List[str]]]:
+def get_path_from_keyword(dirpath: str | Path, keyword: str) -> str | list[str] | None:
     """
     Find file(s) in directory tree matching a keyword.
 

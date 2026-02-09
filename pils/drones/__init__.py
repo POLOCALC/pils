@@ -4,11 +4,9 @@ Drones module - Drone-specific data parsers and utilities.
 
 import logging
 import os
-from pathlib import Path
-from typing import Optional
 
-from pils.drones.BlackSquareDrone import BlackSquareDrone
-from pils.drones.DJIDrone import DJIDrone
+from pils.drones.BlackSquareDrone import BlackSquareDrone  # noqa: F401
+from pils.drones.DJIDrone import DJIDrone  # noqa: F401
 from pils.drones.litchi import Litchi
 
 logger = logging.getLogger(__name__)
@@ -42,7 +40,7 @@ def drone_init(drone_model: str, drone_path: str):
         raise ValueError(f"Unknown drone model '{drone_model}'")
 
 
-def find_first_drone_file(dirpath: str) -> Optional[str]:
+def find_first_drone_file(dirpath: str) -> str | None:
     """
     Find the first *_drone.csv file in directory tree.
     Assumes one flight per directory.

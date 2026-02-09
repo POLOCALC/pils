@@ -10,7 +10,7 @@ Tests the to_hdf5() and from_hdf5() methods including:
 
 import json
 import tempfile
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 import h5py
@@ -93,8 +93,8 @@ def sample_flight():
     # Assign data
     flight.raw_data.drone_data = DroneData(drone_df, None)
     flight.raw_data.payload_data = PayloadData()
-    setattr(flight.raw_data.payload_data, "gps", gps_df)
-    setattr(flight.raw_data.payload_data, "imu", imu_df)
+    flight.raw_data.payload_data.gps = gps_df
+    flight.raw_data.payload_data.imu = imu_df
 
     return flight
 
@@ -218,11 +218,11 @@ class TestFromHDF5RawData:
 
         assert loaded_flight.raw_data.payload_data is not None
         original_gps_shape = sample_flight.raw_data.payload_data.gps.shape
-        loaded_gps_shape = getattr(loaded_flight.raw_data.payload_data, "gps").shape
+        loaded_gps_shape = loaded_flight.raw_data.payload_data.gps.shape
         assert original_gps_shape == loaded_gps_shape
 
         original_imu_shape = sample_flight.raw_data.payload_data.imu.shape
-        loaded_imu_shape = getattr(loaded_flight.raw_data.payload_data, "imu").shape
+        loaded_imu_shape = loaded_flight.raw_data.payload_data.imu.shape
         assert original_imu_shape == loaded_imu_shape
 
     def test_load_data_values_equal(self, sample_flight, temp_h5_file):

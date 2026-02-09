@@ -2,7 +2,7 @@ import glob
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union, cast, overload
+from typing import Any, Optional, Union, overload
 
 import h5py
 import polars as pl
@@ -70,7 +70,7 @@ def _serialize_for_hdf5(obj: Any) -> Any:
         return str(obj)
 
 
-def _deserialize_from_hdf5(value: Any, hint: Optional[str] = None) -> Any:
+def _deserialize_from_hdf5(value: Any, hint: str | None = None) -> Any:
     """
     Deserialize values from HDF5 attrs.
 
@@ -151,7 +151,7 @@ class Flight:
     >>> print(f"Points above 100m: {len(high_altitude)}")
     """
 
-    def __init__(self, flight_info: Dict[str, Any]):
+    def __init__(self, flight_info: dict[str, Any]):
         """
         Initialize a Flight data container.
 
@@ -181,8 +181,8 @@ class Flight:
 
     def from_hdf5(
         self,
-        filepath: Optional[Union[str, Path]] = None,
-        sync_version: Union[str, None, bool] = None,
+        filepath: str | Path | None = None,
+        sync_version: str | None | bool = None,
         load_raw: bool = True,
     ) -> "Flight":
         """
@@ -424,7 +424,7 @@ class Flight:
 
         return pl.DataFrame(data_dict)
 
-    def set_metadata(self, metadata: Optional[Dict[str, Any]] = None) -> None:
+    def set_metadata(self, metadata: dict[str, Any] | None = None) -> None:
         """
         Set flight metadata.
 
@@ -451,7 +451,7 @@ class Flight:
             self.metadata.update(metadata)
 
         # Then extract time-related fields for special processing
-        info_source: Dict[str, Any] = {}
+        info_source: dict[str, Any] = {}
         if isinstance(metadata, dict):
             info_source = metadata
         elif isinstance(self.flight_info, dict):
@@ -538,7 +538,7 @@ class Flight:
     def add_drone_data(
         self,
         dji_dat_loader: bool = True,
-        drone_model: Optional[str] = None,
+        drone_model: str | None = None,
     ):
         """
         Load drone telemetry data based on auto-detected drone model.
@@ -650,7 +650,7 @@ class Flight:
 
         self.raw_data.drone_data = DroneData(drone_data, litchi_data)
 
-    def _read_sensor_data(self, sensor_name: str, sensor_folder: Path) -> Optional[Any]:
+    def _read_sensor_data(self, sensor_name: str, sensor_folder: Path) -> Any | None:
         """
         Read sensor data based on sensor type.
 
@@ -685,7 +685,7 @@ class Flight:
 
         return result
 
-    def add_sensor_data(self, sensor_name: Union[str, List[str]]) -> None:
+    def add_sensor_data(self, sensor_name: str | list[str]) -> None:
         """
         Load sensor data from the payload.
 
@@ -866,7 +866,7 @@ class Flight:
 
     def to_hdf5(
         self,
-        filepath: Optional[Union[str, Path]] = None,
+        filepath: str | Path | None = None,
     ) -> str:
         """
         Save flight data to HDF5 file.
@@ -1131,8 +1131,8 @@ class RawData:
 
     def __init__(self):
         """Initialize empty RawData container with empty data objects."""
-        self.drone_data: "DroneData" = DroneData(None, None)
-        self.payload_data: "PayloadData" = PayloadData()
+        self.drone_data: DroneData = DroneData(None, None)
+        self.payload_data: PayloadData = PayloadData()
 
     def __getitem__(self, key):
         """
@@ -1203,7 +1203,7 @@ class DroneData:
 
     def __init__(
         self,
-        drone_df: Union[Dict[str, "pl.DataFrame"], "pl.DataFrame", None] = None,
+        drone_df: Union[dict[str, "pl.DataFrame"], "pl.DataFrame", None] = None,
         litchi_df: Optional["pl.DataFrame"] = None,
     ) -> None:
         """
@@ -1218,12 +1218,12 @@ class DroneData:
             Litchi flight log DataFrame
         """
         # Initialize with empty DataFrames to avoid Optional types
-        self.drone: Union[Dict[str, "pl.DataFrame"], "pl.DataFrame"] = (
+        self.drone: dict[str, pl.DataFrame] | pl.DataFrame = (
             drone_df if drone_df is not None else pl.DataFrame()
         )
-        self.litchi: "pl.DataFrame" = litchi_df if litchi_df is not None else pl.DataFrame()
+        self.litchi: pl.DataFrame = litchi_df if litchi_df is not None else pl.DataFrame()
 
-    def __getitem__(self, key: str) -> Union["pl.DataFrame", Dict[str, "pl.DataFrame"]]:
+    def __getitem__(self, key: str) -> Union["pl.DataFrame", dict[str, "pl.DataFrame"]]:
         """
         Dictionary-style access to drone data.
 
@@ -1395,7 +1395,7 @@ class PayloadData:
         """
         return hasattr(self, key)
 
-    def list_loaded_sensors(self) -> List[str]:
+    def list_loaded_sensors(self) -> list[str]:
         """
         List all currently loaded sensors.
 

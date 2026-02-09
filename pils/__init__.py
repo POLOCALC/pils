@@ -32,17 +32,11 @@ __version__ = "2026.2.1"
 __author__ = "POLOCALC Team"
 __license__ = "MIT"
 
-# Subpackage imports to ensure they're resolved
 from . import decoders, drones, sensors, utils
-
-# Core imports
-# Load loader implementations from the loader subpackage. The loader
-# subpackage exposes `StoutLoader` (DB-backed) and `PathLoader` (filesystem).
 from .flight import Flight
 from .loader import PathLoader, StoutLoader
 from .pils import PILS
 from .synchronizer import Synchronizer
-
 
 __all__ = [
     "Flight",

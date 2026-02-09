@@ -20,7 +20,7 @@ class TestDecodeAdcFileStruct:
         reading_times = [100, 200, 300]
         amplitudes = [1.5, 2.5, 3.5]
 
-        for ts, rt, amp in zip(timestamps, reading_times, amplitudes):
+        for ts, rt, amp in zip(timestamps, reading_times, amplitudes, strict=False):
             data += struct.pack("<dqf", ts, rt, amp)
 
         adc_file = tmp_path / "test_adc.bin"

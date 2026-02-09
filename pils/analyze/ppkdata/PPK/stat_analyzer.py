@@ -1,7 +1,6 @@
 """RTKLIB Statistics File Analyzer."""
 
 from pathlib import Path
-from typing import Union
 
 import polars as pl
 
@@ -27,7 +26,7 @@ class STATAnalyzer:
     >>> print(sat_stats.head())
     """
 
-    def __init__(self, filepath: Union[str, Path]) -> None:
+    def __init__(self, filepath: str | Path) -> None:
         """Initialize statistics analyzer.
 
         Args:
@@ -66,7 +65,7 @@ class STATAnalyzer:
         # RTKLIB $SAT Format: 0:$SAT, 1:week, 2:tow, 3:sat, 4:freq, 5:az, 6:el, 7:resp, 8:resc, 9:vs, 10:snr, 11:fix, 12:slip, 13:lock, 14:outc, 15:slipc, 16:rejc
 
         sat_data = []
-        with open(self.filepath, "r") as f:
+        with open(self.filepath) as f:
             for line in f:
                 if line.startswith("$SAT"):
                     parts = line.strip().split(",")

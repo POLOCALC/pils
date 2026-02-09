@@ -74,6 +74,10 @@ select = [
   "UP",   # pyupgrade
   "I"     # import sorting
 ]
+ignore = [
+  "E501",  # line too long (allows flexibility)
+  "C901",  # function too complex (allows legacy code)
+]
 
 [tool.ruff.format]
 quote-style = "double"

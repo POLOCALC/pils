@@ -1,7 +1,6 @@
 """RTKLIB Runner for PPK processing."""
 
 import logging
-import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -88,7 +87,7 @@ class RTKLIBRunner:
         last_dt = None
 
         # Read file efficiently
-        with open(rinex_file, "r") as f:
+        with open(rinex_file) as f:
             # 1. Find Start Time
             for line in f:
                 if line.startswith(">"):

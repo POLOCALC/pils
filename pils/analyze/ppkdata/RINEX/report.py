@@ -6,11 +6,10 @@ Feature-Complete Orchestrator for RINEXAnalyzer and RINEXPlotter.
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Union
 
 import polars as pl
 
-from ..utils import CONSTELLATION_NAMES, get_dual_freq_bands
+from ..utils import CONSTELLATION_NAMES
 from .analyzer import RINEXAnalyzer
 from .plotter import RINEXPlotter
 
@@ -39,10 +38,10 @@ class RINEXReport:
 
     def __init__(
         self,
-        rinex_obs: Optional[Path] = None,
-        rinex_nav: Optional[Path] = None,
-        analyzer: Optional[RINEXAnalyzer] = None,
-        plotter: Optional[RINEXPlotter] = None,
+        rinex_obs: Path | None = None,
+        rinex_nav: Path | None = None,
+        analyzer: RINEXAnalyzer | None = None,
+        plotter: RINEXPlotter | None = None,
     ) -> None:
         """Initialize RINEX report generator.
 
@@ -80,7 +79,7 @@ class RINEXReport:
                 self.plotter = None  # type: ignore
 
     def generate(
-        self, report_name: Union[str, Path] = "rinex_report.md", plot_folder: str = "assets"
+        self, report_name: str | Path = "rinex_report.md", plot_folder: str = "assets"
     ) -> str:
         """Generate complete RINEX quality analysis report.
 
@@ -144,8 +143,8 @@ class RINEXReport:
         # 4-Step Algorithm Summary
         m = quality["metrics"]
         report += "#### 🛰️ 4-Step Algorithm Metrics (Session Avg)\n"
-        report += f"| Good Sats (40%) | Cell Coverage (30%) | Elevation Span (15%) | Azimuth Balance (15%) |\n"
-        report += f"|---|---|---|---|\n"
+        report += "| Good Sats (40%) | Cell Coverage (30%) | Elevation Span (15%) | Azimuth Balance (15%) |\n"
+        report += "|---|---|---|---|\n"
         avg_sats = f"{m['avg_good_sats']:.1f}" if m["avg_good_sats"] is not None else "N/A"
         avg_cells = f"{m['avg_cells']:.1f}" if m["avg_cells"] is not None else "N/A"
         avg_el_span = f"{m['avg_el_span']:.1f}°" if m["avg_el_span"] is not None else "N/A"

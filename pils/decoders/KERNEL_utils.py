@@ -1,9 +1,8 @@
 import pickle
 import struct
-from typing import Any, Dict
+from typing import Any
 
 from ..utils.logging_config import get_logger
-
 from . import KERNEL_dicts as Kdb
 
 logger = get_logger(__name__)
@@ -45,7 +44,7 @@ class KernelMsg:
         for i in Kdb.MODES.keys():
             self.msg_address.append(Kdb.MODES[i]["Address"])
 
-    def decode_single(self, msg: bytes, return_dict: bool = False) -> Dict[str, Any]:
+    def decode_single(self, msg: bytes, return_dict: bool = False) -> dict[str, Any]:
         """Decode a single message sent by the inclinometer.
 
         The structure of the message is presented in the KERNEL IMU ICD v1.27.
@@ -101,7 +100,7 @@ class KernelMsg:
 
         return vals
 
-    def decode_multi(self, filename: str) -> Dict[str, list]:
+    def decode_multi(self, filename: str) -> dict[str, list]:
         """Decode multiple messages saved in a binary file.
 
         Parameters

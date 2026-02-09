@@ -20,9 +20,9 @@ Usage:
     flights = loader.load_flights_by_date(start_date='2025-01-01', end_date='2025-01-15')
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pils.utils.logging_config import get_logger
 
@@ -53,11 +53,11 @@ class PathLoader:
         base_data_path : Union[str, Path, None]
             Base path for data storage. Accepts string or Path object.
         """
-        self.base_data_path: Optional[Path] = (
+        self.base_data_path: Path | None = (
             Path(base_data_path) if base_data_path is not None else None
         )
 
-    def load_all_flights(self) -> List[Dict[str, Any]]:
+    def load_all_flights(self) -> list[dict[str, Any]]:
         """
         Load all flights from all campaigns.
 
@@ -70,7 +70,7 @@ class PathLoader:
         """
         logger.info("Loading all flights from all campaigns...")
 
-        flights: List[Dict[str, Any]] = []
+        flights: list[dict[str, Any]] = []
         if self.base_data_path is None:
             logger.warning("Base data path not set")
             return flights
@@ -115,8 +115,8 @@ class PathLoader:
         return flights
 
     def load_all_campaign_flights(
-        self, campaign_name: Optional[str] = None, campaign_id=None
-    ) -> Optional[Dict[str, Any]]:
+        self, campaign_name: str | None = None, campaign_id=None
+    ) -> dict[str, Any] | None:
         """
         Load data for a single flight.
 
@@ -144,8 +144,8 @@ class PathLoader:
         return None
 
     def load_single_flight(
-        self, flight_id: Optional[str] = None, flight_name: Optional[str] = None
-    ) -> Optional[Dict[str, Any]]:
+        self, flight_id: str | None = None, flight_name: str | None = None
+    ) -> dict[str, Any] | None:
         """
         Load data for a single flight.
 
@@ -178,12 +178,12 @@ class PathLoader:
 
     def _build_flight_dict_from_filesystem(
         self, campaign_name: str, date_folder: str, flight_name: str, flight_path: Path
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Build flight dictionary from filesystem structure."""
         try:
             # Extract date from folder name (YYYYMMDD format)
             takeoff_date = datetime.strptime(flight_name[7:], "%Y%m%d_%H%M").replace(
-                tzinfo=timezone.utc
+                tzinfo=UTC
             )
 
             flight_dict = {

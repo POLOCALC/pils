@@ -22,9 +22,9 @@ Usage:
 
 import importlib
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from pils.config import DRONE_MAP, SENSOR_MAP
 
@@ -100,8 +100,8 @@ class StoutLoader:
             raise
 
     def load_all_campaign_flights(
-        self, campaign_id: Optional[str] = None, campaign_name: Optional[str] = None
-    ) -> Optional[dict[str, Any]]:
+        self, campaign_id: str | None = None, campaign_name: str | None = None
+    ) -> dict[str, Any] | None:
         """
         Load data for a single flight.
 
@@ -138,8 +138,8 @@ class StoutLoader:
             raise
 
     def load_single_flight(
-        self, flight_id: Optional[str] = None, flight_name: Optional[str] = None
-    ) -> Optional[dict[str, Any]]:
+        self, flight_id: str | None = None, flight_name: str | None = None
+    ) -> dict[str, Any] | None:
         """
         Load data for a single flight.
 
@@ -172,7 +172,7 @@ class StoutLoader:
             raise
 
     def load_flights_by_date(
-        self, start_date: str, end_date: str, campaign_id: Optional[str] = None
+        self, start_date: str, end_date: str, campaign_id: str | None = None
     ) -> list[dict[str, Any]]:
         """
         Load flights within a date range.
@@ -192,12 +192,12 @@ class StoutLoader:
             list of flight dictionaries matching the date range.
         """
         try:
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=UTC)
             end_dt = (datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)).replace(
-                tzinfo=timezone.utc
+                tzinfo=UTC
             )
         except ValueError as e:
-            raise ValueError(f"Invalid date format. Use 'YYYY-MM-DD': {e}")
+            raise ValueError(f"Invalid date format. Use 'YYYY-MM-DD': {e}") from e
 
         logger.info(f"Loading flights between {start_date} and {end_date}")
 
@@ -226,7 +226,7 @@ class StoutLoader:
             raise
 
     def load_specific_data(
-        self, flight_id: str, data_types: Optional[list[str]] = None
+        self, flight_id: str, data_types: list[str] | None = None
     ) -> dict[str, list[str]]:
         """
         Load specific data types from a flight.
@@ -266,7 +266,7 @@ class StoutLoader:
     # ==================== Database Methods ====================
 
     def _load_flights_by_date_from_db(
-        self, start_dt: datetime, end_dt: datetime, campaign_id: Optional[str] = None
+        self, start_dt: datetime, end_dt: datetime, campaign_id: str | None = None
     ) -> list[dict[str, Any]]:
         """Load flights by date range from stout database."""
         if self.campaign_service is None:
@@ -333,8 +333,8 @@ class StoutLoader:
         return flights
 
     def _load_single_flight_from_filesystem(
-        self, flight_id: Optional[str] = None, flight_name: Optional[str] = None
-    ) -> Optional[dict[str, Any]]:
+        self, flight_id: str | None = None, flight_name: str | None = None
+    ) -> dict[str, Any] | None:
         """Load single flight from filesystem."""
         all_flights = self._load_all_flights_from_filesystem()
 
@@ -347,7 +347,7 @@ class StoutLoader:
         return None
 
     def _load_flights_by_date_from_filesystem(
-        self, start_dt: datetime, end_dt: datetime, campaign_id: Optional[str] = None
+        self, start_dt: datetime, end_dt: datetime, campaign_id: str | None = None
     ) -> list[dict[str, Any]]:
         """Load flights by date range from filesystem."""
         all_flights = self._load_all_flights_from_filesystem()
@@ -368,11 +368,11 @@ class StoutLoader:
 
     def _build_flight_dict_from_filesystem(
         self, campaign_name: str, date_folder: str, flight_name: str, flight_path: str
-    ) -> Optional[dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Build flight dictionary from filesystem structure."""
         try:
             # Extract date from folder name (YYYYMMDD format)
-            takeoff_date = datetime.strptime(date_folder, "%Y%m%d").replace(tzinfo=timezone.utc)
+            takeoff_date = datetime.strptime(date_folder, "%Y%m%d").replace(tzinfo=UTC)
 
             flight_path_obj = Path(flight_path)
             flight_dict = {
@@ -393,7 +393,7 @@ class StoutLoader:
     # ==================== Data Collection Methods ====================
 
     def _collect_specific_data(
-        self, flight: dict[str, Any], data_types: Optional[list[str]] = None
+        self, flight: dict[str, Any], data_types: list[str] | None = None
     ) -> dict[str, list[str]]:
         """
         Collect specific data types from a flight.
@@ -535,15 +535,15 @@ class StoutLoader:
 
     def load_flight_data(
         self,
-        flight_id: Optional[str] = None,
-        flight_name: Optional[str] = None,
-        sensors: Optional[list[str]] = None,
-        drones: Optional[list[str]] = None,
-        freq_interpolation: Optional[float] = None,
-        dji_drone_type: Optional[str] = None,
-        drone_correct_timestamp: Optional[bool] = True,
-        polars_interpolation: Optional[bool] = True,
-        align_drone: Optional[bool] = True,
+        flight_id: str | None = None,
+        flight_name: str | None = None,
+        sensors: list[str] | None = None,
+        drones: list[str] | None = None,
+        freq_interpolation: float | None = None,
+        dji_drone_type: str | None = None,
+        drone_correct_timestamp: bool | None = True,
+        polars_interpolation: bool | None = True,
+        align_drone: bool | None = True,
     ) -> dict[str, Any]:
         """
         Load flight data and return dataframes for requested sensors and drones.
@@ -642,8 +642,8 @@ class StoutLoader:
         self,
         flight_info: dict[str, Any],
         sensor_type: str,
-        freq_interpolation: Optional[float] = None,
-    ) -> Optional[Any]:
+        freq_interpolation: float | None = None,
+    ) -> Any | None:
         """
         Load sensor data and return as polars DataFrame.
 
@@ -708,11 +708,11 @@ class StoutLoader:
         self,
         flight_info: dict[str, Any],
         drone_type: str = "dji",
-        dji_drone_type: Optional[str] = None,
-        drone_correct_timestamp: Optional[bool] = True,
-        polars_interpolation: Optional[bool] = True,
-        align_drone: Optional[bool] = True,
-    ) -> Optional[Any]:
+        dji_drone_type: str | None = None,
+        drone_correct_timestamp: bool | None = True,
+        polars_interpolation: bool | None = True,
+        align_drone: bool | None = True,
+    ) -> Any | None:
         """
         Load drone telemetry and return as polars DataFrame.
 

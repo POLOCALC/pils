@@ -1,8 +1,6 @@
 """RTKLIB Position Solution Analyzer."""
 
-from datetime import datetime
 from pathlib import Path
-from typing import Union
 
 import numpy as np
 import polars as pl
@@ -31,7 +29,7 @@ class POSAnalyzer:
     >>> print(f"Fix rate: {stats['fix_rate']:.1f}%")
     """
 
-    def __init__(self, filepath: Union[str, Path]) -> None:
+    def __init__(self, filepath: str | Path) -> None:
         """Initialize position analyzer.
 
         Args:
@@ -64,12 +62,11 @@ class POSAnalyzer:
         if not Path(self.filepath).exists():
             raise FileNotFoundError(f"POS file not found: {self.filepath}")
 
-        with open(self.filepath, "r") as f:
+        with open(self.filepath) as f:
             lines = f.readlines()
 
         # Extract header and data
         data_lines = [line for line in lines if not line.startswith("%")]
-        header_lines = [line for line in lines if line.startswith("%")]
 
         # Simple parser for the standard RTKLIB POS format
         # Format: GPST, latitude(deg), longitude(deg), height(m), Q, ns, sdn(m), sde(m), sdu(m), sdne(m), sdeu(m), sdun(m), age(s), ratio
@@ -136,7 +133,6 @@ class POSAnalyzer:
         # WGS84 Constants
         a = 6378137.0
         b = 6356752.314245
-        f = (a - b) / a
         e2 = 1 - (b**2 / a**2)
 
         def llh_to_ecef(lat, lon, h):

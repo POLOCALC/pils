@@ -1,18 +1,12 @@
 import datetime
-import glob as gl
-import logging
 import re
 import struct
-from functools import reduce
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
-import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
-import polars.selectors as cs
 from scipy.interpolate import interp1d
-from scipy.stats import norm
 
 from ..utils.logging_config import get_logger
 from ..utils.tools import drop_nan_and_zero_cols
@@ -88,7 +82,7 @@ class DJIDrone:
         aligned_df: Aligned DataFrame after GPS synchronization
     """
 
-    def __init__(self, path: str | Path, source_format: Optional[str] = None) -> None:
+    def __init__(self, path: str | Path, source_format: str | None = None) -> None:
         """Initialize DJIDrone loader.
 
         Parameters
@@ -99,16 +93,16 @@ class DJIDrone:
             Optional format specification ('csv' or 'dat').
         """
         self.path = path
-        self.data: Union[Dict[str, pl.DataFrame], pl.DataFrame] = {}  # Dictionary or DataFrame
-        self.sync_params: Optional[Tuple[float, float]] = (
+        self.data: dict[str, pl.DataFrame] | pl.DataFrame = {}  # Dictionary or DataFrame
+        self.sync_params: tuple[float, float] | None = (
             None  # Store (slope, intercept) from Gaussian sync
         )
-        self.source_format: Optional[str] = None  # Track if data came from CSV or DAT
-        self.aligned_df: Optional[pl.DataFrame] = None  # Store aligned DataFrame
+        self.source_format: str | None = None  # Track if data came from CSV or DAT
+        self.aligned_df: pl.DataFrame | None = None  # Store aligned DataFrame
 
     def load_data(
         self,
-        cols: Optional[List[str]] = None,
+        cols: list[str] | None = None,
         use_dat: bool = True,
         remove_duplicate: bool = False,
         correct_timestamp: bool = True,
@@ -188,7 +182,7 @@ class DJIDrone:
                 if aligned is not None:
                     self.data = aligned
 
-    def _load_from_csv(self, cols: Optional[List[str]]) -> None:
+    def _load_from_csv(self, cols: list[str] | None) -> None:
         """Load drone data from CSV file.
 
         Parameters
@@ -409,7 +403,7 @@ class DJIDrone:
             logger.error(f"Failed to load DAT file: {e}")
             raise
 
-    def _parse_and_decode_message(self, msg_data: bytes) -> List[Dict[str, Any]]:
+    def _parse_and_decode_message(self, msg_data: bytes) -> list[dict[str, Any]]:
         """Parse and decode a single message.
 
         Message structure:
@@ -449,7 +443,6 @@ class DJIDrone:
                 return []
 
             # Check if we have enough data
-            expected_total_length = msg_length
             if len(msg_data) < msg_length:
                 return []
 
@@ -473,8 +466,8 @@ class DJIDrone:
             return []
 
     def _decode_message_data(
-        self, decrypted_payload: bytes, msg_type: int, tick_val: int, msg_def: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
+        self, decrypted_payload: bytes, msg_type: int, tick_val: int, msg_def: dict[str, Any]
+    ) -> dict[str, Any] | None:
         """Unified message decoder using message definition template.
 
         Decodes message by unpacking each field from its byte offset
@@ -532,7 +525,7 @@ class DJIDrone:
                 fmt = "%Y-%m-%d %H:%M:%S"
                 # Parse as UTC to avoid local timezone shifts
                 dt = datetime.datetime.strptime(formatted_dt, fmt).replace(
-                    tzinfo=datetime.timezone.utc
+                    tzinfo=datetime.UTC
                 )
                 result["timestamp"] = dt.timestamp()  # type: ignore
 
@@ -543,7 +536,7 @@ class DJIDrone:
             return None
 
     @staticmethod
-    def _format_date_time(date: int, time: int) -> Optional[str]:
+    def _format_date_time(date: int, time: int) -> str | None:
         """Convert date and time fields into a human-readable datetime string.
 
         Parameters
@@ -673,7 +666,7 @@ class DJIDrone:
         self.sync_params = (float(m), time_offset)
         return time_offset
 
-    def _parse_gps_datetime(self, payload: bytes) -> Optional[datetime.datetime]:
+    def _parse_gps_datetime(self, payload: bytes) -> datetime.datetime | None:
         """Parse GPS datetime from message payload.
 
         Parameters
@@ -700,7 +693,7 @@ class DJIDrone:
             H = raw_time // 10000
             M = (raw_time % 10000) // 100
             S = raw_time % 100
-            return datetime.datetime(y, m, d, H, M, S, tzinfo=datetime.timezone.utc)
+            return datetime.datetime(y, m, d, H, M, S, tzinfo=datetime.UTC)
         except ValueError:
             return None
 
@@ -709,7 +702,7 @@ class DJIDrone:
         correct_timestamp: bool = True,
         sampling_freq: float = 5.0,
         polars_interpolation: bool = True,
-    ) -> Optional[pl.DataFrame]:
+    ) -> pl.DataFrame | None:
         """Align DAT file data using GPS synchronization.
 
         Parameters
@@ -742,7 +735,7 @@ class DJIDrone:
                     }
                 )
 
-                for i, key in enumerate(self.data):
+                for _i, key in enumerate(self.data):
 
                     tmp = tmp.join(
                         self.data[key],
@@ -800,7 +793,7 @@ class DJIDrone:
                     f"Target ticks: {len(target_ticks)}, {start_tick:.2f} to {end_tick:.2f}"
                 )
 
-                aligned_data: Dict[str, np.ndarray] = {"corrected_tick": target_ticks}
+                aligned_data: dict[str, np.ndarray] = {"corrected_tick": target_ticks}
 
                 def interpolate_columns(df: pl.DataFrame, exclude_cols: set):
                     # Ensure unique and sorted by corrected_tick for reliable interpolation

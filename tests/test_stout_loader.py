@@ -1,6 +1,6 @@
 """Tests for StoutLoader."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -321,8 +321,8 @@ class TestLoadFlightsByDateFromFilesystem:
             loader = StoutLoader()
             loader.base_data_path = mock_campaign_structure
 
-            start_dt = datetime(2025, 12, 1, tzinfo=timezone.utc)
-            end_dt = datetime(2025, 12, 31, tzinfo=timezone.utc)
+            start_dt = datetime(2025, 12, 1, tzinfo=UTC)
+            end_dt = datetime(2025, 12, 31, tzinfo=UTC)
 
             flights = loader._load_flights_by_date_from_filesystem(start_dt, end_dt)
 
@@ -336,8 +336,8 @@ class TestLoadFlightsByDateFromFilesystem:
             loader = StoutLoader()
             loader.base_data_path = mock_campaign_structure
 
-            start_dt = datetime(2026, 1, 1, tzinfo=timezone.utc)
-            end_dt = datetime(2026, 1, 31, tzinfo=timezone.utc)
+            start_dt = datetime(2026, 1, 1, tzinfo=UTC)
+            end_dt = datetime(2026, 1, 31, tzinfo=UTC)
 
             flights = loader._load_flights_by_date_from_filesystem(start_dt, end_dt)
 

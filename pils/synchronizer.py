@@ -17,12 +17,11 @@ Key Features:
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import polars as pl
 from scipy import signal
-from scipy.interpolate import interp1d
 
 logger = logging.getLogger(__name__)
 
@@ -109,14 +108,14 @@ class Synchronizer:
 
     def __init__(self):
         """Initialize empty Synchronizer."""
-        self.gps_payload: Optional[pl.DataFrame] = None
-        self.drone_gps: Optional[pl.DataFrame] = None
-        self.litchi_gps: Optional[pl.DataFrame] = None
-        self.inclinometer: Optional[pl.DataFrame] = None
-        self.other_payload: Dict[str, pl.DataFrame] = {}
+        self.gps_payload: pl.DataFrame | None = None
+        self.drone_gps: pl.DataFrame | None = None
+        self.litchi_gps: pl.DataFrame | None = None
+        self.inclinometer: pl.DataFrame | None = None
+        self.other_payload: dict[str, pl.DataFrame] = {}
 
-        self.offsets: Dict[str, Dict[str, Any]] = {}
-        self.synchronized_data: Optional[pl.DataFrame] = None
+        self.offsets: dict[str, dict[str, Any]] = {}
+        self.synchronized_data: pl.DataFrame | None = None
 
     @staticmethod
     def _lla_to_enu(
@@ -126,7 +125,7 @@ class Synchronizer:
         target_lat: float,
         target_lon: float,
         target_alt: float,
-    ) -> Tuple[float, float, float]:
+    ) -> tuple[float, float, float]:
         """
         Convert LLA (Latitude, Longitude, Altitude) to local ENU coordinates.
 
@@ -256,7 +255,7 @@ class Synchronizer:
     @staticmethod
     def __clean_data(
         time: np.ndarray, east: np.ndarray, north: np.ndarray, up: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
         Remove outliers and NaN values from GPS position data using velocity thresholds.
 
@@ -335,7 +334,7 @@ class Synchronizer:
         lon2: np.ndarray,
         alt2: np.ndarray,
         target_rate_hz: float = 100.0,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Find TIME offset between two GPS sources using NED position correlation.
 
@@ -546,7 +545,7 @@ class Synchronizer:
         time2: np.ndarray,
         pitch2: np.ndarray,
         target_rate_hz: float = 100.0,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Find TIME offset between pitch signals using cross-correlation.
 
@@ -697,7 +696,7 @@ class Synchronizer:
 
     def add_drone_gps(
         self,
-        gps_data: pl.DataFrame | Dict[str, pl.DataFrame],
+        gps_data: pl.DataFrame | dict[str, pl.DataFrame],
         timestamp_col: str = "timestamp",
         lat_col: str = "latitude",
         lon_col: str = "longitude",

@@ -1,7 +1,6 @@
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List
 
 import numpy as np
 import polars as pl
@@ -71,7 +70,7 @@ FLIGHTMODES = {
 }
 
 
-def messages_to_df(messages: List[List[str]], columns: List[str], format_str: str) -> pl.DataFrame:
+def messages_to_df(messages: list[list[str]], columns: list[str], format_str: str) -> pl.DataFrame:
     """Convert ArduPilot log messages to Polars DataFrame.
 
     Parameters
@@ -89,8 +88,8 @@ def messages_to_df(messages: List[List[str]], columns: List[str], format_str: st
         Polars DataFrame with converted message data.
     """
     dtypes = []
-    for col, f in zip(columns, format_str):
-        np_dtype = ARDUTYPES.get(f, object)
+    for col, _f in zip(columns, format_str, strict=False):
+        np_dtype = ARDUTYPES.get(_f, object)
         dtypes.append((col, np_dtype))
 
     # Create structured array
@@ -100,7 +99,7 @@ def messages_to_df(messages: List[List[str]], columns: List[str], format_str: st
     return pl.DataFrame(data_dict)
 
 
-def read_msgs(path: str | Path) -> Dict[str, pl.DataFrame]:
+def read_msgs(path: str | Path) -> dict[str, pl.DataFrame]:
     """Read ArduPilot log file and parse messages into DataFrames.
 
     Parameters
@@ -118,7 +117,7 @@ def read_msgs(path: str | Path) -> Dict[str, pl.DataFrame]:
     FileNotFoundError
         If log file not found.
     """
-    with open(path, "r") as f:
+    with open(path) as f:
         lines = (line.strip() for line in f)
 
         # First pass: extract formats and group messages
@@ -156,7 +155,7 @@ def read_msgs(path: str | Path) -> Dict[str, pl.DataFrame]:
     return dfs
 
 
-def generate_log_file(lines: List[str]):
+def generate_log_file(lines: list[str]):
     """Generate log file from lines.
 
     Parameters
@@ -296,8 +295,6 @@ class BlackSquareDrone:
             for row in gps.iter_rows(named=True):
                 dt = gps_epoch + timedelta(weeks=int(row["GWk"]), milliseconds=int(row["GMS"]))
                 gps_dt.append(dt)
-
-            gps_dt_series = pl.Series("gps_datetime", gps_dt)
 
             # Get leap seconds
             first_dt = gps_dt[0]

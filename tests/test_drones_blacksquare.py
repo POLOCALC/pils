@@ -1,10 +1,8 @@
 """Test suite for BlackSquareDrone module following TDD methodology."""
 
 import logging
-from datetime import datetime, timedelta
-from pathlib import Path
+from datetime import datetime
 
-import numpy as np
 import polars as pl
 import pytest
 
@@ -238,7 +236,7 @@ GPS, invalid, data, here, extra, columns"""
         bad_log.write_text(log_content)
 
         with caplog.at_level(logging.WARNING):
-            result = read_msgs(bad_log)
+            _result = read_msgs(bad_log)
 
         # Should log warning about failed parsing
         assert any("Failed to parse" in record.message for record in caplog.records)

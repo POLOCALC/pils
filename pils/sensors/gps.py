@@ -1,6 +1,5 @@
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import polars as pl
@@ -25,7 +24,7 @@ class GPS:
         Polars DataFrame with GPS data (None until load_data is called).
     """
 
-    def __init__(self, path: Path, logpath: Optional[Path] = None) -> None:
+    def __init__(self, path: Path, logpath: Path | None = None) -> None:
         """
         Initialize GPS sensor.
 
@@ -47,10 +46,10 @@ class GPS:
         else:
             self.logpath = get_logpath_from_datapath(self.data_path)
 
-        self.tstart: Optional[datetime] = None
-        self.data: Optional[pl.DataFrame] = None
+        self.tstart: datetime | None = None
+        self.data: pl.DataFrame | None = None
 
-    def load_data(self, freq_interpolation: Optional[float] = None) -> None:
+    def load_data(self, freq_interpolation: float | None = None) -> None:
         """
         Load GPS data from UBX binary file.
 
@@ -81,7 +80,7 @@ class GPS:
 
         with open(self.data_path, "rb") as stream:
             ubr = UBXReader(stream, protfilter=UBX_PROTOCOL, quitonerror=False)
-            for raw_data, parsed_data in ubr:
+            for _raw_data, parsed_data in ubr:
                 if parsed_data is None:
                     continue
 
@@ -185,13 +184,13 @@ class GPS:
             (pl.from_epoch(pl.col("unix_time_ms"), time_unit="ms")).alias("datetime")
         )
         gps_data = gps_data.with_columns((pl.col("unix_time_ms") / 1000.0).alias("timestamp"))
-        gps_data = gps_data.with_columns((pl.col("posllh_height") / 1000.0))
+        gps_data = gps_data.with_columns(pl.col("posllh_height") / 1000.0)
 
         self.data = gps_data
 
     def _merge_nav_dataframes(
-        self, nav_dataframes: dict, freq: Optional[float] = None
-    ) -> Optional[pl.DataFrame]:
+        self, nav_dataframes: dict, freq: float | None = None
+    ) -> pl.DataFrame | None:
         """
         Merge NAV dataframes onto a common time grid with interpolation.
 
@@ -242,7 +241,7 @@ class GPS:
 
         # Merge each dataframe onto the time grid with interpolation
         merged_df = time_grid
-        for msg_type, df in nav_dataframes.items():
+        for _msg_type, df in nav_dataframes.items():
             if "unix_time_ms" not in df.columns or len(df) == 0:
                 continue
 

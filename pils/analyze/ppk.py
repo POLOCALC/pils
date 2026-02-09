@@ -40,7 +40,7 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any
 
 import polars as pl
 
@@ -51,7 +51,6 @@ from pils.analyze.ppkdata.PPK.pos_analyzer import POSAnalyzer
 from pils.analyze.ppkdata.PPK.report import RTKLIBReport
 from pils.analyze.ppkdata.PPK.stat_analyzer import STATAnalyzer
 from pils.analyze.ppkdata.RINEX.report import RINEXReport
-from pils.analyze.ppkdata.rtklib_runner import RTKLIBRunner
 
 if TYPE_CHECKING:
     from pils.flight import Flight
@@ -95,7 +94,7 @@ class PPKVersion:
     version_name: str
     pos_data: pl.DataFrame
     stat_data: pl.DataFrame
-    metadata: Dict[str, Any]
+    metadata: dict[str, Any]
     revision_path: Path
 
 
@@ -154,7 +153,7 @@ class PPKAnalysis:
     >>> all_versions = ppk.list_versions()
     """
 
-    def __init__(self, flight: "Flight"):
+    def __init__(self, flight: Flight):
         """
         Initialize PPKAnalysis for a flight.
 
@@ -209,7 +208,7 @@ class PPKAnalysis:
         self.flight_path = flight_path
         self.ppk_dir = self.flight_path / "proc" / "ppk"
         self.hdf5_path = self.ppk_dir / "ppk_solution.h5"
-        self.versions: Dict[str, PPKVersion] = {}
+        self.versions: dict[str, PPKVersion] = {}
 
         # Create PPK directory structure
         self.ppk_dir.mkdir(parents=True, exist_ok=True)
@@ -244,7 +243,7 @@ class PPKAnalysis:
         content = config_path.read_bytes()
         return hashlib.sha256(content).hexdigest()
 
-    def _parse_config_params(self, config_path: Path) -> Dict[str, Any]:
+    def _parse_config_params(self, config_path: Path) -> dict[str, Any]:
         """
         Parse key RTKLIB configuration parameters.
 
@@ -393,7 +392,7 @@ class PPKAnalysis:
         logger.info("Config unchanged - skipping analysis")
         return False
 
-    def get_latest_version(self) -> Optional[PPKVersion]:
+    def get_latest_version(self) -> PPKVersion | None:
         """
         Get the most recent PPK version.
 
@@ -440,7 +439,7 @@ class PPKAnalysis:
         last_dt = None
 
         # Read file efficiently
-        with open(rinex_file, "r") as f:
+        with open(rinex_file) as f:
             # 1. Find Start Time
             for line in f:
                 if line.startswith(">"):
@@ -499,14 +498,14 @@ class PPKAnalysis:
 
     def run_analysis(
         self,
-        config_path: Union[str, Path],
-        rover_obs: Optional[Union[str, Path]] = None,
-        base_obs: Optional[Union[str, Path]] = None,
-        nav_file: Optional[Union[str, Path]] = None,
+        config_path: str | Path,
+        rover_obs: str | Path | None = None,
+        base_obs: str | Path | None = None,
+        nav_file: str | Path | None = None,
         force: bool = False,
         analyze_rinex: bool = False,
         analyze_ppk: bool = False,
-    ) -> Optional[PPKVersion]:
+    ) -> PPKVersion | None:
         """
         Execute RTKLIB PPK analysis with smart re-run logic.
 
@@ -579,8 +578,8 @@ class PPKAnalysis:
         revision_path = self._create_revision_folder(version_name)
 
         # Initialize nav file variables
-        rover_nav: Optional[Path] = None
-        base_nav: Optional[Path] = None
+        rover_nav: Path | None = None
+        base_nav: Path | None = None
 
         if rover_obs is not None:
             rover_obs = Path(rover_obs)
@@ -908,7 +907,7 @@ class PPKAnalysis:
         logger.info(f"Saved version {version.version_name} to HDF5")
 
     def _save_dataframe_to_hdf5(
-        self, parent_group: "h5py.Group", name: str, df: pl.DataFrame
+        self, parent_group: h5py.Group, name: str, df: pl.DataFrame
     ) -> None:
         """
         Save a Polars DataFrame to HDF5 using column-wise storage.
@@ -1040,7 +1039,7 @@ class PPKAnalysis:
 
             return version
 
-    def _load_dataframe_from_hdf5(self, dataset_group: "h5py.Group") -> pl.DataFrame:
+    def _load_dataframe_from_hdf5(self, dataset_group: h5py.Group) -> pl.DataFrame:
         """
         Load a Polars DataFrame from HDF5 dataset group.
 
@@ -1094,7 +1093,7 @@ class PPKAnalysis:
         df = pl.DataFrame(data_dict)
 
         # Restore datetime columns from int64 microseconds
-        for col_name, dtype_str in zip(columns, dtypes):
+        for col_name, dtype_str in zip(columns, dtypes, strict=False):
             if dtype_str and "Datetime" in dtype_str:
                 df = df.with_columns(
                     pl.from_epoch(pl.col(col_name), time_unit="us").alias(col_name)
@@ -1103,7 +1102,7 @@ class PPKAnalysis:
         return df
 
     @classmethod
-    def from_hdf5(cls, flight: "Flight") -> "PPKAnalysis":
+    def from_hdf5(cls, flight: Flight) -> PPKAnalysis:
         """
         Load existing PPKAnalysis from HDF5 file.
 
@@ -1161,7 +1160,7 @@ class PPKAnalysis:
         logger.info(f"Loaded {len(ppk.versions)} versions from HDF5")
         return ppk
 
-    def list_versions(self) -> List[str]:
+    def list_versions(self) -> list[str]:
         """
         Return list of all version names in chronological order.
 
@@ -1182,7 +1181,7 @@ class PPKAnalysis:
         """
         return sorted(list(self.versions.keys()))
 
-    def get_version(self, version_name: str) -> Optional[PPKVersion]:
+    def get_version(self, version_name: str) -> PPKVersion | None:
         """
         Get specific version by name.
 

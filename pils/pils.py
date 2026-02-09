@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pils.flight import Flight
 from pils.loader.path import PathLoader
@@ -11,10 +11,10 @@ class PILS:
         self,
         use_stout: bool = True,
         base_path: str = "/mnt/data/POLOCALC",
-        campaign_id: Optional[str] = None,
-        campaign_name: Optional[str] = None,
-        flight_id: Optional[str] = None,
-        flight_name: Optional[str] = None,
+        campaign_id: str | None = None,
+        campaign_name: str | None = None,
+        flight_id: str | None = None,
+        flight_name: str | None = None,
     ):
 
         if use_stout:
@@ -51,7 +51,7 @@ class PILS:
                     if flight_data:
                         # flight_data might be a list with one element
                         if isinstance(flight_data, (list, tuple)) and len(flight_data) > 0:
-                            flight_info: Dict[str, Any] = flight_data[0]  # type: ignore
+                            flight_info: dict[str, Any] = flight_data[0]  # type: ignore
                         elif isinstance(flight_data, dict):
                             flight_info = flight_data
                         else:
@@ -72,7 +72,7 @@ class PILS:
 
             flight.add_drone_data(dji_dat_loader=dji_dat_loader, drone_model=drone_model)
 
-    def load_sensor_data(self, sensor_name: List[str]):
+    def load_sensor_data(self, sensor_name: list[str]):
 
         for flight in self.flights:
 

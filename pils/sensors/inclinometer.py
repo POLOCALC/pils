@@ -2,7 +2,7 @@ import glob
 import os
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -27,7 +27,7 @@ except ImportError:
     YAML_AVAILABLE = False
 
 
-def decode_inclino(inclino_path: str | Path) -> Dict[str, List[Any]]:
+def decode_inclino(inclino_path: str | Path) -> dict[str, list[Any]]:
     """
     Decodes inclinometer data from a binary file and returns the decoded messages as a dictionary.
 
@@ -78,7 +78,7 @@ def decode_inclino(inclino_path: str | Path) -> Dict[str, List[Any]]:
     return decoded_msg
 
 
-def detect_inclinometer_type_from_config(dirpath: Path) -> Optional[str]:
+def detect_inclinometer_type_from_config(dirpath: Path) -> str | None:
     """
     Detect the type of inclinometer from the config.yml file.
 
@@ -107,7 +107,7 @@ def detect_inclinometer_type_from_config(dirpath: Path) -> Optional[str]:
         return None
 
     try:
-        with open(config_files[0], "r") as f:
+        with open(config_files[0]) as f:
             config = yaml_module.safe_load(f)
 
         sensors = config.get("sensors", {})
@@ -186,7 +186,7 @@ class IMX5Inclinometer:
     - *_INC_inl2.csv: Extended INL2 data (quaternions, biases)
     """
 
-    def __init__(self, dirpath: Path, logpath: Optional[str] = None) -> None:
+    def __init__(self, dirpath: Path, logpath: str | None = None) -> None:
         """
         Initialize IMX5Inclinometer.
 
@@ -207,7 +207,7 @@ class IMX5Inclinometer:
 
         self.data = {}  # Main attitude data
 
-    def _find_file(self, pattern: str) -> Optional[str]:
+    def _find_file(self, pattern: str) -> str | None:
         """Find a file matching the pattern in dirpath.
 
         Parameters
@@ -333,7 +333,7 @@ class KernelInclinometer:
     Decoder for Kernel-100 inclinometer data (binary format).
     """
 
-    def __init__(self, path: Path, logpath: Optional[str] = None) -> None:
+    def __init__(self, path: Path, logpath: str | None = None) -> None:
         """
         Initialize KernelInclinometer.
 
@@ -355,7 +355,7 @@ class KernelInclinometer:
 
         self.tstart = None
 
-    def read_log_time(self, logfile: Optional[str] = None) -> None:
+    def read_log_time(self, logfile: str | None = None) -> None:
         """
         Read start time from log file.
 
@@ -469,8 +469,8 @@ class Inclinometer:
     def __init__(
         self,
         path: Path,
-        logpath: Optional[str] = None,
-        sensor_type: Optional[Literal["kernel", "imx5"]] = None,
+        logpath: str | None = None,
+        sensor_type: Literal["kernel", "imx5"] | None = None,
     ) -> None:
         self._lookout_path = path
 
@@ -482,7 +482,7 @@ class Inclinometer:
         logger.info(f"Inclinometer sensor type: {self.sensor_type}")
 
         self.logpath = logpath
-        self._decoder: Optional[KernelInclinometer | IMX5Inclinometer] = None
+        self._decoder: KernelInclinometer | IMX5Inclinometer | None = None
 
         # Initialize the appropriate decoder
         self._init_decoder()
@@ -513,21 +513,21 @@ class Inclinometer:
         return None
 
     @property
-    def ins_data(self) -> Optional[pl.DataFrame]:
+    def ins_data(self) -> pl.DataFrame | None:
         """Get INS data (IMX-5 only)."""
         if isinstance(self._decoder, IMX5Inclinometer):
             return self._decoder.data["INS"]
         return None
 
     @property
-    def imu_data(self) -> Optional[pl.DataFrame]:
+    def imu_data(self) -> pl.DataFrame | None:
         """Get IMU data (IMX-5 only)."""
         if isinstance(self._decoder, IMX5Inclinometer):
             return self._decoder.data["IMU"]
         return None
 
     @property
-    def inl2_data(self) -> Optional[pl.DataFrame]:
+    def inl2_data(self) -> pl.DataFrame | None:
         """Get INL2 data (IMX-5 only)."""
         if isinstance(self._decoder, IMX5Inclinometer):
             return self._decoder.data["INL2"]
@@ -567,40 +567,31 @@ class Inclinometer:
         # Handle both DataFrame and dict types
         if isinstance(self.data, pl.DataFrame):
             if "timestamp" in self.data.columns:
-                x = self.data["timestamp"].to_numpy()
                 xlabel = "Time [s]"
             elif "datetime" in self.data.columns:
-                x = self.data["datetime"].to_numpy()
                 xlabel = "Time"
             else:
-                x = np.arange(len(self.data))
                 xlabel = "Sample"
         elif isinstance(self.data, dict):
             if "timestamp" in self.data:
-                x = self.data["timestamp"]
                 xlabel = "Time [s]"
             elif "datetime" in self.data:
-                x = self.data["datetime"]
                 xlabel = "Time"
             else:
                 # Estimate length from first available key
-                first_key = next(iter(self.data), None)
-                data_len = len(self.data[first_key]) if first_key else 0
-                x = np.arange(data_len)
                 xlabel = "Sample"
         else:
-            x = np.arange(len(self.data))
+            _x = np.arange(len(self.data))
             xlabel = "Sample"
 
         # Extract data based on type
         if isinstance(self.data, pl.DataFrame):
-            yaw = self.data["yaw"].to_numpy()
-            pitch = self.data["pitch"].to_numpy()
-            roll = self.data["roll"].to_numpy()
+            # yaw, pitch, roll would be used for plotting if implemented
+            pass
         elif isinstance(self.data, dict):
-            yaw = np.array(self.data.get("yaw", []))
-            pitch = np.array(self.data.get("pitch", []))
-            roll = np.array(self.data.get("roll", []))
+            _yaw = np.array(self.data.get("yaw", []))
+            _pitch = np.array(self.data.get("pitch", []))
+            _roll = np.array(self.data.get("roll", []))
         else:
             return
 

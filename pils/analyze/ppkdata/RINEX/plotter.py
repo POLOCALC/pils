@@ -3,7 +3,7 @@ RINEX Quality Plotter v5
 Feature-Complete Visualization engine for RINEXAnalyzer.
 """
 
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
@@ -12,8 +12,8 @@ import polars as pl
 
 from ..utils import (
     CONSTELLATION_NAMES,
-    GNSSColors,
     RTKLIB_BANDS,
+    GNSSColors,
 )
 
 # Backwards compatibility alias
@@ -54,7 +54,7 @@ class RINEXPlotter:
         """Extract numpy array from Polars Series."""
         return col.to_numpy()
 
-    def plot_all_frequencies_summary(self, save_path: Optional[str] = None) -> None:
+    def plot_all_frequencies_summary(self, save_path: str | None = None) -> None:
         """Generate 2x2 global dashboard of frequency band metrics.
 
         Creates comprehensive dashboard showing:
@@ -127,7 +127,7 @@ class RINEXPlotter:
         else:
             plt.show()
 
-    def plot_skyplot_snr(self, pool: str = "single", save_path: Optional[str] = None) -> None:
+    def plot_skyplot_snr(self, pool: str = "single", save_path: str | None = None) -> None:
         """Generate polar skyplot showing satellite tracks colored by SNR.
 
         Args:

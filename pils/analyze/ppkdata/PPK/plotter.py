@@ -260,7 +260,7 @@ class PPKPlotter:
         cols = ["east", "north", "up"]
         labels = ["East (m)", "North (m)", "Up (m)"]
 
-        for i, (col, label) in enumerate(zip(cols, labels)):
+        for i, (col, label) in enumerate(zip(cols, labels, strict=False)):
             axes[i].plot(
                 df["time"].to_numpy(), df[col].to_numpy(), color="black", linewidth=0.5, alpha=0.2
             )
@@ -388,7 +388,6 @@ class PPKPlotter:
             t = sub["tow"].to_numpy()
             y = sub["avg_snr"].to_numpy()
             s = sub["std_snr"].fill_null(0).to_numpy()
-            n = sub["n_sats"].to_numpy()
 
             line_color = GNSSColors.BAND_PRIMARY if i == 0 else GNSSColors.BAND_SECONDARY
             ax.plot(t, y, color=line_color, label=f"Band {b} Mean", linewidth=2)

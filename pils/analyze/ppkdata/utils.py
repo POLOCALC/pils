@@ -1,8 +1,6 @@
 """Utilities for RTK data analysis and plotting."""
 
-from typing import Dict, Optional, Tuple
 
-import matplotlib.pyplot as plt
 
 # =============================================================================
 # GNSS CONSTANTS
@@ -79,7 +77,7 @@ def get_frequency_band(constellation: str, freq_code: str) -> str:
     return {"1": "L1", "2": "L2", "5": "L5"}.get(freq_code, f"L{freq_code}")
 
 
-def get_dual_freq_bands(constellation: str) -> Tuple[str, Optional[str]]:
+def get_dual_freq_bands(constellation: str) -> tuple[str, str | None]:
     """Get primary and secondary frequency bands for a constellation.
 
     Args:

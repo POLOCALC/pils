@@ -4,7 +4,6 @@ Tests for GPS-based correlation synchronizer.
 Tests core correlation functions, GPS offset detection, and full synchronization.
 """
 
-from typing import Tuple
 
 import numpy as np
 import polars as pl

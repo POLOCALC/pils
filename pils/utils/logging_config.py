@@ -10,11 +10,10 @@ Usage:
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
 
 
 def setup_logging(
-    level: str = "INFO", log_file: Optional[Path] = None, console_output: bool = True
+    level: str = "INFO", log_file: Path | None = None, console_output: bool = True
 ) -> None:
     """
     Configure logging for PILS package.

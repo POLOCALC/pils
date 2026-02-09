@@ -9,4 +9,4 @@ from pils.sensors.IMU import IMU
 from pils.sensors.inclinometer import Inclinometer
 from pils.sensors.sensors import sensor_config
 
-__all__ = ["Camera", "GPS", "IMU", "ADC", "Inclinometer"]
+__all__ = ["Camera", "GPS", "IMU", "ADC", "Inclinometer", "sensor_config"]

@@ -4,20 +4,18 @@ High-performance GNSS analysis with 100% geodetic logic fidelity.
 """
 
 import logging
-import warnings
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any
 
 import numpy as np
 import polars as pl
 
 from ..utils import (
-    C,
-    CONSTELLATION_NAMES,
     GNSS_FREQUENCIES,
-    GNSSColors,
     RTKLIB_BANDS,
+    C,
+    GNSSColors,
     get_dual_freq_bands,
     get_frequency_band,
 )
@@ -68,7 +66,7 @@ class RINEXAnalyzer:
     >>> print(f"Quality score: {quality['score']}")
     """
 
-    def __init__(self, obspath: Path, navpath: Optional[Path] = None) -> None:
+    def __init__(self, obspath: Path, navpath: Path | None = None) -> None:
         """Initialize RINEX analyzer.
 
         Args:
@@ -112,7 +110,7 @@ class RINEXAnalyzer:
         epoch_counter = 0
         current_epoch = None  # Initialize before loop to avoid unbound errors
 
-        with open(self.obspath, "r") as f:
+        with open(self.obspath) as f:
             for line in f:
                 if in_header:
                     if "END OF HEADER" in line:
@@ -158,7 +156,7 @@ class RINEXAnalyzer:
                         current_epoch = dt if epoch_counter % sample_rate == 0 else None
                         if current_epoch:
                             self.epochs.append(dt)
-                    except:
+                    except (ValueError, IndexError):
                         current_epoch = None
                     continue
 
@@ -200,7 +198,7 @@ class RINEXAnalyzer:
                                     "lli": lli,
                                 }
                             )
-                    except:
+                    except ValueError:
                         pass
 
         self.df_obs = pl.DataFrame(records)
@@ -214,7 +212,7 @@ class RINEXAnalyzer:
             return
 
         logger.info(f"Parsing NAV data from {self.navpath.name}")
-        with open(self.navpath, "r") as f:
+        with open(self.navpath) as f:
             header_end = False
             for line in f:
                 if "END OF HEADER" in line:
@@ -326,7 +324,7 @@ class RINEXAnalyzer:
                         self.nav_data[sat_id] = []
                     self.nav_data[sat_id].append(eph)
 
-                except Exception as e:
+                except Exception:
                     pass
 
                 i += 1 + n_data_lines
@@ -446,7 +444,7 @@ class RINEXAnalyzer:
                     az = np.rad2deg(np.arctan2(e_enu, n_enu)) % 360
                     el = np.rad2deg(np.arctan2(u_val, np.sqrt(e_enu**2 + n_enu**2)))
                     azel_list.append({"time": t, "satellite": sat, "azimuth": az, "elevation": el})
-                except:
+                except Exception:
                     pass
 
         self.azel_df = pl.DataFrame(azel_list)
@@ -796,16 +794,16 @@ class RINEXAnalyzer:
 
             sub = self.df_obs.filter(pl.col("satellite") == sat)
 
-            def get_t(kind, band):
-                return sub.filter(
+            def get_t(data, kind, band):
+                return data.filter(
                     (pl.col("obs_type") == kind) & (pl.col("frequency") == band)
                 ).select(["time", "value"])
 
             c1, c2, l1, l2 = (
-                get_t("C", b1),
-                get_t("C", b2),
-                get_t("L", b1),
-                get_t("L", b2),
+                get_t(sub, "C", b1),
+                get_t(sub, "C", b2),
+                get_t(sub, "L", b1),
+                get_t(sub, "L", b2),
             )
             if any(d.is_empty() for d in [c1, c2, l1, l2]):
                 continue
@@ -1009,7 +1007,7 @@ class RINEXAnalyzer:
         res = self.assess_data_quality()
         return res["sat_scores"]
 
-    def assess_data_quality(self) -> Dict[str, Any]:
+    def assess_data_quality(self) -> dict[str, Any]:
         """Comprehensive GNSS data quality assessment.
 
         Implements 4-step quality algorithm evaluating:

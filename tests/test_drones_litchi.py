@@ -1,7 +1,5 @@
 """Test suite for Litchi drone module following TDD methodology."""
 
-from datetime import datetime
-from pathlib import Path
 
 import polars as pl
 import pytest
@@ -121,5 +119,5 @@ class TestLitchiInit:
     def test_load_data_file_not_found(self):
         """Test that load_data raises error for non-existent file."""
         litchi = Litchi("nonexistent.csv")
-        with pytest.raises(Exception):  # pl.read_csv will raise an error
+        with pytest.raises((ValueError, FileNotFoundError)):  # pl.read_csv will raise an error
             litchi.load_data()

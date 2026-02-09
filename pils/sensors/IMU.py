@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import Optional
 
 import polars as pl
 
@@ -25,19 +24,19 @@ class IMUSensor:
         Polars DataFrame with sensor data (None until load_data is called).
     """
 
-    def __init__(self, path: str | Path, type: str) -> None:
+    def __init__(self, path: str | Path, sensor_type: str) -> None:
         """Initialize IMU sensor.
 
         Parameters
         ----------
         path : Union[str, Path]
             Path to sensor binary file.
-        type : str
+        sensor_type : str
             Sensor type (baro, accelero, gyro, magneto).
         """
         self.path = path
-        self.type = type
-        self.data: Optional[pl.DataFrame] = None
+        self.type = sensor_type
+        self.data: pl.DataFrame | None = None
 
     def load_data(self) -> None:
         """

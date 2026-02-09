@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import List, Optional
 
 import polars as pl
 
@@ -28,7 +27,7 @@ class Litchi:
 
     def load_data(
         self,
-        cols: Optional[List[str]] = None,
+        cols: list[str] | None = None,
     ) -> None:
         """Load Litchi flight log data from CSV file.
 

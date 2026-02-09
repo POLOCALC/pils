@@ -2,7 +2,6 @@ import glob
 import os
 import struct
 from pathlib import Path
-from typing import Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -129,7 +128,7 @@ def decode_adc_file_ascii(adc_path: str | Path, gain_config: int = 16) -> pl.Dat
 
 class ADC:
     def __init__(
-        self, path: Path, logpath: Optional[str] = None, gain_config: Optional[int] = None
+        self, path: Path, logpath: str | None = None, gain_config: int | None = None
     ) -> None:
         """
         Initialize ADC sensor.
@@ -202,7 +201,7 @@ class ADC:
 
         if config_files:
             try:
-                with open(config_files[0], "r") as f:
+                with open(config_files[0]) as f:
                     config = yaml_module.safe_load(f)
 
                 # Navigate to sensors.ADC_1.configuration.gain

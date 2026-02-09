@@ -2,10 +2,7 @@
 
 import logging
 from datetime import datetime
-from pathlib import Path
-from unittest.mock import Mock, mock_open, patch
 
-import numpy as np
 import polars as pl
 import pytest
 
@@ -305,5 +302,4 @@ class TestDJIDroneAlignment:
             drone.align_datfile(sample_gps_df)
 
 
-# Import struct for test_parse_gps_datetime_valid
-import struct
+import struct  # noqa: E402

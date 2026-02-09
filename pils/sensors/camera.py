@@ -1,6 +1,6 @@
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import cv2
 import matplotlib.pyplot as plt
@@ -35,8 +35,8 @@ class Camera:
     def __init__(
         self,
         path: str | Path,
-        logpath: Optional[str | Path] = None,
-        time_index: Optional[Dict[str, Any]] = None,
+        logpath: str | Path | None = None,
+        time_index: dict[str, Any] | None = None,
     ) -> None:
         """Initialize Camera sensor.
 
@@ -54,14 +54,14 @@ class Camera:
         self.logpath = logpath if logpath is not None else get_logpath_from_datapath(self.path)
 
         # Video attributes
-        self.capture: Optional[Any] = None
-        self.fps: Optional[float] = None
-        self.tstart: Optional[Any] = None
+        self.capture: Any | None = None
+        self.fps: float | None = None
+        self.tstart: Any | None = None
 
         # Image-sequence attributes
         self.is_image_sequence: bool = False
         self.images: list = []  # list of filepaths
-        self.time_index: Optional[Dict[str, Any]] = time_index  # optional timestamps for images
+        self.time_index: dict[str, Any] | None = time_index  # optional timestamps for images
 
     def load_data(self) -> None:
         """Load camera data from video file or image sequence.
@@ -173,7 +173,7 @@ class Camera:
             raise ValueError(f"Failed to read image {self.images[frame_number]}")
         return frame
 
-    def get_timestamp(self, frame_number: int) -> Optional[Any]:
+    def get_timestamp(self, frame_number: int) -> Any | None:
         """Get timestamp for specified frame.
 
         For videos:

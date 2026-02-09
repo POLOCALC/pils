@@ -6,13 +6,11 @@ Generates comprehensive quality analysis reports for RTKLIB PPK solutions.
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Union
 
-import polars as pl
-
+from pils.analyze.ppkdata.PPK.plotter import PPKPlotter
 from pils.analyze.ppkdata.PPK.pos_analyzer import POSAnalyzer
 from pils.analyze.ppkdata.PPK.stat_analyzer import STATAnalyzer
-from pils.analyze.ppkdata.PPK.plotter import PPKPlotter
+
 from ..utils import CONSTELLATION_NAMES
 
 logger = logging.getLogger(__name__)
@@ -42,11 +40,11 @@ class RTKLIBReport:
 
     def __init__(
         self,
-        pos_file: Optional[Union[str, Path]] = None,
-        stat_file: Optional[Union[str, Path]] = None,
-        pos_analyzer: Optional[POSAnalyzer] = None,
-        stat_analyzer: Optional[STATAnalyzer] = None,
-        plotter: Optional[PPKPlotter] = None,
+        pos_file: str | Path | None = None,
+        stat_file: str | Path | None = None,
+        pos_analyzer: POSAnalyzer | None = None,
+        stat_analyzer: STATAnalyzer | None = None,
+        plotter: PPKPlotter | None = None,
     ) -> None:
         """Initialize RTKLIB report generator.
 
@@ -136,8 +134,8 @@ class RTKLIBReport:
 
             report += f"### Fix Rate: **{fix_rate:.1f}%** ({status})\n\n"
             report += "#### Epoch Distribution\n"
-            report += f"| Status | Epochs | Percentage |\n"
-            report += f"|---|---|---|\n"
+            report += "| Status | Epochs | Percentage |\n"
+            report += "|---|---|---|\n"
             report += f"| Fix (Q=1) | {stats['fix_epochs']} | {(stats['fix_epochs']/stats['total_epochs']*100):.1f}% |\n"
             report += f"| Float (Q=2) | {stats['float_epochs']} | {(stats['float_epochs']/stats['total_epochs']*100):.1f}% |\n"
             report += f"| Single (Q=5) | {stats['single_epochs']} | {(stats['single_epochs']/stats['total_epochs']*100):.1f}% |\n\n"
