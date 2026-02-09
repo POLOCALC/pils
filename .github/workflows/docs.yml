@@ -38,8 +38,8 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install mkdocs-material
-          pip install pymdown-extensions
+          pip install -e ".[docs]" --no-cache-dir
+
 
       - name: Build MkDocs site
         run: mkdocs build --strict
