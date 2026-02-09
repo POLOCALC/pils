@@ -248,7 +248,9 @@ class Flight:
                         metadata_dict[key] = metadata_group.attrs[key]
 
             # Create new instance
-            flight = cls(flight_info=flight_info_dict if flight_info_dict else metadata_dict)
+            flight = cls(
+                flight_info=flight_info_dict if flight_info_dict else metadata_dict
+            )
 
             # Load metadata
             if "metadata" in f:

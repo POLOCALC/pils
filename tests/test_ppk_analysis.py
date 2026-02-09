@@ -1096,18 +1096,21 @@ class TestRunAnalysisIntegration:
         # Mock subprocess.run to create output files
         def mock_run(*args, **kwargs):
             # Extract command and output file from args
-            cmd = args[0] if args else kwargs.get('args', [])
-            if cmd and len(cmd) > 2 and cmd[0] == 'rnx2rtkp':
+            cmd = args[0] if args else kwargs.get("args", [])
+            if cmd and len(cmd) > 2 and cmd[0] == "rnx2rtkp":
                 # Find output file argument (-o index + 1)
                 try:
-                    o_idx = cmd.index('-o')
+                    o_idx = cmd.index("-o")
                     output_file = cmd[o_idx + 1]
                     # Create mock output files
                     Path(output_file).write_text("# Mock position file\n")
-                    Path(str(output_file) + ".stat").write_text("# Mock statistics file\n")
+                    Path(str(output_file) + ".stat").write_text(
+                        "# Mock statistics file\n"
+                    )
                 except (ValueError, IndexError):
                     pass
             from unittest.mock import MagicMock
+
             return MagicMock(returncode=0)
 
         mock_subprocess.side_effect = mock_run
@@ -1150,16 +1153,19 @@ class TestRunAnalysisIntegration:
 
         # Mock subprocess.run to create output files
         def mock_run(*args, **kwargs):
-            cmd = args[0] if args else kwargs.get('args', [])
-            if cmd and len(cmd) > 2 and cmd[0] == 'rnx2rtkp':
+            cmd = args[0] if args else kwargs.get("args", [])
+            if cmd and len(cmd) > 2 and cmd[0] == "rnx2rtkp":
                 try:
-                    o_idx = cmd.index('-o')
+                    o_idx = cmd.index("-o")
                     output_file = cmd[o_idx + 1]
                     Path(output_file).write_text("# Mock position file\n")
-                    Path(str(output_file) + ".stat").write_text("# Mock statistics file\n")
+                    Path(str(output_file) + ".stat").write_text(
+                        "# Mock statistics file\n"
+                    )
                 except (ValueError, IndexError):
                     pass
             from unittest.mock import MagicMock
+
             return MagicMock(returncode=0)
 
         mock_subprocess.side_effect = mock_run
@@ -1200,17 +1206,20 @@ class TestRunAnalysisIntegration:
 
         # Mock subprocess.run to create output files
         def mock_run(*args, **kwargs):
-            cmd = args[0] if args else kwargs.get('args', [])
-            if cmd and len(cmd) > 2 and cmd[0] == 'rnx2rtkp':
+            cmd = args[0] if args else kwargs.get("args", [])
+            if cmd and len(cmd) > 2 and cmd[0] == "rnx2rtkp":
                 try:
-                    o_idx = cmd.index('-o')
+                    o_idx = cmd.index("-o")
                     output_file = cmd[o_idx + 1]
                     # Create mock output files
                     Path(output_file).write_text("# Mock position file\n")
-                    Path(str(output_file) + ".stat").write_text("# Mock statistics file\n")
+                    Path(str(output_file) + ".stat").write_text(
+                        "# Mock statistics file\n"
+                    )
                 except (ValueError, IndexError):
                     pass
             from unittest.mock import MagicMock
+
             return MagicMock(returncode=0)
 
         mock_subprocess.side_effect = mock_run
