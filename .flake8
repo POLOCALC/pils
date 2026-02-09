@@ -1,0 +1,31 @@
+[flake8]
+# Flake8 configuration for PILS project
+# Compatible with black formatter
+
+max-line-length = 100
+extend-ignore = 
+    # E203: whitespace before ':' (black compatibility)
+    E203,
+    # W503: line break before binary operator (black compatibility)
+    W503,
+    # E501: line too long (handled by black)
+    E501
+
+exclude =
+    .git,
+    __pycache__,
+    build,
+    dist,
+    .venv,
+    venv,
+    .eggs,
+    *.egg-info,
+    .tox,
+    .mypy_cache,
+    .pytest_cache
+
+# Complexity settings
+max-complexity = 10
+
+# Docstring conventions
+docstring-convention = google

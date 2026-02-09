@@ -1,0 +1,52 @@
+name: Auto Version Bump
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  bump-version:
+    runs-on: ubuntu-latest
+    
+    # Skip if the commit was made by the bot itself
+    if: "github.event.head_commit.author.name != 'github-actions[bot]'"
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install bumpver
+        run: pip install bumpver
+      
+      - name: Configure git
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+      
+      - name: Bump version
+        run: |
+          echo "Current version before bump:"
+          bumpver show --no-fetch
+          
+          echo "Bumping version..."
+          bumpver update --no-fetch
+          
+          echo "New version after bump:"
+          bumpver show --no-fetch
+      
+      - name: Push changes
+        run: |
+          git push origin main --follow-tags
+          echo "Version bumped and pushed successfully"

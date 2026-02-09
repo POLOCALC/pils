@@ -1,0 +1,3 @@
+# DJIDrone
+
+::: pils.drones.DJIDrone

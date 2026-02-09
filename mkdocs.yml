@@ -1,0 +1,165 @@
+# MkDocs Configuration for PILS Documentation
+site_name: PILS Documentation
+site_description: POLOCALC Inertial & Drone Loading System - Complete Documentation
+site_author: POLOCALC Team
+repo_url: https://github.com/polocalc/pils
+repo_name: polocalc/pils
+
+# Theme Configuration
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.indexes
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - toc.follow
+  icon:
+    repo: fontawesome/brands/github
+  language: en
+
+# Navigation Structure
+nav:
+  - Home: index.md
+  - Getting Started:
+    - getting-started/index.md
+    - Installation: getting-started/installation.md
+    - Quick Start: getting-started/quickstart.md
+    - First Flight: getting-started/first-flight.md
+  - API Reference:
+    - api/index.md
+    - Core:
+      - api/core/flight.md
+      - api/core/synchronizer.md
+    - Loaders:
+      - api/loaders/index.md
+      - Path Loader: api/loaders/path-loader.md
+      - Stout Loader: api/loaders/stout-loader.md
+    - Sensors:
+      - api/sensors/index.md
+      - GPS: api/sensors/gps.md
+      - IMU: api/sensors/imu.md
+      - Camera: api/sensors/camera.md
+      - ADC: api/sensors/adc.md
+      - Inclinometer: api/sensors/inclinometer.md
+    - Drones:
+      - api/drones/index.md
+      - DJI: api/drones/dji.md
+      - BlackSquare: api/drones/blacksquare.md
+      - Litchi: api/drones/litchi.md
+    - Analysis:
+      - api/analysis/index.md
+      - PPK: api/analysis/ppk.md
+    - Utilities:
+      - api/utilities/index.md
+      - Tools: api/utilities/tools.md
+      - Decoders: api/utilities/decoders.md
+  - User Guide:
+    - user-guide/index.md
+    - Directory Structure: user-guide/directory-structure.md
+    - Time Synchronization: user-guide/synchronization.md
+    - Drone: user-guide/dji-drone.md
+  - Development:
+    - development/index.md
+    - Architecture: development/architecture.md
+    - Testing: development/testing.md
+    - Contributing: development/contributing.md
+    - Adding Sensors: development/adding-sensors.md
+    - Adding Analysis: development/adding-analysis.md
+    - Code Style: development/code-style.md
+    - Versioning: development/versioning.md
+  - Changelog: changelog.md
+
+# Plugins
+plugins:
+  - search
+  - autorefs
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [.]
+          options:
+            show_root_heading: true
+            show_root_full_path: false
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            members_order: source
+            merge_init_into_class: true
+            separate_signature: true
+            show_signature_annotations: true
+            signature_crossrefs: true
+            docstring_style: numpy
+            docstring_section_style: table
+            show_if_no_docstring: false
+            line_length: 88
+
+# Extensions
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.arithmatex:
+      generic: true
+  - tables
+  - attr_list
+  - md_in_html
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - toc:
+      permalink: true
+      toc_depth: 3
+
+# Extra CSS/JS
+extra_css:
+  - https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.7/katex.min.css
+  - stylesheets/extra.css
+  # - stylesheets/static_examples.css
+
+extra_javascript:
+  # - javascripts/static_examples.js
+  - javascripts/katex.js
+  - https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.7/katex.min.js
+  - https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.7/contrib/auto-render.min.js
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/polocalc/pils
+  version:
+    provider: mike

@@ -1,0 +1,34 @@
+{
+  "[python]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "charliermarsh.ruff",
+
+    "editor.codeActionsOnSave": {
+      "source.fixAll": "explicit",
+      "source.organizeImports": "explicit"
+    }
+  },
+
+  // -------------------------
+  // Ruff (new server)
+  // -------------------------
+  "ruff.enable": true,
+  "ruff.lint.enable": true,
+  "ruff.format.enable": true,
+  "ruff.configurationPreference": "filesystemFirst",
+
+  // -------------------------
+  // Pyright / Pylance
+  // -------------------------
+  "python.analysis.typeCheckingMode": "basic",
+  "python.analysis.diagnosticMode": "workspace",
+  "python.analysis.autoImportCompletions": true,
+
+  // -------------------------
+  // Disable legacy linters
+  // -------------------------
+  "python.linting.enabled": false,
+  "python.linting.mypyEnabled": false,
+  "python.linting.flake8Enabled": false,
+  "python.linting.pylintEnabled": false
+}
