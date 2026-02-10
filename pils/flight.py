@@ -741,8 +741,11 @@ class Flight:
 
         Parameters
         ----------
-        target_rate_hz : float, default=10.0
-            Target sample rate in Hz
+        target_rate : dict, default=None
+            Target sample rate in Hz of the different sensors; if None the following
+            rates are applied:
+            - 10 Hz for drone and litchi
+            - 100 Hz for payload sensors (including inclinometer and ADC)
         use_rtk_data : bool, default=True
             For DJI drones: if True, use RTK data; if False, use standard GPS
         **kwargs : dict

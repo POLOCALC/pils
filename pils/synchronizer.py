@@ -997,7 +997,7 @@ class Synchronizer:
         sync_data = {}
 
         for key in self.offsets.keys():
-            if key.lower == "drone_gps":
+            if key.lower() == "drone_gps":
                 sync_data["drone"] = {}
 
                 n_samples = int((t_end - t_start) * target_rate["drone"]) + 1
@@ -1022,7 +1022,7 @@ class Synchronizer:
                             except ValueError:
                                 logger.info(f"Skipped drone column: {col}")
 
-            elif key.lower == "litchi_gps":
+            elif key.lower() == "litchi_gps":
                 sync_data["litchi"] = {}
 
                 n_samples = int((t_end - t_start) * target_rate["drone"]) + 1
@@ -1044,7 +1044,7 @@ class Synchronizer:
                             )
                             sync_data["litchi"][f"{col}"] = interpolated
 
-            elif key.lower == "inclinometer":
+            elif key.lower() == "inclinometer":
                 sync_data["inclinometer"] = {}
 
                 n_samples = int((t_end - t_start) * target_rate["inclinometer"]) + 1
@@ -1146,7 +1146,7 @@ class Synchronizer:
             key: pl.DataFrame(value) for key, value in sync_data.items()
         }
 
-        logger.info(f"({n_samples} samples, {t_end - t_start:.2f}s duration)")
+        logger.info(f"({t_end - t_start:.2f}s duration)")
 
         return self.synchronized_data
 
