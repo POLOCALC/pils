@@ -45,12 +45,16 @@ def test_sync_creates_sync_data(sample_flight_with_gps):
     assert flight.sync_data is None
 
     # Call sync
-    result = flight.sync(target_rate_hz=1.0)
+    result = flight.sync(target_rate={"drone": 1.0})
 
-    # Check sync_data is created
+    # Check sync_data is created as a dictionary
     assert flight.sync_data is not None
-    assert isinstance(flight.sync_data, pl.DataFrame)
+    assert isinstance(flight.sync_data, dict)
     assert result is flight.sync_data
+
+    # Check that dictionary values are DataFrames
+    for key, value in flight.sync_data.items():
+        assert isinstance(value, pl.DataFrame), f"Expected DataFrame for key {key}"
 
 
 def test_sync_requires_gps_payload():
@@ -70,7 +74,7 @@ def test_sync_data_persists_to_hdf5(sample_flight_with_gps):
     flight = sample_flight_with_gps
 
     # Perform synchronization
-    flight.sync(target_rate_hz=1.0)
+    flight.sync(target_rate={"drone": 1.0})
 
     with tempfile.TemporaryDirectory() as tmpdir:
         hdf5_path = Path(tmpdir) / "test_flight.h5"
@@ -81,13 +85,19 @@ def test_sync_data_persists_to_hdf5(sample_flight_with_gps):
         # Load from HDF5
         loaded_flight = Flight.from_hdf5(hdf5_path)
 
-        # Check sync_data was loaded
+        # Check sync_data was loaded as a dictionary
         assert loaded_flight.sync_data is not None
-        assert isinstance(loaded_flight.sync_data, pl.DataFrame)
+        assert isinstance(loaded_flight.sync_data, dict)
 
-        # Verify data matches
-        assert loaded_flight.sync_data.shape == flight.sync_data.shape
-        assert loaded_flight.sync_data.columns == flight.sync_data.columns
+        # Verify all keys are present
+        assert loaded_flight.sync_data.keys() == flight.sync_data.keys()
+
+        # Verify each DataFrame matches
+        for key in flight.sync_data.keys():
+            assert key in loaded_flight.sync_data
+            assert isinstance(loaded_flight.sync_data[key], pl.DataFrame)
+            assert loaded_flight.sync_data[key].shape == flight.sync_data[key].shape
+            assert loaded_flight.sync_data[key].columns == flight.sync_data[key].columns
 
 
 def test_sync_data_not_saved_if_none():

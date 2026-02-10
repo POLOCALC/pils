@@ -265,22 +265,12 @@ class Flight:
                 flight._load_raw_data_from_hdf5(raw_data_group, flight)
 
             # Load sync_data if available
-            if "sync_data" in f:
+            if sync_version is not False and "sync_data" in f:
                 sync_data_group = f["sync_data"]
                 assert isinstance(sync_data_group, h5py.Group)
-                if "data" in sync_data_group:
-                    data_group = sync_data_group["data"]
-                    assert isinstance(data_group, h5py.Group)
-                    loaded_sync = flight._load_dataframe_from_hdf5(data_group)
-                    if loaded_sync is not None:
-                        flight.sync_data = loaded_sync
-
-            # Load synchronized data
-            if sync_version is not False and "synchronized_data" in f:
-                sync_group = f["synchronized_data"]
-                assert isinstance(sync_group, h5py.Group)
-                available_versions = sorted(list(sync_group.keys()))
-
+                available_versions = sorted(
+                    [k for k in sync_data_group.keys() if k.startswith("rev_")]
+                )
                 if available_versions:
                     # Determine which version to load
                     if sync_version is None:
@@ -292,10 +282,18 @@ class Flight:
                             f"Available versions: {available_versions}"
                         )
 
-                    # Load the specified version
-                    version_group = sync_group[sync_version]
-                    assert isinstance(version_group, h5py.Group)
-                    flight._load_synchronized_data_from_hdf5(version_group, flight)
+                    revision_group = sync_data_group[sync_version]
+                    assert isinstance(revision_group, h5py.Group)
+                    # Load all datasets in the revision
+                    sync_dict = {}
+                    for key in revision_group.keys():
+                        dataset_group = revision_group[key]
+                        assert isinstance(dataset_group, h5py.Group)
+                        df = flight._load_dataframe_from_hdf5(dataset_group)
+                        if df is not None:
+                            sync_dict[key] = df
+                    if sync_dict:
+                        flight.sync_data = sync_dict
 
         return flight
 
@@ -375,32 +373,6 @@ class Flight:
                 sensor_df = Flight._load_dataframe_from_hdf5(sensor_data)
                 if sensor_df is not None:
                     setattr(flight.raw_data.payload_data, sensor_name, sensor_df)
-
-    @staticmethod
-    def _load_synchronized_data_from_hdf5(
-        version_group: "h5py.Group", flight: "Flight"
-    ) -> None:
-        """
-        Load synchronized data from HDF5 group into flight object.
-
-        Stores synchronized data as DataFrame attribute on raw_data.
-
-        Parameters
-        ----------
-        version_group : h5py.Group
-            Version group containing synchronized data
-        flight : Flight
-            Flight object to populate
-        """
-
-        # Load synchronized dataframe
-        if "synchronized_data" in version_group:
-            sync_data = version_group["synchronized_data"]
-            assert isinstance(sync_data, h5py.Group)
-            sync_df = Flight._load_dataframe_from_hdf5(sync_data)
-            if sync_df is not None:
-                # Store synchronized data directly on raw_data as attribute
-                flight.sync_data = sync_df
 
     @staticmethod
     def _load_dataframe_from_hdf5(
@@ -759,7 +731,7 @@ class Flight:
             setattr(self.raw_data.payload_data, sensor, sensor_data)
 
     def sync(
-        self, target_rate_hz: float = 10.0, use_rtk_data: bool = True, **kwargs
+        self, target_rate: dict = None, use_rtk_data: bool = True, **kwargs
     ) -> pl.DataFrame:
         """
         Synchronize flight data using GPS-based correlation.
@@ -824,7 +796,14 @@ class Flight:
         drone_has_data = (isinstance(drone_data, dict) and len(drone_data) > 0) or (
             isinstance(drone_data, pl.DataFrame) and len(drone_data) > 0
         )
+
+        if target_rate is None:
+            target_rate = {}
+
         if drone_has_data:
+            # Ensure target_rate dict has drone key with default 10 Hz
+            if "drone" not in target_rate:
+                target_rate["drone"] = 10.0
             drone_df = drone_data
 
             if "dji" in self.__drone_model.lower():
@@ -861,10 +840,16 @@ class Flight:
                 and "latitude" in litchi_df.columns
                 and "longitude" in litchi_df.columns
             ):
+                if "drone" not in target_rate:
+                    target_rate["drone"] = 10.0
+
                 sync.add_litchi_gps(litchi_df)
 
         # Add inclinometer if available
         if "inclinometer" in self.raw_data.payload_data:
+            if "inclinometer" not in target_rate:
+                target_rate["inclinometer"] = 100.0
+
             incl_sensor = self.raw_data.payload_data["inclinometer"]
             incl_data = (
                 incl_sensor.data if hasattr(incl_sensor, "data") else incl_sensor
@@ -878,12 +863,17 @@ class Flight:
 
         # Add ADC if available
         if "adc" in payload:
+            if "payload" not in target_rate:
+                target_rate["payload"] = 100.0
             adc_sensor = payload["adc"]
             adc_data = adc_sensor.data if hasattr(adc_sensor, "data") else adc_sensor
             sync.add_payload_sensor("adc", adc_data)
 
         # Add IMU sensors if available
         if "imu" in payload:
+            if "payload" not in target_rate:
+                target_rate["payload"] = 100.0
+
             imu_sensor = payload["imu"]
             if hasattr(imu_sensor, "barometer") and imu_sensor.barometer is not None:
                 sync.add_payload_sensor("imu_barometer", imu_sensor.barometer)
@@ -901,13 +891,14 @@ class Flight:
                 sync.add_payload_sensor("imu_magnetometer", imu_sensor.magnetometer)
 
         # Perform synchronization
-        self.sync_data = sync.synchronize(target_rate_hz=target_rate_hz, **kwargs)
+        self.sync_data = sync.synchronize(target_rate=target_rate, **kwargs)
 
         return self.sync_data
 
     def to_hdf5(
         self,
         filepath: str | Path | None = None,
+        sync_metadata: dict[str, Any] | None = None,
     ) -> str:
         """
         Save flight data to HDF5 file.
@@ -918,6 +909,10 @@ class Flight:
         ----------
         filepath : Union[str, Path], optional
             Path to output HDF5 file
+        sync_metadata : Dict[str, Any], optional
+            Additional metadata to store with synchronized data revision.
+            Will be saved as attributes on the revision group.
+            Example: {'comment': 'Initial sync', 'target_rate': 10.0}
 
         Returns
         -------
@@ -935,6 +930,8 @@ class Flight:
         --------
         >>> # Save raw data
         >>> flight.to_hdf5('flight_001.h5')
+        >>> # Save with sync metadata
+        >>> flight.to_hdf5('flight_001.h5', sync_metadata={'comment': 'High rate sync', 'rate': 100.0})
         >>> # For synchronization, use CorrelationSynchronizer separately:
         >>> from pils.synchronizer import CorrelationSynchronizer
         >>> sync = CorrelationSynchronizer()
@@ -959,7 +956,7 @@ class Flight:
 
             # Save sync_data if available
             if self.sync_data is not None and len(self.sync_data) > 0:
-                self._save_sync_data_to_hdf5(f)
+                self._save_sync_data_to_hdf5(f, sync_metadata)
 
         return _get_current_timestamp()
 
@@ -1058,7 +1055,9 @@ class Flight:
                         payload_group, sensor_name, sensor_data
                     )
 
-    def _save_sync_data_to_hdf5(self, h5file: "h5py.File") -> None:
+    def _save_sync_data_to_hdf5(
+        self, h5file: "h5py.File", sync_metadata: dict[str, Any] | None = None
+    ) -> None:
         """
         Save synchronized data to HDF5 file.
 
@@ -1066,6 +1065,8 @@ class Flight:
         ----------
         h5file : h5py.File
             Open HDF5 file handle
+        sync_metadata : Dict[str, Any], optional
+            Additional metadata to store as attributes on revision group
         """
         if len(self.sync_data) == 0:
             return
@@ -1076,13 +1077,29 @@ class Flight:
             sync_group = h5file["sync_data"]
             assert isinstance(sync_group, h5py.Group)
 
-        # Save sync_data DataFrame
-        self._save_dataframe_to_hdf5(sync_group, "data", self.sync_data)
+        # Create revision group
+        revision_name = _get_current_timestamp()
+        if revision_name in sync_group:
+            del sync_group[revision_name]
+        revision_group = sync_group.create_group(revision_name)
 
-        # Save metadata
-        sync_group.attrs["created_at"] = _get_current_timestamp()
-        sync_group.attrs["n_samples"] = len(self.sync_data)
-        sync_group.attrs["n_columns"] = len(self.sync_data.columns)
+        # Save each key's DataFrame as a dataset
+        for key, df in self.sync_data.items():
+            if isinstance(df, pl.DataFrame) and len(df) > 0:
+                self._save_dataframe_to_hdf5(revision_group, key, df)
+
+        # Save metadata on revision group
+        revision_group.attrs["created_at"] = revision_name
+        revision_group.attrs["n_keys"] = len(self.sync_data)
+        revision_group.attrs["pils_version"] = _get_package_version()
+
+        # Save user-provided metadata
+        if sync_metadata:
+            for key, value in sync_metadata.items():
+                try:
+                    revision_group.attrs[f"user_{key}"] = _serialize_for_hdf5(value)
+                except Exception as e:
+                    print(f"Warning: Could not save sync_metadata[{key}]: {e}")
 
     def _save_dataframe_to_hdf5(
         self, parent_group: "h5py.Group", name: str, df: "pl.DataFrame"
@@ -1112,6 +1129,7 @@ class Flight:
             if col_name in column_group:
                 del column_group[col_name]
             column_group.create_dataset(col_name, data=col_data)
+
 
         # Save column order and dtypes as attrs
         column_group.attrs["columns"] = json.dumps(df.columns)
