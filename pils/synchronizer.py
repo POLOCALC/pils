@@ -891,23 +891,26 @@ class Synchronizer:
 
     def synchronize(
         self,
-        target_rate_hz: float = 10.0,
-    ) -> pl.DataFrame:
+        target_rate: dict,
+    ) -> dict:
         """
         Execute correlation-based synchronization.
 
         Detects time offsets for all sources using correlation, then
-        interpolates to GPS payload timebase at target rate.
+        interpolates to GPS payload timebase at target rates.
 
         Parameters
         ----------
-        target_rate_hz : float, default=10.0
-            Target sample rate in Hz for output
+        target_rate : dict
+            Target sample rates in Hz for each source
+            Keys: "drone", "litchi", "inclinometer" and "payload"
+            Values: float sample rate in Hz
 
         Returns
         -------
-        pl.DataFrame
-            Synchronized DataFrame with all data sources
+        dict
+            Synchronized data dictionary with interpolated values for each source
+            Keys: "drone", "litchi", "inclinometer" and "payload"
 
         Raises
         ------
@@ -991,75 +994,101 @@ class Synchronizer:
                 else:
                     logger.warning("Failed to detect inclinometer offset")
 
-        # Create common timebase at target rate
-        n_samples = int((t_end - t_start) * target_rate_hz) + 1
-        target_time = np.linspace(t_start, t_end, n_samples)
+        sync_data = {}
 
-        # Start building synchronized data
-        sync_data = {"timestamp": target_time}
+        for key in self.offsets.keys():
+            if key.lower() == "drone_gps":
+                sync_data["drone"] = {}
 
-        # Add GPS payload data (no offset, this is reference)
-        for col in self.gps_payload.columns:
-            if col != "timestamp":
-                values = self.gps_payload[col].to_numpy().astype(float)
-                interpolated = np.interp(
-                    target_time, gps_time, values, left=np.nan, right=np.nan
-                )
-                sync_data[f"payload_gps_{col}"] = interpolated
+                n_samples = int((t_end - t_start) * target_rate["drone"]) + 1
+                target_time = np.linspace(t_start, t_end, n_samples)
 
-        # Add drone GPS with offset correction
-        if self.drone_gps is not None and "drone_gps" in self.offsets:
-            offset = self.offsets["drone_gps"]["time_offset"]
-            drone_time = self.drone_gps["timestamp"].to_numpy() + offset
+                if self.drone_gps is not None and "drone_gps" in self.offsets:
+                    offset = self.offsets["drone_gps"]["time_offset"]
+                    drone_time = self.drone_gps["timestamp"].to_numpy() + offset
 
-            for col in self.drone_gps.columns:
-                if col != "timestamp":
-                    try:
-                        values = self.drone_gps[col].to_numpy().astype(float)
-                        interpolated = np.interp(
-                            target_time, drone_time, values, left=np.nan, right=np.nan
-                        )
-                        sync_data[f"drone_gps_{col}"] = interpolated
-                    except ValueError:
-                        logger.info(f"Skipped column: {col}")
-
-        # Add litchi GPS with offset correction
-        if self.litchi_gps is not None and "litchi_gps" in self.offsets:
-            offset = self.offsets["litchi_gps"]["time_offset"]
-            litchi_time = self.litchi_gps["timestamp"].to_numpy() + offset
-
-            for col in self.litchi_gps.columns:
-                if col != "timestamp":
-                    values = self.litchi_gps[col].to_numpy().astype(float)
-                    interpolated = np.interp(
-                        target_time, litchi_time, values, left=np.nan, right=np.nan
-                    )
-                    sync_data[f"litchi_gps_{col}"] = interpolated
-
-        # Add inclinometer with offset correction
-        if self.inclinometer is not None and "inclinometer" in self.offsets:
-            # Inclinometer offset is relative to Litchi, not GPS payload
-            # Need to add both: inclinometer-to-litchi + litchi-to-gps
-            incl_offset = self.offsets["inclinometer"]["time_offset"]
-            litchi_offset = self.offsets.get("litchi_gps", {}).get("time_offset", 0.0)
-            total_offset = incl_offset + litchi_offset
-
-            logger.info(
-                f"Applying inclinometer total offset: {total_offset:.3f}s "
-                f"(incl→litchi: {incl_offset:.3f}s + litchi→gps: {litchi_offset:.3f}s)"
-            )
-
-            if isinstance(self.inclinometer, dict):
-                for key in self.inclinometer.keys():
-                    inclinometer_time = (
-                        self.inclinometer[key]["timestamp"].to_numpy() + total_offset
-                    )
-
-                    for col in self.inclinometer[key].columns:
-                        if col != "timestamp":
-                            values = (
-                                self.inclinometer[key][col].to_numpy().astype(float)
+                    for col in self.drone_gps.columns:
+                        try:
+                            values = self.drone_gps[col].to_numpy().astype(float)
+                            interpolated = np.interp(
+                                target_time,
+                                drone_time,
+                                values,
+                                left=np.nan,
+                                right=np.nan,
                             )
+                            sync_data["drone"][f"{col}"] = interpolated
+                        except ValueError:
+                            logger.info(f"Skipped drone column: {col}")
+
+            elif key.lower() == "litchi_gps":
+                sync_data["litchi"] = {}
+
+                n_samples = int((t_end - t_start) * target_rate["drone"]) + 1
+                target_time = np.linspace(t_start, t_end, n_samples)
+
+                if self.litchi_gps is not None and "litchi_gps" in self.offsets:
+                    offset = self.offsets["litchi_gps"]["time_offset"]
+                    litchi_time = self.litchi_gps["timestamp"].to_numpy() + offset
+
+                    for col in self.litchi_gps.columns:
+                        values = self.litchi_gps[col].to_numpy().astype(float)
+                        interpolated = np.interp(
+                            target_time,
+                            litchi_time,
+                            values,
+                            left=np.nan,
+                            right=np.nan,
+                        )
+                        sync_data["litchi"][f"{col}"] = interpolated
+
+            elif key.lower() == "inclinometer":
+                sync_data["inclinometer"] = {}
+
+                n_samples = int((t_end - t_start) * target_rate["inclinometer"]) + 1
+                target_time = np.linspace(t_start, t_end, n_samples)
+
+                if self.inclinometer is not None and "inclinometer" in self.offsets:
+                    # Inclinometer offset is relative to Litchi, not GPS payload
+                    # Need to add both: inclinometer-to-litchi + litchi-to-gps
+                    incl_offset = self.offsets["inclinometer"]["time_offset"]
+                    litchi_offset = self.offsets.get("litchi_gps", {}).get(
+                        "time_offset", 0.0
+                    )
+                    total_offset = incl_offset + litchi_offset
+
+                    logger.info(
+                        f"Applying inclinometer total offset: {total_offset:.3f}s "
+                        f"(incl→litchi: {incl_offset:.3f}s + litchi→gps: {litchi_offset:.3f}s)"
+                    )
+
+                    if isinstance(self.inclinometer, dict):
+                        for key in self.inclinometer.keys():
+                            inclinometer_time = (
+                                self.inclinometer[key]["timestamp"].to_numpy()
+                                + total_offset
+                            )
+
+                            for col in self.inclinometer[key].columns:
+                                values = (
+                                    self.inclinometer[key][col].to_numpy().astype(float)
+                                )
+                                interpolated = np.interp(
+                                    target_time,
+                                    inclinometer_time,
+                                    values,
+                                    left=np.nan,
+                                    right=np.nan,
+                                )
+                                sync_data["inclinometer"][f"{key}_{col}"] = interpolated
+
+                    else:
+                        inclinometer_time = (
+                            self.inclinometer["timestamp"].to_numpy() + total_offset
+                        )
+
+                        for col in self.inclinometer.columns:
+                            values = self.inclinometer[col].to_numpy().astype(float)
                             interpolated = np.interp(
                                 target_time,
                                 inclinometer_time,
@@ -1067,45 +1096,47 @@ class Synchronizer:
                                 left=np.nan,
                                 right=np.nan,
                             )
-                            sync_data[f"inclinometer_{key}_{col}"] = interpolated
+                            sync_data["inclinometer"][f"{col}"] = interpolated
 
-            else:
-                inclinometer_time = (
-                    self.inclinometer["timestamp"].to_numpy() + total_offset
-                )
+                    sync_data["payload"] = {}
 
-                for col in self.inclinometer.columns:
-                    if col != "timestamp":
-                        values = self.inclinometer[col].to_numpy().astype(float)
-                        interpolated = np.interp(
-                            target_time,
-                            inclinometer_time,
-                            values,
-                            left=np.nan,
-                            right=np.nan,
-                        )
-                        sync_data[f"inclinometer_{col}"] = interpolated
+                    n_samples = int((t_end - t_start) * target_rate["payload"]) + 1
+                    target_time = np.linspace(t_start, t_end, n_samples)
 
-        # Add other payload sensors (no offset correction, assume aligned with GPS payload)
-        for sensor_name, sensor_df in self.other_payload.items():
-            if "timestamp" in sensor_df.columns:
-                sensor_time = sensor_df["timestamp"].to_numpy()
+                    for sensor_name, sensor_df in self.other_payload.items():
+                        if "timestamp" in sensor_df.columns:
+                            sensor_time = sensor_df["timestamp"].to_numpy()
 
-                for col in sensor_df.columns:
-                    if col != "timestamp":
-                        values = sensor_df[col].to_numpy().astype(float)
-                        interpolated = np.interp(
-                            target_time, sensor_time, values, left=np.nan, right=np.nan
-                        )
-                        sync_data[f"{sensor_name}_{col}"] = interpolated
+                            incl_offset = self.offsets.get("inclinometer", {}).get(
+                                "time_offset", 0.0
+                            )
+                            litchi_offset = self.offsets.get("litchi_gps", {}).get(
+                                "time_offset", 0.0
+                            )
+                            total_offset = incl_offset + litchi_offset
 
-        # Create synchronized DataFrame
-        self.synchronized_data = pl.DataFrame(sync_data)
+                            sensor_time += total_offset
 
-        logger.info(
-            f"Synchronized data to {target_rate_hz:.1f} Hz "
-            f"({n_samples} samples, {t_end - t_start:.2f}s duration)"
-        )
+                            for col in sensor_df.columns:
+                                values = sensor_df[col].to_numpy().astype(float)
+                                interpolated = np.interp(
+                                    target_time,
+                                    sensor_time,
+                                    values,
+                                    left=np.nan,
+                                    right=np.nan,
+                                )
+                                sync_data["payload"][f"{sensor_name}_{col}"] = (
+                                    interpolated
+                                )
+
+        sync_data["reference_gps"] = self.gps_payload
+
+        self.synchronized_data = {
+            key: pl.DataFrame(value) for key, value in sync_data.items()
+        }
+
+        logger.info(f"({t_end - t_start:.2f}s duration)")
 
         return self.synchronized_data
 

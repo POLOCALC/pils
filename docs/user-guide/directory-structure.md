@@ -83,7 +83,11 @@ flight.h5
     │   ├── metadata
     │   │   ├── sync_method: "correlation"
     │   │   └── column_names: []
-    │   └── [Merged DataFrame columns]
+    │   └── GPS
+    │       ├── metadata
+    │       │   └── column_names: []
+    │       └── data (dataset)
+    │
     └── rev_20231101_140000/
         └── ...
 ```

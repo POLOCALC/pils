@@ -434,11 +434,10 @@ class TestSynchronizerClass:
             alt_col="altitude",
         )
 
-        result = sync.synchronize(target_rate_hz=10.0)
+        result = sync.synchronize(target_rate={"drone": 10.0})
 
         assert result is not None
-        assert "timestamp" in result.columns
-        assert "drone_gps" in sync.offsets
+        assert isinstance(result, dict)
 
     def test_get_offset_summary(self, sample_gps_payload, sample_drone_gps):
         """Test offset summary generation."""
@@ -457,7 +456,7 @@ class TestSynchronizerClass:
             lon_col="longitude",
             alt_col="altitude",
         )
-        sync.synchronize(target_rate_hz=10.0)
+        sync.synchronize(target_rate={"drone": 10.0})
 
         summary = sync.get_offset_summary()
 

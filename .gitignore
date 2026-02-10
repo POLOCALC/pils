@@ -26,6 +26,7 @@ var/
 *.egg-info/
 .installed.cfg
 *.egg
+*.xml
 
 # Test databases
 tests/temp_test.db
