@@ -1130,7 +1130,6 @@ class Flight:
                 del column_group[col_name]
             column_group.create_dataset(col_name, data=col_data)
 
-
         # Save column order and dtypes as attrs
         column_group.attrs["columns"] = json.dumps(df.columns)
         column_group.attrs["dtypes"] = json.dumps([str(dtype) for dtype in df.dtypes])

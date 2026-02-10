@@ -34,6 +34,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
 class StoutLoader:
     """
     Data loader for STOUT campaign management system.
