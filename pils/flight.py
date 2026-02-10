@@ -1,5 +1,6 @@
 import glob
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional, Union, overload
@@ -13,6 +14,8 @@ from pils.drones.litchi import Litchi
 from pils.sensors.sensors import sensor_config
 from pils.synchronizer import Synchronizer
 from pils.utils.tools import get_path_from_keyword
+
+logger = logging.getLogger(__name__)
 
 
 def _get_current_timestamp() -> str:
@@ -985,7 +988,7 @@ class Flight:
                         value
                     )
                 except Exception as e:
-                    print(f"Warning: Could not save flight_info[{key}]: {e}")
+                    logger.info(f"Warning: Could not save flight_info[{key}]: {e}")
 
         # Save flight_metadata as attrs
         if self.metadata:
@@ -995,7 +998,7 @@ class Flight:
                         _serialize_for_hdf5(value)
                     )
                 except Exception as e:
-                    print(f"Warning: Could not save metadata[{key}]: {e}")
+                    logger.info(f"Warning: Could not save metadata[{key}]: {e}")
 
     def _save_raw_data_to_hdf5(self, h5file: "h5py.File") -> None:
         """
@@ -1102,7 +1105,7 @@ class Flight:
                 try:
                     revision_group.attrs[f"user_{key}"] = _serialize_for_hdf5(value)
                 except Exception as e:
-                    print(f"Warning: Could not save sync_metadata[{key}]: {e}")
+                    logger.info(f"Warning: Could not save sync_metadata[{key}]: {e}")
 
     def _save_dataframe_to_hdf5(
         self, parent_group: "h5py.Group", name: str, df: "pl.DataFrame"
