@@ -131,10 +131,11 @@ class TestCameraSonyMode:
     @pytest.fixture
     def mock_ahrs_filter(self):
         """Mock AHRS Madgwick filter and quaternion operations."""
-        with patch("pils.sensors.camera.Madgwick") as mock_madgwick, \
-             patch("pils.sensors.camera.acc2q") as mock_acc2q, \
-             patch("pils.sensors.camera.Quaternion") as mock_quat:
-
+        with (
+            patch("pils.sensors.camera.Madgwick") as mock_madgwick,
+            patch("pils.sensors.camera.acc2q") as mock_acc2q,
+            patch("pils.sensors.camera.Quaternion") as mock_quat,
+        ):
             # Mock Madgwick filter
             mock_filter = Mock()
             mock_filter.updateIMU.return_value = np.array([1.0, 0.0, 0.0, 0.0])
@@ -154,7 +155,9 @@ class TestCameraSonyMode:
                 "quaternion": mock_quat,
             }
 
-    def test_sony_mode_finds_mp4_files(self, sony_video_and_log, mock_telemetry_parser, mock_ahrs_filter):
+    def test_sony_mode_finds_mp4_files(
+        self, sony_video_and_log, mock_telemetry_parser, mock_ahrs_filter
+    ):
         """Test that Sony mode finds .mp4 files (case-insensitive)."""
         camera_dir, _, _ = sony_video_and_log
 
@@ -164,7 +167,9 @@ class TestCameraSonyMode:
         _, model = camera.data
         assert model == "sony"
 
-    def test_sony_mode_reads_log_file(self, sony_video_and_log, mock_telemetry_parser, mock_ahrs_filter):
+    def test_sony_mode_reads_log_file(
+        self, sony_video_and_log, mock_telemetry_parser, mock_ahrs_filter
+    ):
         """Test that Sony mode reads log file from parent directory."""
         camera_dir, _, log_file = sony_video_and_log
 
@@ -174,7 +179,9 @@ class TestCameraSonyMode:
         # Log file should be found and stored
         assert camera.logpath == log_file
 
-    def test_sony_telemetry_parsing_gyro_accel(self, sony_video_and_log, mock_telemetry_parser, mock_ahrs_filter):
+    def test_sony_telemetry_parsing_gyro_accel(
+        self, sony_video_and_log, mock_telemetry_parser, mock_ahrs_filter
+    ):
         """Test extraction of gyro and accel data from Sony telemetry."""
         camera_dir, _, _ = sony_video_and_log
 
@@ -196,7 +203,9 @@ class TestCameraSonyMode:
         assert df["gyro_x"][0] == 0.1
         assert df["accel_z"][0] == 9.8
 
-    def test_sony_telemetry_computes_quaternions(self, sony_video_and_log, mock_telemetry_parser, mock_ahrs_filter):
+    def test_sony_telemetry_computes_quaternions(
+        self, sony_video_and_log, mock_telemetry_parser, mock_ahrs_filter
+    ):
         """Test that quaternions are computed."""
         camera_dir, _, _ = sony_video_and_log
 
@@ -214,7 +223,9 @@ class TestCameraSonyMode:
         # Check quaternion values (from mocked filter)
         assert df["qw"][0] == 1.0
 
-    def test_sony_telemetry_computes_euler_angles(self, sony_video_and_log, mock_telemetry_parser, mock_ahrs_filter):
+    def test_sony_telemetry_computes_euler_angles(
+        self, sony_video_and_log, mock_telemetry_parser, mock_ahrs_filter
+    ):
         """Test that Euler angles (roll, pitch, yaw) are computed."""
         camera_dir, _, _ = sony_video_and_log
 
@@ -231,7 +242,9 @@ class TestCameraSonyMode:
         # Check values from mocked Quaternion.to_angles()
         assert df["pitch"][0] == 0.1
 
-    def test_sony_timestamp_alignment(self, sony_video_and_log, mock_telemetry_parser, mock_ahrs_filter):
+    def test_sony_timestamp_alignment(
+        self, sony_video_and_log, mock_telemetry_parser, mock_ahrs_filter
+    ):
         """Test that timestamps are aligned with log start time."""
         camera_dir, _, _ = sony_video_and_log
 
@@ -248,12 +261,15 @@ class TestCameraSonyMode:
         # Log time is 2024/11/20 14:30:45.123000
         # First timestamp_ms is 0, so timestamp should be log start time
         import datetime
+
         expected_start = datetime.datetime(2024, 11, 20, 14, 30, 45, 123000).timestamp()
 
         # Allow small floating point differences
         assert abs(df["timestamp"][0] - expected_start) < 0.001
 
-    def test_sony_returns_model_string(self, sony_video_and_log, mock_telemetry_parser, mock_ahrs_filter):
+    def test_sony_returns_model_string(
+        self, sony_video_and_log, mock_telemetry_parser, mock_ahrs_filter
+    ):
         """Test that Sony mode returns 'sony' model string."""
         camera_dir, _, _ = sony_video_and_log
 
@@ -360,7 +376,9 @@ class TestCameraAlviumMode:
 class TestCameraCaseInsensitiveExtensions:
     """Test case-insensitive file extension matching."""
 
-    def test_uppercase_mp4_extension(self, tmp_path, mock_telemetry_parser=None, mock_ahrs_filter=None):
+    def test_uppercase_mp4_extension(
+        self, tmp_path, mock_telemetry_parser=None, mock_ahrs_filter=None
+    ):
         """Test that .MP4 files are also detected."""
         camera_dir = tmp_path / "camera"
         camera_dir.mkdir()
@@ -371,7 +389,9 @@ class TestCameraCaseInsensitiveExtensions:
 
         # Create log file
         log_file = tmp_path / "session.LOG"
-        log_file.write_text("2024/11/20 14:30:45.123000 [INFO] Camera Sony starts recording\n")
+        log_file.write_text(
+            "2024/11/20 14:30:45.123000 [INFO] Camera Sony starts recording\n"
+        )
 
         with patch("pils.sensors.camera.telemetry_parser") as mock_parser:
             mock_parser_inst = Mock()
@@ -380,9 +400,11 @@ class TestCameraCaseInsensitiveExtensions:
             ]
             mock_parser.Parser.return_value = mock_parser_inst
 
-            with patch("pils.sensors.camera.Madgwick"), \
-                 patch("pils.sensors.camera.acc2q", return_value=[1, 0, 0, 0]), \
-                 patch("pils.sensors.camera.Quaternion") as mock_q:
+            with (
+                patch("pils.sensors.camera.Madgwick"),
+                patch("pils.sensors.camera.acc2q", return_value=[1, 0, 0, 0]),
+                patch("pils.sensors.camera.Quaternion") as mock_q,
+            ):
                 mock_q.return_value.to_angles.return_value = [0, 0, 0]
 
                 camera = Camera(camera_dir, use_photogrammetry=False)
@@ -397,7 +419,9 @@ class TestCameraCaseInsensitiveExtensions:
         camera_dir.mkdir()
 
         log_file = camera_dir / "alvium.log"
-        log_file.write_text("[2024-11-20 14:30:15.123] INFO: Saving frame frame_0001.raw\n")
+        log_file.write_text(
+            "[2024-11-20 14:30:15.123] INFO: Saving frame frame_0001.raw\n"
+        )
 
         camera = Camera(camera_dir, use_photogrammetry=False)
         camera.load_data()
