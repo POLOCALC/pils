@@ -3,6 +3,7 @@ Utility functions for file handling, log parsing, and data processing.
 """
 
 import datetime
+import re
 from pathlib import Path
 
 import polars as pl
@@ -40,6 +41,50 @@ def read_log_time(
         )
         return tstart, tstart.date()
     return None, None
+
+
+def read_alvium_log_time(keyphrase: str, logfile: str | Path) -> pl.DataFrame:
+    """
+    Read Alvium camera log file and extract timestamps and frame numbers.
+
+    Parameters
+    ----------
+    keyphrase : str
+        The string to search in the log file (e.g., "Saving frame").
+    logfile : str or Path
+        Path to the log file.
+
+    Returns
+    -------
+    pl.DataFrame
+        DataFrame with columns 'timestamp' (Float64) and 'frame_num' (Int64).
+        Returns empty DataFrame if no matches found.
+    """
+    logfile = Path(logfile)  # Convert to Path if string
+
+    # Pattern to extract datetime and frame number
+    pattern = r"\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}).*frame_(\d+)\.raw"
+
+    data = []
+    with open(logfile) as f:
+        for line in f:
+            if keyphrase in line:
+                match = re.search(pattern, line)
+                if match:
+                    # Parse datetime string to timestamp
+                    dt_str = match.group(1)
+                    dt = datetime.datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S.%f")
+                    timestamp = dt.timestamp()
+
+                    # Get frame number
+                    frame_num = int(match.group(2))
+
+                    data.append({"timestamp": timestamp, "frame_num": frame_num})
+
+    # Return DataFrame (empty if no matches)
+    return (
+        pl.DataFrame(data) if data else pl.DataFrame({"timestamp": [], "frame_num": []})
+    )
 
 
 def drop_nan_and_zero_cols(df: pl.DataFrame) -> pl.DataFrame:

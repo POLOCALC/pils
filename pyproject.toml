@@ -32,6 +32,8 @@ dependencies = [
     "h5py>=3.0.0",
     "pyyaml>=6.0",
     "astropy>=6.0",
+    "ahrs>=0.3.0",
+    "telemetry-parser>=0.1.0",
 ]
 
 [project.optional-dependencies]
@@ -49,6 +51,7 @@ dev = [
     "ruff>=0.1.0",
     "mypy>=1.0",
     "bumpver>=2023.0",
+    "pyright>1.1",
 ]
 
 [project.urls]

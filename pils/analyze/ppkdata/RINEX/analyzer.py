@@ -1235,8 +1235,8 @@ class RINEXAnalyzer:
                     if (
                         min_count is not None
                         and max_count is not None
-                        and max_count > 0
-                    ):  # type: ignore
+                        and max_count > 0  # type: ignore
+                    ):
                         # Cast to float to ensure proper numeric operations
                         min_val = float(min_count) if min_count is not None else 0.0  # type: ignore
                         max_val = float(max_count) if max_count is not None else 1.0  # type: ignore

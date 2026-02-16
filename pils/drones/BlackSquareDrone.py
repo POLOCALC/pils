@@ -205,10 +205,10 @@ def get_leapseconds(year: int, month: int) -> int:
     ls_table = LeapSeconds.auto_open()
     ls_df = pl.DataFrame(
         {
-            "year": ls_table["year"].tolist(),
-            "month": ls_table["month"].tolist(),
-            "day": ls_table["day"].tolist(),
-            "tai_utc": ls_table["tai_utc"].tolist(),
+            "year": list(ls_table["year"]),  # type: ignore
+            "month": list(ls_table["month"]),  # type: ignore
+            "day": list(ls_table["day"]),  # type: ignore
+            "tai_utc": list(ls_table["tai_utc"]),  # type: ignore
         }
     )
     ls_df = ls_df.with_columns(

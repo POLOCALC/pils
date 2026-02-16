@@ -20,7 +20,7 @@
   // -------------------------
   // Pyright / Pylance
   // -------------------------
-  "python.analysis.typeCheckingMode": "basic",
+  "python.analysis.typeCheckingMode": "off",
   "python.analysis.diagnosticMode": "workspace",
   "python.analysis.autoImportCompletions": true,
 

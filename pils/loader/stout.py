@@ -100,7 +100,7 @@ class StoutLoader:
 
     def load_all_campaign_flights(
         self, campaign_id: str | None = None, campaign_name: str | None = None
-    ) -> dict[str, Any] | None:
+    ) -> list[dict[str, Any]] | None:
         """
         Load all flights from a specific campaign.
 
@@ -126,9 +126,13 @@ class StoutLoader:
         if self.campaign_service is None:
             raise RuntimeError("Campaign service not initialized")
         try:
-            flights = self.campaign_service.get_flights_by_campaign(
-                campaign_name=campaign_name, campaign_id=campaign_id
-            )
+            # Get the campaign_id first if only campaign_name provided
+            cid = campaign_id or campaign_name
+
+            if not cid:
+                raise ValueError("Either campaign_id or campaign_name must be provided")
+
+            flights = self.campaign_service.get_flights_by_campaign(campaign_id=cid)
 
             for flight in flights:
                 if flight:
