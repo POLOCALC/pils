@@ -13,9 +13,9 @@ class TestLitchi:
     def sample_litchi_csv(self, tmp_path):
         """Create sample Litchi CSV file."""
         csv_content = """latitude,longitude,altitude(m),speed(mps),distance(m),velocityX(mps),velocityY(mps),velocityZ(mps),pitch(deg),roll(deg),yaw(deg),batteryTemperature,pitchRaw,rollRaw,yawRaw,gimbalPitchRaw,gimbalRollRaw,gimbalYawRaw,datetime(utc),isflying
-40.7128,-74.0060,100.5,5.2,0.0,2.5,3.1,0.5,-5.0,2.0,180.0,25.5,-5.0,2.0,180.0,-15.0,0.0,180.0,2024-01-15T10:30:00.123Z,1
-40.7129,-74.0061,101.0,5.3,10.5,2.6,3.2,0.6,-5.1,2.1,181.0,25.6,-5.1,2.1,181.0,-15.1,0.1,181.0,2024-01-15T10:30:01.123Z,1
-40.7130,-74.0062,101.5,5.4,21.0,2.7,3.3,0.7,-5.2,2.2,182.0,25.7,-5.2,2.2,182.0,-15.2,0.2,182.0,2024-01-15T10:30:02.123Z,1"""
+40.7128,-74.0060,100.5,5.2,0.0,2.5,3.1,0.5,-5.0,2.0,180.0,25.5,-5.0,2.0,180.0,-15.0,0.0,180.0,2024-01-15 10:30:00.123,1
+40.7129,-74.0061,101.0,5.3,10.5,2.6,3.2,0.6,-5.1,2.1,181.0,25.6,-5.1,2.1,181.0,-15.1,0.1,181.0,2024-01-15 10:30:01.123,1
+40.7130,-74.0062,101.5,5.4,21.0,2.7,3.3,0.7,-5.2,2.2,182.0,25.7,-5.2,2.2,182.0,-15.2,0.2,182.0,2024-01-15 10:30:02.123,1"""
 
         csv_path = tmp_path / "litchi_flight.csv"
         csv_path.write_text(csv_content)
@@ -25,8 +25,8 @@ class TestLitchi:
     def minimal_litchi_csv(self, tmp_path):
         """Create minimal Litchi CSV with required columns."""
         csv_content = """latitude,longitude,datetime(utc)
-40.7128,-74.0060,2024-01-15T10:30:00Z
-40.7129,-74.0061,2024-01-15T10:30:01Z"""
+40.7128,-74.0060,2024-01-15 10:30:00
+40.7129,-74.0061,2024-01-15 10:30:01"""
 
         csv_path = tmp_path / "minimal.csv"
         csv_path.write_text(csv_content)
@@ -75,8 +75,8 @@ class TestLitchi:
     def test_load_data_drops_nan_zero_cols(self, tmp_path):
         """Test that NaN and zero columns are dropped."""
         csv_content = """latitude,longitude,datetime(utc),allzero,allnan
-40.7128,-74.0060,2024-01-15T10:30:00Z,0,
-40.7129,-74.0061,2024-01-15T10:30:01Z,0,"""
+40.7128,-74.0060,2024-01-15 10:30:00,0,
+40.7129,-74.0061,2024-01-15 10:30:01,0,"""
 
         csv_path = tmp_path / "with_empty.csv"
         csv_path.write_text(csv_content)
@@ -105,7 +105,7 @@ class TestLitchiInit:
         """Test that all attributes are initialized correctly."""
         csv_path = tmp_path / "test.csv"
         csv_path.write_text(
-            "latitude,longitude,datetime(utc)\n40.0,-74.0,2024-01-15T10:00:00Z"
+            "latitude,longitude,datetime(utc)\n40.0,-74.0,2024-01-15 10:00:00"
         )
 
         litchi = Litchi(csv_path)
