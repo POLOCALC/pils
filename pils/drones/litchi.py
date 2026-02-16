@@ -71,7 +71,7 @@ class Litchi:
         litchi_data = litchi_data.with_columns(
             [
                 pl.col("datetime(utc)")
-                .str.to_datetime(format="%Y-%m-%dT%H:%M:%S%.fZ", time_zone="UTC")
+                .str.to_datetime(format="%Y-%m-%d %H:%M:%S%.f", time_zone="UTC")
                 .alias("datetime")
             ]
         )
