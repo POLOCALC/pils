@@ -56,9 +56,9 @@ jobs:
       run: |
         python -m ruff check pils/ tests/ --fix
     
-    - name: Type check with mypy
+    - name: Type check with pyright
       run: |
-        python -m mypy pils/
+        pyright pils/
       continue-on-error: true
     
     - name: Run tests with pytest

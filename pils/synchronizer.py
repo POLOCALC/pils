@@ -36,6 +36,7 @@ class Synchronizer:
     Correlation Methods:
     - GPS sources: NED position correlation (3D signal)
     - Inclinometer: Pitch angle correlation (1D signal)
+    - Camera: Timestamp alignment with optional photogrammetry support
 
     All synchronization outputs are TIME OFFSETS (seconds) to align data
     to GPS payload timebase.
@@ -50,8 +51,10 @@ class Synchronizer:
         Optional litchi GPS data
     inclinometer : Optional[pl.DataFrame]
         Optional inclinometer data
+    camera : Optional[pl.DataFrame]
+        Optional camera data (Sony or Alvium camera, or photogrammetry results)
     other_payload : Dict[str, pl.DataFrame]
-        Other payload sensors (adc, etc.)
+        Other payload sensors (adc, imu, etc.)
     offsets : Dict[str, Dict[str, Any]]
         Detected time offsets per source
     synchronized_data : Optional[pl.DataFrame]
@@ -112,10 +115,11 @@ class Synchronizer:
         self.drone_gps: pl.DataFrame | None = None
         self.litchi_gps: pl.DataFrame | None = None
         self.inclinometer: pl.DataFrame | None = None
+        self.camera: pl.DataFrame | None = None
         self.other_payload: dict[str, pl.DataFrame] = {}
 
         self.offsets: dict[str, dict[str, Any]] = {}
-        self.synchronized_data: pl.DataFrame | None = None
+        self.synchronized_data: dict[str, Any] | None = None
 
     @staticmethod
     def _lla_to_enu(
@@ -861,6 +865,38 @@ class Synchronizer:
 
         logger.info(f"Added inclinometer with {len(inclinometer_data)} samples")
 
+    def add_camera(
+        self,
+        camera_data: pl.DataFrame,
+        use_photogrammetry: bool = True,
+        timestamp_col: str = "timestamp",
+        pitch_col: str = "pitch",
+        camera_model: str | None = None,
+    ):
+
+        if use_photogrammetry:
+            required_cols = [timestamp_col, pitch_col]
+            missing_cols = [
+                col for col in required_cols if col not in camera_data.columns
+            ]
+
+            if missing_cols:
+                raise ValueError(f"Photogrammetry data missing columns: {missing_cols}")
+
+            if len(camera_data) == 0:
+                raise ValueError("Photogrammetry data is empty")
+
+            self.__camera_model = "photogrammetry"
+
+            self.__camera_names = {"timestamp": timestamp_col, "pitch": pitch_col}
+        else:
+            self.__camera_model = camera_model
+
+            if camera_model and camera_model.lower() == "sony":
+                self.__camera_names = {"timestamp": "timestamp", "pitch": "pitch"}
+
+        self.camera = camera_data
+
     def add_payload_sensor(
         self,
         sensor_name: str,
@@ -891,8 +927,9 @@ class Synchronizer:
 
     def synchronize(
         self,
-        target_rate: dict,
-    ) -> dict:
+        target_rate: dict[str, float],
+        interpolate_camera: bool = False,
+    ) -> dict[str, Any]:
         """
         Execute correlation-based synchronization.
 
@@ -993,6 +1030,49 @@ class Synchronizer:
                     )
                 else:
                     logger.warning("Failed to detect inclinometer offset")
+
+        if self.camera is not None:
+            if self.__camera_model == "photogrammetry" or self.__camera_model == "sony":
+                logger.info(
+                    f"Camera Model {self.__camera_model}, this implies use of pitch correlation"
+                )
+
+                if self.litchi_gps is not None:
+                    result = self._find_pitch_offset(
+                        time1=self.litchi_gps[
+                            self.__litchi_names["timestamp"]
+                        ].to_numpy(),
+                        pitch1=self.litchi_gps[self.__litchi_names["pitch"]].to_numpy(),
+                        time2=self.camera[self.__camera_names["timestamp"]].to_numpy(),
+                        pitch2=self.camera[self.__camera_names["pitch"]].to_numpy(),
+                    )
+                    if result:
+                        self.offsets["camera"] = result
+                        logger.info(
+                            f"Camera offset (relative to Litchi): {result['time_offset']:.3f}s (corr={result['correlation']:.3f})"
+                        )
+                    else:
+                        logger.warning("Failed to detect camera offset")
+                else:
+                    logger.warning(
+                        "Litchi GPS data not available, skipping camera pitch correlation"
+                    )
+
+            else:
+                if self.__camera_model == "alvium":
+                    incl_offset = self.offsets.get("inclinometer", {}).get(
+                        "time_offset", 0.0
+                    )
+
+                    self.offsets["camera"] = {"time_offset": incl_offset}
+
+                else:
+                    logger.info(
+                        f"Camera Model {self.__camera_model}, skipping pitch correlation"
+                    )
+                    logger.info(
+                        "Using data timestamp and inclinometer offset as camera offset"
+                    )
 
         sync_data = {}
 
@@ -1098,37 +1178,84 @@ class Synchronizer:
                             )
                             sync_data["inclinometer"][f"{col}"] = interpolated
 
-                    sync_data["payload"] = {}
+            elif key.lower() == "camera":
+                if self.camera is None:
+                    logger.warning("Camera data not available, skipping camera sync")
+                    continue
 
-                    n_samples = int((t_end - t_start) * target_rate["payload"]) + 1
-                    target_time = np.linspace(t_start, t_end, n_samples)
+                sync_data["camera"] = {}
 
-                    for sensor_name, sensor_df in self.other_payload.items():
-                        if "timestamp" in sensor_df.columns:
-                            sensor_time = sensor_df["timestamp"].to_numpy()
+                camera_rate = np.average(np.diff(self.camera["timestamp"]))
 
-                            incl_offset = self.offsets.get("inclinometer", {}).get(
-                                "time_offset", 0.0
+                n_samples = int((t_end - t_start) * camera_rate) + 1
+                target_time = np.linspace(t_start, t_end, n_samples)
+
+                if "camera" in self.offsets:
+                    # Camera offset is relative to Litchi, not GPS payload
+                    # Need to add both: camera-to-litchi + litchi-to-gps
+                    camera_offset = self.offsets["camera"]["time_offset"]
+                    litchi_offset = self.offsets.get("litchi_gps", {}).get(
+                        "time_offset", 0.0
+                    )
+                    total_offset = camera_offset + litchi_offset
+
+                    logger.info(
+                        f"Applying camera total offset: {total_offset:.3f}s "
+                        f"(camera→litchi: {camera_offset:.3f}s + litchi→gps: {litchi_offset:.3f}s)"
+                    )
+
+                    camera_time = self.camera["timestamp"].to_numpy() + total_offset
+
+                    for col in self.camera.columns:
+                        if interpolate_camera:
+                            values = self.camera[col].to_numpy().astype(float)
+                            interpolated = np.interp(
+                                target_time,
+                                camera_time,
+                                values,
+                                left=np.nan,
+                                right=np.nan,
                             )
-                            litchi_offset = self.offsets.get("litchi_gps", {}).get(
-                                "time_offset", 0.0
-                            )
-                            total_offset = incl_offset + litchi_offset
+                            sync_data["camera"][f"{col}"] = interpolated
+                        else:
+                            if col == "timestamp":
+                                sync_data["camera"][f"{col}"] = camera_time
+                            else:
+                                sync_data["camera"][f"{col}"] = self.camera[col]
 
-                            sensor_time += total_offset
+        if "camera" not in sync_data and self.camera is not None:
+            logger.info("Camera offset is applied ")
 
-                            for col in sensor_df.columns:
-                                values = sensor_df[col].to_numpy().astype(float)
-                                interpolated = np.interp(
-                                    target_time,
-                                    sensor_time,
-                                    values,
-                                    left=np.nan,
-                                    right=np.nan,
-                                )
-                                sync_data["payload"][f"{sensor_name}_{col}"] = (
-                                    interpolated
-                                )
+        if self.other_payload:
+            sync_data["payload"] = {}
+
+            n_samples = int((t_end - t_start) * target_rate["payload"]) + 1
+            target_time = np.linspace(t_start, t_end, n_samples)
+
+            for sensor_name, sensor_df in self.other_payload.items():
+                if "timestamp" in sensor_df.columns:
+                    sensor_time = sensor_df["timestamp"].to_numpy()
+
+                    incl_offset = self.offsets.get("inclinometer", {}).get(
+                        "time_offset", 0.0
+                    )
+                    litchi_offset = self.offsets.get("litchi_gps", {}).get(
+                        "time_offset", 0.0
+                    )
+                    total_offset = incl_offset + litchi_offset
+
+                    sensor_time += total_offset
+
+                    for col in sensor_df.columns:
+                        values = sensor_df[col].to_numpy().astype(float)
+                        interpolated = np.interp(
+                            target_time,
+                            sensor_time,
+                            values,
+                            left=np.nan,
+                            right=np.nan,
+                        )
+                        sync_data["payload"][f"{sensor_name}_{col}"] = interpolated
 
         sync_data["reference_gps"] = self.gps_payload
 

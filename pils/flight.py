@@ -11,6 +11,7 @@ import polars as pl
 from pils.drones.BlackSquareDrone import BlackSquareDrone
 from pils.drones.DJIDrone import DJIDrone
 from pils.drones.litchi import Litchi
+from pils.sensors.camera import Camera
 from pils.sensors.sensors import sensor_config
 from pils.synchronizer import Synchronizer
 from pils.utils.tools import get_path_from_keyword
@@ -122,6 +123,8 @@ class Flight:
         Flight metadata (duration, date, conditions, etc.)
     raw_data : RawData
         Container for drone and payload sensor data
+    sync_data : Optional[dict[str, pl.DataFrame]]
+        Synchronized flight data (populated after calling sync())
     adc_gain_config : Optional
         Configuration for ADC gain settings
 
@@ -143,12 +146,18 @@ class Flight:
     >>> flight.add_drone_data(dji_drone_loader='dat')
     >>> # Load sensor data
     >>> flight.add_sensor_data(['gps', 'imu', 'adc'])
+    >>> # Load camera data (Sony or Alvium)
+    >>> flight.add_camera_data(use_photogrammetry=False, get_sony_angles=True)
     >>> # Access data using attributes
     >>> drone_df = flight.raw_data.drone_data.drone
     >>> gps_df = flight.raw_data.payload_data.gps
+    >>> camera_df = flight.raw_data.payload_data.camera
     >>> # Or use dictionary-style access (same speed!)
     >>> drone_df = flight['raw_data']['drone_data']['drone']
     >>> gps_df = flight['raw_data']['payload']['gps']
+    >>> camera_df = flight['raw_data']['payload']['camera']
+    >>> # Synchronize all data sources
+    >>> sync_df = flight.sync(target_rate={'drone': 10.0, 'payload': 100.0})
     >>> # Perform operations on the data
     >>> high_altitude = drone_df.filter(pl.col('altitude') > 100)
     >>> print(f"Points above 100m: {len(high_altitude)}")
@@ -179,7 +188,7 @@ class Flight:
         self.set_metadata()
 
         self.raw_data = RawData()
-        self.sync_data: pl.DataFrame | None = None
+        self.sync_data: dict[str, pl.DataFrame] | None = None
         self.adc_gain_config = None
 
     @classmethod
@@ -733,9 +742,63 @@ class Flight:
             sensor_data = self._read_sensor_data(sensor, sensor_path)
             setattr(self.raw_data.payload_data, sensor, sensor_data)
 
+    def add_camera_data(
+        self, use_photogrammetry: bool = False, get_sony_angles: bool = True
+    ) -> None:
+        """
+        Load camera data from the payload.
+
+        Supports both video cameras (Sony RX0 MarkII with telemetry, Alvium industrial)
+        and photogrammetry-processed data. For video cameras, can compute Euler angles
+        (roll, pitch, yaw) and quaternions from inertial measurement data.
+
+        Parameters
+        ----------
+        use_photogrammetry : bool, default=False
+            If True, loads pre-processed photogrammetry results from proc_data folder.
+            If False, loads camera data from aux_data/camera folder (video or logs).
+        get_sony_angles : bool, default=True
+            For Sony cameras, whether to compute Euler angles and quaternions from
+            telemetry gyro/accel data using AHRS (Madgwick) filter.
+
+        Raises
+        ------
+        FileNotFoundError
+            If camera data folder or photogrammetry folder not found
+
+        Examples
+        --------
+        >>> # Load Sony RX0 MarkII video data with angles computed
+        >>> flight.add_camera_data(use_photogrammetry=False, get_sony_angles=True)
+        >>> # Load pre-processed photogrammetry results
+        >>> flight.add_camera_data(use_photogrammetry=True)
+        >>> # Load camera video data without computing angles
+        >>> flight.add_camera_data(use_photogrammetry=False, get_sony_angles=False)
+        """
+
+        self.__use_photogrammetry = use_photogrammetry
+        if use_photogrammetry:
+            self.__camera_data_type = "photogrammetry"
+            path = Path(self.flight_info["proc_data_folder_path"]) / "photogrammetry"
+        else:
+            self.__camera_data_type = "camera"
+            path = Path(self.flight_info["aux_data_folder_path"]) / "camera"
+
+        camera = Camera(path, use_photogrammetry=use_photogrammetry)
+
+        camera.load_data()
+
+        self.raw_data.payload_data.camera = camera.data[0]
+
+        self.__camera_model = camera.data[1]
+
     def sync(
-        self, target_rate: dict = None, use_rtk_data: bool = True, **kwargs
-    ) -> pl.DataFrame:
+        self,
+        target_rate: dict[str, float] | None = None,
+        use_rtk_data: bool = True,
+        interpolate_camera: bool = False,
+        **kwargs,
+    ) -> dict[str, pl.DataFrame]:
         """
         Synchronize flight data using GPS-based correlation.
 
@@ -751,6 +814,11 @@ class Flight:
             - 100 Hz for payload sensors (including inclinometer and ADC)
         use_rtk_data : bool, default=True
             For DJI drones: if True, use RTK data; if False, use standard GPS
+        interpolate_camera : bool, default=False
+            For camera data: if True, camera data is interpolated at the same rate of
+            the input data but starting from the first timestamp of the reference data. If False,
+            the timestamp is only corrected to synchronize the data (so a simple offset is applied)
+            but then it is used as it is.
         **kwargs : dict
             Additional arguments passed to Synchronizer.synchronize()
 
@@ -864,6 +932,15 @@ class Flight:
                 incl_data = incl_data["INS"]
             sync.add_inclinometer(incl_data, self.__inclinometer)
 
+        # Add Camera data if available
+
+        if "camera" in self.raw_data.payload_data:
+            sync.add_camera(
+                self.raw_data.payload_data["camera"],
+                use_photogrammetry=self.__use_photogrammetry,
+                camera_model=self.__camera_model,
+            )
+
         # Add other payload sensors
         payload = self.raw_data.payload_data
 
@@ -897,7 +974,9 @@ class Flight:
                 sync.add_payload_sensor("imu_magnetometer", imu_sensor.magnetometer)
 
         # Perform synchronization
-        self.sync_data = sync.synchronize(target_rate=target_rate, **kwargs)
+        self.sync_data = sync.synchronize(
+            target_rate=target_rate, interpolate_camera=interpolate_camera, **kwargs
+        )
 
         return self.sync_data
 
@@ -1074,7 +1153,7 @@ class Flight:
         sync_metadata : Dict[str, Any], optional
             Additional metadata to store as attributes on revision group
         """
-        if len(self.sync_data) == 0:
+        if self.sync_data is None or len(self.sync_data) == 0:
             return
 
         if "sync_data" not in h5file:
@@ -1090,13 +1169,14 @@ class Flight:
         revision_group = sync_group.create_group(revision_name)
 
         # Save each key's DataFrame as a dataset
-        for key, df in self.sync_data.items():
-            if isinstance(df, pl.DataFrame) and len(df) > 0:
-                self._save_dataframe_to_hdf5(revision_group, key, df)
+        if self.sync_data is not None:
+            for key, df in self.sync_data.items():
+                if isinstance(df, pl.DataFrame) and len(df) > 0:
+                    self._save_dataframe_to_hdf5(revision_group, key, df)
 
-        # Save metadata on revision group
-        revision_group.attrs["created_at"] = revision_name
-        revision_group.attrs["n_keys"] = len(self.sync_data)
+            # Save metadata on revision group
+            revision_group.attrs["created_at"] = revision_name
+            revision_group.attrs["n_keys"] = len(self.sync_data)
         revision_group.attrs["pils_version"] = _get_package_version()
 
         # Save user-provided metadata
