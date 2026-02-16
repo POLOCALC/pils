@@ -1234,7 +1234,7 @@ class Synchronizer:
 
             for sensor_name, sensor_df in self.other_payload.items():
                 if "timestamp" in sensor_df.columns:
-                    sensor_time = sensor_df["timestamp"].to_numpy()
+                    sensor_time = sensor_df["timestamp"].to_numpy().copy()
 
                     incl_offset = self.offsets.get("inclinometer", {}).get(
                         "time_offset", 0.0
