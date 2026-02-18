@@ -373,6 +373,7 @@ class TestSynchronizerClass:
         data = pl.DataFrame(
             {
                 "timestamp": t,
+                "correct_timestamp": t,
                 "latitude": 45.0 + 0.001 * np.sin(0.1 * (t + 0.5)),
                 "longitude": 10.0 + 0.001 * np.cos(0.1 * (t + 0.5)),
                 "altitude": 100.0 + 10.0 * np.sin(0.05 * (t + 0.5)),
