@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pils"
-version = "2026.2.7"
+version = "2026.2.8"
 description = "PILS - POLOCALC Inertial & Drone Loading System. Integrated flight data loading and decoding with STOUT database interface"
 readme = "README.md"
 license = {text = "MIT"}
@@ -102,7 +102,7 @@ warn_unused_configs = true
 disallow_untyped_defs = false
 
 [tool.bumpver]
-current_version = "2026.2.7"
+current_version = "2026.2.8"
 version_pattern = "YYYY.MM.INC0"
 commit_message = "chore: bump version {old_version} -> {new_version}"
 tag_message = "Release {new_version}"
