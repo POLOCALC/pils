@@ -28,6 +28,7 @@ dependencies = [
     "opencv-python>=4.6.0",
     "matplotlib>=3.5.0",
     "pyubx2>=1.2.0",
+    "pymap3d>=2.9.0",
     "scipy>=1.9.0",
     "h5py>=3.0.0",
     "pyyaml>=6.0",

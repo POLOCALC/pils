@@ -40,20 +40,16 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+import h5py
 import polars as pl
-
-if TYPE_CHECKING:
-    import h5py
 
 from pils.analyze.ppkdata.PPK.pos_analyzer import POSAnalyzer
 from pils.analyze.ppkdata.PPK.report import RTKLIBReport
 from pils.analyze.ppkdata.PPK.stat_analyzer import STATAnalyzer
 from pils.analyze.ppkdata.RINEX.report import RINEXReport
-
-if TYPE_CHECKING:
-    from pils.flight import Flight
+from pils.flight import Flight
 
 logger = logging.getLogger(__name__)
 
@@ -183,8 +179,6 @@ class PPKAnalysis:
         >>> print(ppk.ppk_dir)
         /path/to/flight/proc/ppk
         """
-        # Import here to avoid circular import
-        from pils.flight import Flight
 
         # Validate input type
         if not isinstance(flight, Flight):
