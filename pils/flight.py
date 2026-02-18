@@ -582,8 +582,10 @@ class Flight:
 
         Examples
         --------
-        >>> # Load DJI drone data using .DAT files
-        >>> flight.add_drone_data(dji_drone_loader='dat')
+        >>> # Load DJI drone data using .DAT files (default)
+        >>> flight.add_drone_data(dji_dat_loader=True)
+        >>> # Load DJI drone data using .CSV files
+        >>> flight.add_drone_data(dji_dat_loader=False)
         >>> # Access drone telemetry
         >>> print(flight.raw_data.drone_data.drone.head())
         >>> # Access Litchi waypoint data (if DJI)
@@ -796,7 +798,7 @@ class Flight:
         self,
         target_rate: dict[str, float] | None = None,
         use_rtk_data: bool = True,
-        interpolate_camera: bool = False,
+        common_time: bool = True,
         **kwargs,
     ) -> dict[str, pl.DataFrame]:
         """
@@ -814,11 +816,10 @@ class Flight:
             - 100 Hz for payload sensors (including inclinometer and ADC)
         use_rtk_data : bool, default=True
             For DJI drones: if True, use RTK data; if False, use standard GPS
-        interpolate_camera : bool, default=False
-            For camera data: if True, camera data is interpolated at the same rate of
-            the input data but starting from the first timestamp of the reference data. If False,
-            the timestamp is only corrected to synchronize the data (so a simple offset is applied)
-            but then it is used as it is.
+        common_time: bool
+            Interpolate all the data at a common time, with a sampliing frequency
+            determined by the target_rate. If False, the time is just shifted and the
+            other columns are not touched
         **kwargs : dict
             Additional arguments passed to Synchronizer.synchronize()
 
@@ -837,11 +838,11 @@ class Flight:
         >>> # Basic synchronization with RTK data
         >>> flight.add_sensor_data(['gps', 'imu', 'adc'])
         >>> flight.add_drone_data()
-        >>> sync_df = flight.sync(target_rate_hz=10.0, use_rtk_data=True)
+        >>> sync_df = flight.sync(target_rate={'drone': 10.0, 'payload': 100.0}, use_rtk_data=True)
         >>> # Use standard GPS instead of RTK
-        >>> sync_df = flight.sync(target_rate_hz=10.0, use_rtk_data=False)
-        >>> # Synchronization is stored in flight.sync_data
-        >>> print(flight.sync_data.shape)
+        >>> sync_df = flight.sync(target_rate={'drone': 10.0}, use_rtk_data=False)
+        >>> # Synchronization is stored in flight.sync_data as a dict of DataFrames
+        >>> print(list(flight.sync_data.keys()))
         """
 
         # Check if GPS payload data is available
@@ -975,7 +976,9 @@ class Flight:
 
         # Perform synchronization
         self.sync_data = sync.synchronize(
-            target_rate=target_rate, interpolate_camera=interpolate_camera, **kwargs
+            target_rate=target_rate,
+            common_time=common_time,
+            **kwargs,
         )
 
         return self.sync_data
@@ -1017,12 +1020,12 @@ class Flight:
         >>> flight.to_hdf5('flight_001.h5')
         >>> # Save with sync metadata
         >>> flight.to_hdf5('flight_001.h5', sync_metadata={'comment': 'High rate sync', 'rate': 100.0})
-        >>> # For synchronization, use CorrelationSynchronizer separately:
-        >>> from pils.synchronizer import CorrelationSynchronizer
-        >>> sync = CorrelationSynchronizer()
+        >>> # For synchronization, use Synchronizer separately:
+        >>> from pils.synchronizer import Synchronizer
+        >>> sync = Synchronizer()
         >>> sync.add_gps_reference(flight.raw_data.payload_data.gps)
         >>> # ... add other sources ...
-        >>> result = sync.synchronize(target_rate_hz=10.0)
+        >>> result = sync.synchronize(target_rate={'drone': 10.0, 'payload': 100.0})
         """
 
         if filepath:
