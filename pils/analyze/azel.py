@@ -184,9 +184,8 @@ class AZELAnalysis:
         azimuth, elevation, slant_range = pm.enu2aer(east, north, up)
         return azimuth, elevation, slant_range
 
-    @staticmethod
-    def _load_emlid_reference_data(
-        emlid_csv_path: str | Path, telescope_name: str
+    def _load_emlid_reference_data(self,
+        telescope_name: str, emlid_csv_path: str | Path = None,
     ) -> dict[str, dict[str, float]]:
         """Load telescope and DJI base positions from EMLID reference CSV.
 
@@ -209,9 +208,16 @@ class AZELAnalysis:
             >>> ref_data['telescope']['lat']  # Mean latitude of SATP1 positions
             40.0001
         """
-        emlid_path = Path(emlid_csv_path)
-        if not emlid_path.exists():
-            raise FileNotFoundError(f"EMLID CSV file not found: {emlid_path}")
+
+        if not emlid_csv_path:
+            emlid_path = self.flight_path.parents[1]
+
+            emlid_path = emlid_path / "coordinates" / "202511_coordinates.csv"
+
+        else:
+            emlid_path = Path(emlid_csv_path)
+            if not emlid_path.exists():
+                raise FileNotFoundError(f"EMLID CSV file not found: {emlid_path}")
 
         # Load EMLID data with Polars
         df = pl.read_csv(
@@ -279,10 +285,10 @@ class AZELAnalysis:
 
     def run_analysis(
         self,
-        emlid_csv_path: str | Path,
         telescope_name: str,
         dji_broadcast_geod: dict[str, float],
         drone_timezone_hours: float = 0.0,
+        emlid_csv_path: str | Path = None,
     ) -> AZELVersion | None:
         """Run AZEL analysis for drone telescope tracking.
 
