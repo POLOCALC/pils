@@ -21,6 +21,7 @@ from typing import Any
 
 import numpy as np
 import polars as pl
+import pymap3d as pm
 from scipy import signal
 
 logger = logging.getLogger(__name__)
@@ -118,82 +119,6 @@ class Synchronizer:
 
         self.offsets: dict[str, dict[str, Any]] = {}
         self.synchronized_data: dict[str, Any] | None = None
-
-    @staticmethod
-    def _lla_to_enu(
-        ref_lat: float,
-        ref_lon: float,
-        ref_alt: float,
-        target_lat: float,
-        target_lon: float,
-        target_alt: float,
-    ) -> tuple[float, float, float]:
-        """
-        Convert LLA (Latitude, Longitude, Altitude) to local ENU coordinates.
-
-        Converts target LLA coordinates to East-North-Up (ENU) coordinates
-        relative to a reference point. Uses spherical Earth approximation
-        suitable for distances up to ~100 km.
-
-        Parameters
-        ----------
-        ref_lat : float
-            Reference latitude in degrees
-        ref_lon : float
-            Reference longitude in degrees
-        ref_alt : float
-            Reference altitude in meters
-        target_lat : float
-            Target latitude in degrees
-        target_lon : float
-            Target longitude in degrees
-        target_alt : float
-            Target altitude in meters
-
-        Returns
-        -------
-        Tuple[float, float, float]
-            (east, north, up) offsets in meters
-
-        Notes
-        -----
-        - Uses mean Earth radius of 6371 km
-        - Assumes flat Earth for small distances
-        - Longitude correction for latitude (cos factor)
-
-        Examples
-        --------
-        >>> # Point 1 degree north and 1 degree east at same altitude
-        >>> e, n, u = Synchronizer._lla_to_enu(
-        ...     45.0, 10.0, 100.0,
-        ...     46.0, 11.0, 100.0
-        ... )
-        >>> # e ≈ 78 km (1° east at 45° lat), n ≈ 111 km (1° north), u ≈ 0
-        """
-        # Earth radius in meters
-        R = 6371000.0
-
-        # Convert degrees to radians
-        ref_lat_rad = np.deg2rad(ref_lat)
-        ref_lon_rad = np.deg2rad(ref_lon)
-        target_lat_rad = np.deg2rad(target_lat)
-        target_lon_rad = np.deg2rad(target_lon)
-
-        # Differences in radians
-        dlat = target_lat_rad - ref_lat_rad
-        dlon = target_lon_rad - ref_lon_rad
-
-        # ENU calculation (flat Earth approximation)
-        # North: latitude difference
-        north = R * dlat
-
-        # East: longitude difference corrected for latitude
-        east = R * dlon * np.cos(ref_lat_rad)
-
-        # Up: altitude difference
-        up = target_alt - ref_alt
-
-        return east, north, up
 
     @staticmethod
     def _find_subsample_peak(correlation: np.ndarray) -> float:
@@ -423,23 +348,11 @@ class Synchronizer:
         ref_lon = float(lon1[mid_idx])
         ref_alt = float(alt1[mid_idx])
 
-        # Convert GPS1 to ENU
-        e1 = np.zeros_like(lat1)
-        n1 = np.zeros_like(lat1)
-        u1 = np.zeros_like(lat1)
-        for i in range(len(lat1)):
-            e1[i], n1[i], u1[i] = Synchronizer._lla_to_enu(
-                ref_lat, ref_lon, ref_alt, lat1[i], lon1[i], alt1[i]
-            )
+        # Convert GPS1 to ENU (vectorized) using pymap3d
+        e1, n1, u1 = pm.geodetic2enu(lat1, lon1, alt1, ref_lat, ref_lon, ref_alt)
 
-        # Convert GPS2 to ENU
-        e2 = np.zeros_like(lat2)
-        n2 = np.zeros_like(lat2)
-        u2 = np.zeros_like(lat2)
-        for i in range(len(lat2)):
-            e2[i], n2[i], u2[i] = Synchronizer._lla_to_enu(
-                ref_lat, ref_lon, ref_alt, lat2[i], lon2[i], alt2[i]
-            )
+        # Convert GPS2 to ENU (vectorized) using pymap3d
+        e2, n2, u2 = pm.geodetic2enu(lat2, lon2, alt2, ref_lat, ref_lon, ref_alt)
 
         # Filter GPS data
 
