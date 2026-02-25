@@ -394,11 +394,18 @@ DJI_BASE_02,-105.1001,40.1001,1100.5
         csv_file.write_text(csv_content)
         return csv_file
 
-    def test_load_emlid_data_returns_telescope_position(self, mock_emlid_csv):
+    def test_load_emlid_data_returns_telescope_position(self, mock_emlid_csv, tmp_path):
         """Test loading telescope position from EMLID CSV."""
         from pils.analyze.azel import AZELAnalysis
+        from pils.flight import Flight
 
-        ref_data = AZELAnalysis._load_emlid_reference_data(mock_emlid_csv, "SATP1")
+        # Create minimal flight for AZELAnalysis
+        flight_path = tmp_path / "flight_test"
+        flight_path.mkdir()
+        flight = Flight({"drone_data_folder_path": str(flight_path)})
+        azel = AZELAnalysis(flight)
+
+        ref_data = azel._load_emlid_reference_data("SATP1", mock_emlid_csv)
 
         # Check telescope key exists
         assert "telescope" in ref_data
@@ -414,11 +421,18 @@ DJI_BASE_02,-105.1001,40.1001,1100.5
         assert ref_data["telescope"]["lon"] == pytest.approx(-105.0001, abs=0.0001)
         assert ref_data["telescope"]["alt"] == pytest.approx(1000.5, abs=0.01)
 
-    def test_load_emlid_data_returns_base_position(self, mock_emlid_csv):
+    def test_load_emlid_data_returns_base_position(self, mock_emlid_csv, tmp_path):
         """Test loading DJI base position from EMLID CSV."""
         from pils.analyze.azel import AZELAnalysis
+        from pils.flight import Flight
 
-        ref_data = AZELAnalysis._load_emlid_reference_data(mock_emlid_csv, "SATP1")
+        # Create minimal flight for AZELAnalysis
+        flight_path = tmp_path / "flight_test"
+        flight_path.mkdir()
+        flight = Flight({"drone_data_folder_path": str(flight_path)})
+        azel = AZELAnalysis(flight)
+
+        ref_data = azel._load_emlid_reference_data("SATP1", mock_emlid_csv)
 
         # Check base key exists
         assert "base" in ref_data
@@ -437,6 +451,13 @@ DJI_BASE_02,-105.1001,40.1001,1100.5
     def test_emlid_data_filters_by_name_prefix(self, tmp_path):
         """Test filtering by telescope name prefix."""
         from pils.analyze.azel import AZELAnalysis
+        from pils.flight import Flight
+
+        # Create minimal flight for AZELAnalysis
+        flight_path = tmp_path / "flight_test"
+        flight_path.mkdir()
+        flight = Flight({"drone_data_folder_path": str(flight_path)})
+        azel = AZELAnalysis(flight)
 
         # Create CSV with multiple telescope types
         csv_content = """Name,Longitude,Latitude,Ellipsoidal height
@@ -450,14 +471,14 @@ DJI_BASE_01,-105.5000,40.5000,1500.0
         csv_file.write_text(csv_content)
 
         # Load SATP1 data
-        ref_data_1 = AZELAnalysis._load_emlid_reference_data(csv_file, "SATP1")
+        ref_data_1 = azel._load_emlid_reference_data("SATP1", csv_file)
         assert ref_data_1["telescope"]["lat"] == pytest.approx(
             40.00005, abs=0.0001
         )  # Mean of 40.0000 and 40.0001
         assert ref_data_1["telescope"]["lon"] == pytest.approx(-105.00005, abs=0.0001)
 
         # Load SATP2 data
-        ref_data_2 = AZELAnalysis._load_emlid_reference_data(csv_file, "SATP2")
+        ref_data_2 = azel._load_emlid_reference_data("SATP2", csv_file)
         assert ref_data_2["telescope"]["lat"] == pytest.approx(
             41.00005, abs=0.0001
         )  # Mean of 41.0000 and 41.0001
@@ -469,15 +490,29 @@ DJI_BASE_01,-105.5000,40.5000,1500.0
     def test_emlid_file_not_found_raises_error(self, tmp_path):
         """Test that missing EMLID file raises FileNotFoundError."""
         from pils.analyze.azel import AZELAnalysis
+        from pils.flight import Flight
+
+        # Create minimal flight for AZELAnalysis
+        flight_path = tmp_path / "flight_test"
+        flight_path.mkdir()
+        flight = Flight({"drone_data_folder_path": str(flight_path)})
+        azel = AZELAnalysis(flight)
 
         nonexistent_file = tmp_path / "nonexistent.csv"
 
         with pytest.raises(FileNotFoundError, match="EMLID CSV file not found"):
-            AZELAnalysis._load_emlid_reference_data(nonexistent_file, "SATP1")
+            azel._load_emlid_reference_data("SATP1", nonexistent_file)
 
     def test_telescope_not_found_raises_error(self, tmp_path):
         """Test that missing telescope name raises ValueError."""
         from pils.analyze.azel import AZELAnalysis
+        from pils.flight import Flight
+
+        # Create minimal flight for AZELAnalysis
+        flight_path = tmp_path / "flight_test"
+        flight_path.mkdir()
+        flight = Flight({"drone_data_folder_path": str(flight_path)})
+        azel = AZELAnalysis(flight)
 
         csv_content = """Name,Longitude,Latitude,Ellipsoidal height
 DJI_BASE_01,-105.0000,40.0000,1000.0
@@ -488,11 +523,18 @@ DJI_BASE_01,-105.0000,40.0000,1000.0
         with pytest.raises(
             ValueError, match="No telescope positions found for 'SATP1'"
         ):
-            AZELAnalysis._load_emlid_reference_data(csv_file, "SATP1")
+            azel._load_emlid_reference_data("SATP1", csv_file)
 
     def test_base_not_found_raises_error(self, tmp_path):
         """Test that missing base positions raises ValueError."""
         from pils.analyze.azel import AZELAnalysis
+        from pils.flight import Flight
+
+        # Create minimal flight for AZELAnalysis
+        flight_path = tmp_path / "flight_test"
+        flight_path.mkdir()
+        flight = Flight({"drone_data_folder_path": str(flight_path)})
+        azel = AZELAnalysis(flight)
 
         csv_content = """Name,Longitude,Latitude,Ellipsoidal height
 SATP1_01,-105.0000,40.0000,1000.0
@@ -501,7 +543,7 @@ SATP1_01,-105.0000,40.0000,1000.0
         csv_file.write_text(csv_content)
 
         with pytest.raises(ValueError, match="No DJI base positions found"):
-            AZELAnalysis._load_emlid_reference_data(csv_file, "SATP1")
+            azel._load_emlid_reference_data("SATP1", csv_file)
 
     def test_compute_rtk_correction_offset(self):
         """Test RTK correction calculates ENU offset correctly."""
@@ -1121,11 +1163,11 @@ class TestHDF5Persistence:
             azel._load_from_hdf5("rev_99999999_999999")
 
 
-# ==================== Phase 1: Data Source Selection Tests ====================
+# ==================== Data Source Selection Tests ====================
 
 
-class TestPhase1DataSource:
-    """Tests for Phase 1: Data source selection and drone model detection."""
+class TestDataSourceSelection:
+    """Tests for data source selection and drone model detection."""
 
     @pytest.fixture
     def mock_flight_with_sync_data(self, tmp_path):
@@ -1304,11 +1346,11 @@ class TestPhase1DataSource:
         assert azel.flight.raw_data.drone_data is None
 
 
-# ==================== Phase 2: Column Mapping and Timestamp Tests ====================
+# ==================== Column Mapping and Timestamp Tests ====================
 
 
-class TestPhase2ColumnMapping:
-    """Tests for Phase 2: Column mapping and timestamp handling."""
+class TestColumnMapping:
+    """Tests for column mapping and timestamp handling."""
 
     def test_dji_columns_from_sync_data(self, tmp_path):
         """Test that DJI columns are correctly identified from sync_data."""
@@ -1479,8 +1521,8 @@ class TestPhase2ColumnMapping:
         assert drone_data["correct_timestamp"].to_list() == original_timestamps
 
 
-class TestPhase3RTKCorrection:
-    """Test suite for Phase 3: Conditional RTK correction based on drone format."""
+class TestRTKCorrection:
+    """Test suite for conditional RTK correction based on drone format."""
 
     def test_dji_applies_rtk_correction(self, tmp_path):
         """Test that DJI format applies RTK correction."""
@@ -1492,14 +1534,14 @@ class TestPhase3RTKCorrection:
         flight_info = {"drone_data_folder_path": str(drone_data_path)}
         flight = Flight(flight_info)
 
-        # Create sync_data with DJI format
+        # Create sync_data with DJI format (using standardized column names)
         flight.sync_data = {
             "drone": pl.DataFrame(
                 {
-                    "correct_timestamp": [1000.0, 2000.0, 3000.0],
-                    "RTK:lat_p": [40.0001, 40.0002, 40.0003],
-                    "RTK:lon_p": [-105.0001, -105.0002, -105.0003],
-                    "RTK:hmsl_p": [1000.0, 1001.0, 1002.0],
+                    "timestamp": [1000.0, 2000.0, 3000.0],
+                    "latitude": [40.0001, 40.0002, 40.0003],
+                    "longitude": [-105.0001, -105.0002, -105.0003],
+                    "altitude": [1000.0, 1001.0, 1002.0],
                 }
             )
         }
@@ -1520,7 +1562,7 @@ class TestPhase3RTKCorrection:
 
         dji_broadcast = {"lat": 40.001, "lon": -105.0, "alt": 1000.0}
 
-        version = azel.run_analysis(emlid_csv, "SATP1", dji_broadcast)
+        version = azel.run_analysis("SATP1", dji_broadcast, emlid_csv_path=emlid_csv)
 
         assert version is not None
         assert "rtk_applied" in version.metadata
@@ -1539,14 +1581,14 @@ class TestPhase3RTKCorrection:
         flight_info = {"drone_data_folder_path": str(drone_data_path)}
         flight = Flight(flight_info)
 
-        # Create sync_data with BlackSquare format
+        # Create sync_data with BlackSquare format (using standardized column names)
         flight.sync_data = {
             "drone": pl.DataFrame(
                 {
                     "timestamp": [1000.0, 2000.0, 3000.0],
-                    "Latitude": [40.0001, 40.0002, 40.0003],
-                    "Longitude": [-105.0001, -105.0002, -105.0003],
-                    "heightMSL": [1000.0, 1001.0, 1002.0],
+                    "latitude": [40.0001, 40.0002, 40.0003],
+                    "longitude": [-105.0001, -105.0002, -105.0003],
+                    "altitude": [1000.0, 1001.0, 1002.0],
                 }
             )
         }
@@ -1567,7 +1609,7 @@ class TestPhase3RTKCorrection:
 
         dji_broadcast = {"lat": 40.001, "lon": -105.0, "alt": 1000.0}
 
-        version = azel.run_analysis(emlid_csv, "SATP1", dji_broadcast)
+        version = azel.run_analysis("SATP1", dji_broadcast, emlid_csv_path=emlid_csv)
 
         assert version is not None
         assert "rtk_applied" in version.metadata
@@ -1588,14 +1630,14 @@ class TestPhase3RTKCorrection:
         flight_info = {"drone_data_folder_path": str(drone_data_path)}
         flight = Flight(flight_info)
 
-        # Create sync_data with Litchi format
+        # Create sync_data with Litchi format (using standardized column names)
         flight.sync_data = {
             "drone": pl.DataFrame(
                 {
                     "timestamp": [1000.0, 2000.0, 3000.0],
                     "latitude": [40.0001, 40.0002, 40.0003],
                     "longitude": [-105.0001, -105.0002, -105.0003],
-                    "altitude(m)": [1000.0, 1001.0, 1002.0],
+                    "altitude": [1000.0, 1001.0, 1002.0],
                 }
             )
         }
@@ -1616,7 +1658,7 @@ class TestPhase3RTKCorrection:
 
         dji_broadcast = {"lat": 40.001, "lon": -105.0, "alt": 1000.0}
 
-        version = azel.run_analysis(emlid_csv, "SATP1", dji_broadcast)
+        version = azel.run_analysis("SATP1", dji_broadcast, emlid_csv_path=emlid_csv)
 
         assert version is not None
         assert "rtk_applied" in version.metadata
@@ -1635,14 +1677,14 @@ class TestPhase3RTKCorrection:
         flight_info = {"drone_data_folder_path": str(drone_data_path)}
         flight = Flight(flight_info)
 
-        # Create sync_data with BlackSquare format
+        # Create sync_data with BlackSquare format (using standardized column names)
         flight.sync_data = {
             "drone": pl.DataFrame(
                 {
                     "timestamp": [1000.0, 2000.0, 3000.0],
-                    "Latitude": [40.0001, 40.0002, 40.0003],
-                    "Longitude": [-105.0001, -105.0002, -105.0003],
-                    "heightMSL": [1000.0, 1001.0, 1002.0],
+                    "latitude": [40.0001, 40.0002, 40.0003],
+                    "longitude": [-105.0001, -105.0002, -105.0003],
+                    "altitude": [1000.0, 1001.0, 1002.0],
                 }
             )
         }
@@ -1663,7 +1705,7 @@ class TestPhase3RTKCorrection:
 
         dji_broadcast = {"lat": 40.001, "lon": -105.0, "alt": 1000.0}
 
-        version = azel.run_analysis(emlid_csv, "SATP1", dji_broadcast)
+        version = azel.run_analysis("SATP1", dji_broadcast, emlid_csv_path=emlid_csv)
 
         assert version is not None
         assert "drone_format" in version.metadata

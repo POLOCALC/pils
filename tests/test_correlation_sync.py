@@ -8,7 +8,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-# Phase 1 Tests: Core Correlation Functions
+# Core Correlation Functions Tests
 
 
 class TestLLAtoENU:
@@ -109,7 +109,7 @@ class TestSubsamplePeak:
         assert 2 <= peak_idx <= 3
 
 
-# Phase 2 Tests: GPS Offset Detection
+# GPS Offset Detection Tests
 
 
 class TestGPSOffsetDetection:
@@ -250,7 +250,7 @@ class TestGPSOffsetDetection:
         assert "spatial_offset_m" in result
 
 
-# Phase 3 Tests: Pitch Angle Correlation
+# Pitch Angle Correlation Tests
 
 
 class TestPitchOffsetDetection:
@@ -345,7 +345,7 @@ class TestPitchOffsetDetection:
         assert "correlation" in result
 
 
-# Phase 4 Tests: Synchronizer Class
+# Synchronizer Class Tests
 
 
 class TestSynchronizerClass:
