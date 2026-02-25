@@ -60,7 +60,7 @@ class Emlid:
         /path/to/campaign/metadata/202511_coordinates.csv
         """
         flight_path = Path(flight.flight_path)
-        campaign_dir = flight_path.parent  # Go up one level to campaign
+        campaign_dir = flight_path.parents[1]  # Go up one level to campaign
 
         self.emlid_path = campaign_dir / "metadata" / "202511_coordinates.csv"
 
