@@ -81,7 +81,7 @@ class Litchi:
             (pl.col("datetime").dt.timestamp("ms")).alias("unix_time_ms")
         )
         litchi_data = litchi_data.with_columns(
-            (pl.col("unix_time_ms") / 1000.0).alias("timestamp_old")
+            (pl.col("unix_time_ms") / 1000.0).alias("timestamp")
         )
         if "gimbalPitchRaw" in litchi_data.columns:
             litchi_data = litchi_data.with_columns(
