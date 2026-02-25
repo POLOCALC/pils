@@ -18,10 +18,15 @@ class TestAZELStandardColumns:
     @pytest.fixture
     def mock_flight_standard_sync(self, tmp_path):
         """Create mock Flight with sync_data using standard column names."""
-        # Create campaign structure with metadata directory
-        campaign_dir = tmp_path / "campaign"
-        metadata_dir = campaign_dir / "metadata"
-        metadata_dir.mkdir(parents=True)
+        # Create campaigns/flight/drone structure
+        campaigns_dir = tmp_path / "campaigns"
+        flight_path = campaigns_dir / "flight_standard"
+        drone_data_path = flight_path / "drone"
+        drone_data_path.mkdir(parents=True)
+
+        # Create metadata directory at tmp_path level (sibling to campaigns)
+        metadata_dir = tmp_path / "metadata"
+        metadata_dir.mkdir()
 
         # Create EMLID CSV in metadata directory
         emlid_csv = metadata_dir / "202511_coordinates.csv"
@@ -30,11 +35,6 @@ emlid base,-105.0500,40.0500,1050.0
 SATP1,-105.0000,40.0000,1000.000
 dji rtk base (antenna base),-105.0005,40.0005,1001.000"""
         emlid_csv.write_text(csv_content)
-
-        # Create flight directory
-        flight_path = campaign_dir / "flight_standard"
-        drone_data_path = flight_path / "drone"
-        drone_data_path.mkdir(parents=True)
 
         flight_info = {"drone_data_folder_path": str(drone_data_path)}
         flight = Flight(flight_info)

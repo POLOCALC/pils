@@ -481,14 +481,14 @@ class TestRunAnalysis:
     @pytest.fixture
     def mock_campaign_with_emlid(self, tmp_path):
         """Create campaign structure with EMLID CSV."""
-        # Create campaign/flight/drone structure
-        campaign_dir = tmp_path / "campaign"
-        flight_dir = campaign_dir / "flight_test"
+        # Create campaigns/flight/drone structure
+        campaigns_dir = tmp_path / "campaigns"
+        flight_dir = campaigns_dir / "flight_test"
         drone_dir = flight_dir / "drone"
         drone_dir.mkdir(parents=True)
 
-        # Create metadata directory with EMLID CSV
-        metadata_dir = campaign_dir / "metadata"
+        # Create metadata directory at tmp_path level (sibling to campaigns)
+        metadata_dir = tmp_path / "metadata"
         metadata_dir.mkdir()
 
         emlid_data = pl.DataFrame(
@@ -1356,9 +1356,13 @@ class TestRTKCorrectionByDroneFormat:
     @pytest.fixture
     def mock_campaign_for_rtk_test(self, tmp_path):
         """Create campaign structure with EMLID CSV for RTK tests."""
-        campaign_dir = tmp_path / "campaign"
-        metadata_dir = campaign_dir / "metadata"
-        metadata_dir.mkdir(parents=True)
+        # Create campaigns directory (will be at parents[0])
+        campaigns_dir = tmp_path / "campaigns"
+        campaigns_dir.mkdir()
+
+        # Create metadata at tmp_path level (at parents[1])
+        metadata_dir = tmp_path / "metadata"
+        metadata_dir.mkdir()
 
         # Create EMLID CSV
         emlid_csv = metadata_dir / "202511_coordinates.csv"
@@ -1369,7 +1373,7 @@ class TestRTKCorrectionByDroneFormat:
             "dji rtk base (antenna base),-105.0,40.0,1000.0\n"
         )
 
-        return campaign_dir
+        return campaigns_dir
 
     def test_dji_applies_rtk_correction(self, tmp_path, mock_campaign_for_rtk_test):
         """Test that DJI format applies RTK correction."""
