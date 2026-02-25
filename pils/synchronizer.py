@@ -693,7 +693,7 @@ class Synchronizer:
     def add_drone_gps(
         self,
         gps_data: pl.DataFrame | dict[str, pl.DataFrame],
-        timestamp_col: str = "correct_timestamp",
+        timestamp_col: str = "timestamp",
         lat_col: str = "latitude",
         lon_col: str = "longitude",
         alt_col: str = "altitude",

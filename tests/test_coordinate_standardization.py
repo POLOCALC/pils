@@ -34,7 +34,7 @@ class TestCoordinateStandardization:
         t = np.linspace(0, 100, 1000)
         data = pl.DataFrame(
             {
-                "correct_timestamp": t,
+                "timestamp": t,
                 "RTK:lat_p": 45.0 + 0.001 * np.sin(0.1 * (t + 0.5)),
                 "RTK:lon_p": 10.0 + 0.001 * np.cos(0.1 * (t + 0.5)),
                 "RTK:hmsl_p": 100.0 + 10.0 * np.sin(0.05 * (t + 0.5)),
@@ -50,7 +50,7 @@ class TestCoordinateStandardization:
         t = np.linspace(0, 100, 1000)
         data = pl.DataFrame(
             {
-                "correct_timestamp": t,
+                "timestamp": t,
                 "GPS:Latitude": 45.0 + 0.001 * np.sin(0.1 * (t + 0.5)),
                 "GPS:Longitude": 10.0 + 0.001 * np.cos(0.1 * (t + 0.5)),
                 "GPS:heightMSL": 100.0 + 10.0 * np.sin(0.05 * (t + 0.5)),
@@ -106,7 +106,7 @@ class TestCoordinateStandardization:
         )
         sync.add_drone_gps(
             sample_drone_dji_rtk,
-            timestamp_col="correct_timestamp",
+            timestamp_col="timestamp",
             lat_col="RTK:lat_p",
             lon_col="RTK:lon_p",
             alt_col="RTK:hmsl_p",
@@ -141,9 +141,8 @@ class TestCoordinateStandardization:
         assert "RTK:hmsl_p" not in drone_df.columns, (
             "Original 'RTK:hmsl_p' should be renamed"
         )
-        assert "correct_timestamp" not in drone_df.columns, (
-            "Original 'correct_timestamp' should be renamed"
-        )
+        # timestamp is already the standard name after DJI loader changes
+        # No need to check for old column name
 
         # Verify other columns are preserved
         assert "battery_percent" in drone_df.columns, (
@@ -169,7 +168,7 @@ class TestCoordinateStandardization:
         )
         sync.add_drone_gps(
             sample_drone_dji_gps,
-            timestamp_col="correct_timestamp",
+            timestamp_col="timestamp",
             lat_col="GPS:Latitude",
             lon_col="GPS:Longitude",
             alt_col="GPS:heightMSL",
@@ -305,7 +304,7 @@ class TestCoordinateStandardization:
         )
         sync.add_drone_gps(
             sample_drone_dji_rtk,
-            timestamp_col="correct_timestamp",
+            timestamp_col="timestamp",
             lat_col="RTK:lat_p",
             lon_col="RTK:lon_p",
             alt_col="RTK:hmsl_p",
@@ -357,7 +356,7 @@ class TestCoordinateStandardization:
         )
         sync.add_drone_gps(
             sample_drone_dji_rtk,
-            timestamp_col="correct_timestamp",
+            timestamp_col="timestamp",
             lat_col="RTK:lat_p",
             lon_col="RTK:lon_p",
             alt_col="RTK:hmsl_p",
