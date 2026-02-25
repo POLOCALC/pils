@@ -21,20 +21,25 @@ logger = get_logger(__name__)
 class AZELVersion:
     """AZEL analysis version container.
 
-    Args:
-        version_name: Name identifier for this AZEL analysis version
-        azel_data: Polars DataFrame with columns: timestamp, az, el, srange
-        metadata: Dictionary containing observer position and other metadata
+    Parameters
+    ----------
+    version_name : str
+        Name identifier for this AZEL analysis version.
+    azel_data : pl.DataFrame
+        Polars DataFrame with columns: timestamp, az, el, srange.
+    metadata : dict[str, Any]
+        Dictionary containing observer position and other metadata.
 
-    Example:
-        >>> azel_data = pl.DataFrame({
-        ...     'timestamp': [1000.0, 2000.0],
-        ...     'az': [45.0, 90.0],
-        ...     'el': [30.0, 45.0],
-        ...     'srange': [100.5, 150.3]
-        ... })
-        >>> metadata = {'observer_lat': 40.7128, 'observer_lon': -74.0060}
-        >>> version = AZELVersion('v1', azel_data, metadata)
+    Examples
+    --------
+    >>> azel_data = pl.DataFrame({
+    ...     'timestamp': [1000.0, 2000.0],
+    ...     'az': [45.0, 90.0],
+    ...     'el': [30.0, 45.0],
+    ...     'srange': [100.5, 150.3]
+    ... })
+    >>> metadata = {'observer_lat': 40.7128, 'observer_lon': -74.0060}
+    >>> version = AZELVersion('v1', azel_data, metadata)
     """
 
     version_name: str
@@ -79,22 +84,28 @@ class AZELAnalysis:
 
         Creates the proc/azel directory structure if it doesn't exist.
 
-        Args:
-            flight: Flight object with valid flight_path attribute
+        Parameters
+        ----------
+        flight : Flight
+            Flight object with valid flight_path attribute.
 
-        Raises:
-            TypeError: If flight is not a Flight object
-            ValueError: If flight_path is None or doesn't exist
+        Raises
+        ------
+        TypeError
+            If flight is not a Flight object.
+        ValueError
+            If flight_path is None or doesn't exist.
 
-        Examples:
-            >>> from pils.flight import Flight
-            >>> flight_info = {
-            ...     "drone_data_folder_path": "/path/to/flight/drone",
-            ... }
-            >>> flight = Flight(flight_info)
-            >>> azel = AZELAnalysis(flight)
-            >>> print(azel.azel_dir)
-            /path/to/flight/proc/azel
+        Examples
+        --------
+        >>> from pils.flight import Flight
+        >>> flight_info = {
+        ...     "drone_data_folder_path": "/path/to/flight/drone",
+        ... }
+        >>> flight = Flight(flight_info)
+        >>> azel = AZELAnalysis(flight)
+        >>> print(azel.azel_dir)
+        /path/to/flight/proc/azel
         """
         # Validate flight object type
         if not isinstance(flight, Flight):
@@ -134,18 +145,27 @@ class AZELAnalysis:
     ) -> tuple[float, float, float]:
         """Compute RTK correction offset between actual and broadcast base positions.
 
-        Args:
-            dji_base_geod: Actual DJI base position {'lat': float, 'lon': float, 'alt': float}
-            dji_broadcast_geod: Broadcast DJI base position {'lat': float, 'lon': float, 'alt': float}
+        Parameters
+        ----------
+        dji_base_geod : dict[str, float]
+            Actual DJI base position with keys 'lat', 'lon', 'alt'.
+            Values in WGS84 degrees (lat, lon) and meters (alt).
+        dji_broadcast_geod : dict[str, float]
+            Broadcast DJI base position with keys 'lat', 'lon', 'alt'.
+            Values in WGS84 degrees (lat, lon) and meters (alt).
 
-        Returns:
-            Tuple of (delta_east, delta_north, delta_up) offset in meters to subtract from drone ENU
+        Returns
+        -------
+        tuple[float, float, float]
+            Tuple of (delta_east, delta_north, delta_up) offset in meters
+            to subtract from drone ENU coordinates.
 
-        Example:
-            >>> actual = {'lat': 40.0, 'lon': -105.0, 'alt': 1000.0}
-            >>> broadcast = {'lat': 40.001, 'lon': -105.0, 'alt': 1000.0}
-            >>> de, dn, du = AZELAnalysis._compute_rtk_correction(actual, broadcast)
-            >>> # Offset is ~111m south (broadcast is north of actual)
+        Examples
+        --------
+        >>> actual = {'lat': 40.0, 'lon': -105.0, 'alt': 1000.0}
+        >>> broadcast = {'lat': 40.001, 'lon': -105.0, 'alt': 1000.0}
+        >>> de, dn, du = AZELAnalysis._compute_rtk_correction(actual, broadcast)
+        >>> # Offset is ~111m south (broadcast is north of actual)
         """
         delta_e, delta_n, delta_u = pm.geodetic2enu(
             dji_base_geod["lat"],
@@ -162,7 +182,7 @@ class AZELAnalysis:
         telescope_name: str,
         dji_broadcast_geod: dict[str, float],
         drone_timezone_hours: float = 0.0,
-        emlid_csv_path: str | Path = None,
+        save_data: bool = False,
     ) -> AZELVersion | None:
         """Run AZEL analysis for drone telescope tracking.
 
@@ -170,33 +190,45 @@ class AZELAnalysis:
         applies RTK corrections, and computes azimuth-elevation angles for telescope
         tracking. Uses vectorized pymap3d operations for efficient coordinate transforms.
 
-        Args:
-            telescope_name: Telescope identifier (e.g., 'SATP1') for filtering EMLID data
-            dji_broadcast_geod: Broadcast DJI base position dict with keys:
-                {'lat': float, 'lon': float, 'alt': float} in WGS84 degrees/meters
-            drone_timezone_hours: Timezone offset for drone timestamps (default: 0.0 UTC).
-                Only applied to raw_data, sync_data is assumed UTC.
-            emlid_csv_path: (Deprecated) Path to EMLID CSV. Now auto-detected from
-                flight campaign structure at campaign/metadata/202511_coordinates.csv
+        Parameters
+        ----------
+        telescope_name : str
+            Telescope identifier (e.g., 'SATP1') for filtering EMLID data.
+        dji_broadcast_geod : dict[str, float]
+            Broadcast DJI base position dict with keys 'lat', 'lon', 'alt'.
+            Values in WGS84 degrees (lat, lon) and meters (alt).
+        drone_timezone_hours : float, optional
+            Timezone offset for drone timestamps in hours.
+            Only applied to raw_data; sync_data is assumed UTC.
+            Default is 0.0 (UTC).
+        save_data : bool, optional
+            Whether to save the data and create new version.
+            Default is False.
 
-        Returns:
+        Returns
+        -------
+        AZELVersion | None
             AZELVersion with computed azimuth, elevation, slant range data and metadata,
-            or None if no valid RTK data available after filtering
+            or None if no valid RTK data available after filtering.
 
-        Raises:
-            ValueError: If drone data not loaded or empty, or telescope/base not found
-            FileNotFoundError: If EMLID CSV file not found at expected location
+        Raises
+        ------
+        ValueError
+            If drone data not loaded or empty, or telescope/base not found.
+        FileNotFoundError
+            If EMLID CSV file not found at expected location.
 
-        Example:
-            >>> from pils.flight import Flight
-            >>> from pils.analyze.azel import AZELAnalysis
-            >>> flight = Flight(flight_info)
-            >>> flight.add_drone_data()
-            >>> azel = AZELAnalysis(flight)
-            >>> dji_broadcast = {'lat': -22.9597732, 'lon': -67.7866847, 'alt': 5173.020}
-            >>> version = azel.run_analysis('SATP1', dji_broadcast)
-            >>> print(version.azel_data.head())
-            >>> # Shows: timestamp, az, el, srange columns
+        Examples
+        --------
+        >>> from pils.flight import Flight
+        >>> from pils.analyze.azel import AZELAnalysis
+        >>> flight = Flight(flight_info)
+        >>> flight.add_drone_data()
+        >>> azel = AZELAnalysis(flight)
+        >>> dji_broadcast = {'lat': -22.9597732, 'lon': -67.7866847, 'alt': 5173.020}
+        >>> version = azel.run_analysis('SATP1', dji_broadcast)
+        >>> print(version.azel_data.head())
+        >>> # Shows: timestamp, az, el, srange columns
         """
 
         logger.info("Starting AZEL analysis...")
@@ -475,25 +507,29 @@ class AZELAnalysis:
             f"AZEL analysis complete: {len(timestamps_ctime)} samples, version={version_name}"
         )
 
-        # 12. Create AZELVersion
+        # Create version object
         version = AZELVersion(
             version_name=version_name, azel_data=azel_data, metadata=metadata
         )
 
-        # 13. Save to HDF5
-        self._save_to_hdf5(version)
+        # Save to HDF5 if requested
+        if save_data:
+            self._save_to_hdf5(version)
 
         return version
 
     def _save_to_hdf5(self, version: AZELVersion) -> None:
         """Save AZEL version to HDF5 file.
 
-        Args:
-            version: AZELVersion to save
+        Parameters
+        ----------
+        version : AZELVersion
+            AZELVersion object to save to HDF5 file.
 
-        Example:
-            >>> version = azel.run_analysis(...)
-            >>> azel._save_to_hdf5(version)
+        Examples
+        --------
+        >>> version = azel.run_analysis(...)
+        >>> azel._save_to_hdf5(version)
         """
         hdf5_path = self.azel_dir / "azel_solution.h5"
 
@@ -524,18 +560,26 @@ class AZELAnalysis:
     def _load_from_hdf5(self, version_name: str) -> AZELVersion:
         """Load AZEL version from HDF5 file.
 
-        Args:
-            version_name: Name of version to load
+        Parameters
+        ----------
+        version_name : str
+            Name of version to load (e.g., 'rev_20260218_143022').
 
-        Returns:
-            Loaded AZELVersion
+        Returns
+        -------
+        AZELVersion
+            Loaded AZELVersion object containing azel_data and metadata.
 
-        Raises:
-            FileNotFoundError: If HDF5 file doesn't exist
-            KeyError: If version_name not found in HDF5
+        Raises
+        ------
+        FileNotFoundError
+            If HDF5 file doesn't exist.
+        KeyError
+            If version_name not found in HDF5 file.
 
-        Example:
-            >>> version = azel._load_from_hdf5('rev_20260218_143022')
+        Examples
+        --------
+        >>> version = azel._load_from_hdf5('rev_20260218_143022')
         """
         hdf5_path = self.azel_dir / "azel_solution.h5"
 
@@ -582,12 +626,16 @@ class AZELAnalysis:
     def list_versions(self) -> list[str]:
         """List all AZEL versions in HDF5 file.
 
-        Returns:
-            List of version names, sorted chronologically
+        Returns
+        -------
+        list[str]
+            List of version names, sorted chronologically.
+            Empty list if HDF5 file doesn't exist.
 
-        Example:
-            >>> azel.list_versions()
-            ['rev_20260218_120000', 'rev_20260218_143022']
+        Examples
+        --------
+        >>> azel.list_versions()
+        ['rev_20260218_120000', 'rev_20260218_143022']
         """
         hdf5_path = self.azel_dir / "azel_solution.h5"
 
@@ -602,13 +650,16 @@ class AZELAnalysis:
     def get_latest_version(self) -> AZELVersion | None:
         """Get the most recent AZEL version.
 
-        Returns:
-            Latest AZELVersion, or None if no versions exist
+        Returns
+        -------
+        AZELVersion | None
+            Latest AZELVersion object, or None if no versions exist.
 
-        Example:
-            >>> latest = azel.get_latest_version()
-            >>> if latest:
-            ...     print(latest.version_name)
+        Examples
+        --------
+        >>> latest = azel.get_latest_version()
+        >>> if latest:
+        ...     print(latest.version_name)
         """
         versions = self.list_versions()
 
