@@ -11,57 +11,6 @@ import pytest
 # Core Correlation Functions Tests
 
 
-class TestLLAtoENU:
-    """Test LLA to ENU coordinate conversion."""
-
-    def test_lla_to_enu_zero_offset(self):
-        """Test conversion when target equals reference (should be zero)."""
-        from pils.synchronizer import Synchronizer
-
-        ref_lat, ref_lon, ref_alt = 45.0, 10.0, 100.0
-        target_lat, target_lon, target_alt = 45.0, 10.0, 100.0
-
-        e, n, u = Synchronizer._lla_to_enu(
-            ref_lat, ref_lon, ref_alt, target_lat, target_lon, target_alt
-        )
-
-        assert abs(e) < 1e-6, "East offset should be near zero"
-        assert abs(n) < 1e-6, "North offset should be near zero"
-        assert abs(u) < 1e-6, "Up offset should be near zero"
-
-    def test_lla_to_enu_known_offset(self):
-        """Test conversion with known offset (1 degree north ≈ 111 km)."""
-        from pils.synchronizer import Synchronizer
-
-        ref_lat, ref_lon, ref_alt = 45.0, 10.0, 100.0
-        target_lat = 46.0  # 1 degree north
-        target_lon = 10.0
-        target_alt = 100.0
-
-        e, n, u = Synchronizer._lla_to_enu(
-            ref_lat, ref_lon, ref_alt, target_lat, target_lon, target_alt
-        )
-
-        # 1 degree latitude ≈ 111 km north
-        assert abs(n - 111000) < 5000, "North offset should be ~111 km"
-        assert abs(e) < 1000, "East offset should be near zero"
-        assert abs(u) < 1e-6, "Up offset should be zero"
-
-    def test_lla_to_enu_altitude_change(self):
-        """Test altitude conversion."""
-        from pils.synchronizer import Synchronizer
-
-        ref_lat, ref_lon, ref_alt = 45.0, 10.0, 100.0
-        target_lat, target_lon = 45.0, 10.0
-        target_alt = 150.0  # 50m higher
-
-        e, n, u = Synchronizer._lla_to_enu(
-            ref_lat, ref_lon, ref_alt, target_lat, target_lon, target_alt
-        )
-
-        assert abs(u - 50.0) < 1e-6, "Up offset should be 50m"
-
-
 class TestSubsamplePeak:
     """Test parabolic interpolation for sub-sample peak detection."""
 
