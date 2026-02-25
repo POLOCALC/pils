@@ -184,8 +184,10 @@ class AZELAnalysis:
         azimuth, elevation, slant_range = pm.enu2aer(east, north, up)
         return azimuth, elevation, slant_range
 
-    def _load_emlid_reference_data(self,
-        telescope_name: str, emlid_csv_path: str | Path = None,
+    def _load_emlid_reference_data(
+        self,
+        telescope_name: str,
+        emlid_csv_path: str | Path = None,
     ) -> dict[str, dict[str, float]]:
         """Load telescope and DJI base positions from EMLID reference CSV.
 
@@ -396,26 +398,13 @@ class AZELAnalysis:
         logger.info(f"Using drone format: {format_type}, data source: {data_source}")
         logger.info(f"Loaded drone data with {drone_df.height} rows")
 
-        # 3. Set column names based on format and data source
+        # 3. Set column names based on data source
         if data_source == "sync_data":
-            # sync_data has standardized column names based on format
-            if format_type == "dji":
-                lat_col = "RTK:lat_p"
-                lon_col = "RTK:lon_p"
-                alt_col = "RTK:hmsl_p"
-                timestamp_col = "correct_timestamp"
-            elif format_type == "blacksquare":
-                lat_col = "Latitude"
-                lon_col = "Longitude"
-                alt_col = "heightMSL"
-                timestamp_col = "timestamp"
-            elif format_type == "litchi":
-                lat_col = "latitude"
-                lon_col = "longitude"
-                alt_col = "altitude(m)"
-                timestamp_col = "timestamp"
-            else:
-                raise ValueError(f"Unsupported drone format: {format_type}")
+            # sync_data uses standardized column names (as of coordinate standardization feature)
+            lat_col = "latitude"
+            lon_col = "longitude"
+            alt_col = "altitude"
+            timestamp_col = "timestamp"
         else:  # raw_data
             # raw_data uses original DJI column names
             if "RTKdata:Lat_P" in drone_df.columns:
@@ -505,7 +494,7 @@ class AZELAnalysis:
             )
 
         # 4. Load EMLID reference data
-        ref_data = self._load_emlid_reference_data(emlid_csv_path, telescope_name)
+        ref_data = self._load_emlid_reference_data(telescope_name, emlid_csv_path)
         telescope_geod = ref_data["telescope"]
         dji_base_geod = ref_data["base"]
 

@@ -1138,13 +1138,13 @@ class TestPhase1DataSource:
         flight_info = {"drone_data_folder_path": str(drone_data_path)}
         flight = Flight(flight_info)
 
-        # Create mock sync_data
+        # Create mock sync_data with STANDARD column names
         flight.sync_data = {
             "drone": {
-                "correct_timestamp": [1000.0, 2000.0, 3000.0],
-                "RTK:lat_p": [40.0001, 40.0002, 40.0003],
-                "RTK:lon_p": [-105.0001, -105.0002, -105.0003],
-                "RTK:hmsl_p": [1000.0, 1001.0, 1002.0],
+                "timestamp": [1000.0, 2000.0, 3000.0],
+                "latitude": [40.0001, 40.0002, 40.0003],
+                "longitude": [-105.0001, -105.0002, -105.0003],
+                "altitude": [1000.0, 1001.0, 1002.0],
             }
         }
 
@@ -1193,7 +1193,7 @@ class TestPhase1DataSource:
         # For now, just verify sync_data exists
         assert azel.flight.sync_data is not None
         assert "drone" in azel.flight.sync_data
-        assert "correct_timestamp" in azel.flight.sync_data["drone"]
+        assert "timestamp" in azel.flight.sync_data["drone"]
 
     def test_raw_data_fallback(self, mock_flight_raw_data_only):
         """Test that raw_data is used when sync_data is None."""
