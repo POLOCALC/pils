@@ -18,10 +18,23 @@ class TestAZELStandardColumns:
     @pytest.fixture
     def mock_flight_standard_sync(self, tmp_path):
         """Create mock Flight with sync_data using standard column names."""
-        flight_path = tmp_path / "flight_standard"
-        flight_path.mkdir()
+        # Create campaign structure with metadata directory
+        campaign_dir = tmp_path / "campaign"
+        metadata_dir = campaign_dir / "metadata"
+        metadata_dir.mkdir(parents=True)
+
+        # Create EMLID CSV in metadata directory
+        emlid_csv = metadata_dir / "202511_coordinates.csv"
+        csv_content = """Name,Longitude,Latitude,Ellipsoidal height
+emlid base,-105.0500,40.0500,1050.0
+SATP1,-105.0000,40.0000,1000.000
+dji rtk base (antenna base),-105.0005,40.0005,1001.000"""
+        emlid_csv.write_text(csv_content)
+
+        # Create flight directory
+        flight_path = campaign_dir / "flight_standard"
         drone_data_path = flight_path / "drone"
-        drone_data_path.mkdir()
+        drone_data_path.mkdir(parents=True)
 
         flight_info = {"drone_data_folder_path": str(drone_data_path)}
         flight = Flight(flight_info)
@@ -42,19 +55,7 @@ class TestAZELStandardColumns:
         flight._Flight__drone_model = "dji"
         return flight
 
-    @pytest.fixture
-    def mock_emlid_csv(self, tmp_path):
-        """Create mock EMLID observer position CSV."""
-        csv_file = tmp_path / "emlid_ref.csv"
-        csv_content = """Name,Longitude,Latitude,Ellipsoidal height
-SATP1,-105.0000,40.0000,1000.000
-DJI_BASE,-105.0005,40.0005,1001.000"""
-        csv_file.write_text(csv_content)
-        return str(csv_file)
-
-    def test_sync_data_uses_standard_latitude(
-        self, mock_flight_standard_sync, mock_emlid_csv
-    ):
+    def test_sync_data_uses_standard_latitude(self, mock_flight_standard_sync):
         """Test that AZEL analysis uses standard 'latitude' column."""
         from pils.analyze.azel import AZELAnalysis
 
@@ -72,7 +73,6 @@ DJI_BASE,-105.0005,40.0005,1001.000"""
             telescope_name="SATP1",
             dji_broadcast_geod=dji_broadcast,
             drone_timezone_hours=0.0,
-            emlid_csv_path=mock_emlid_csv,
         )
 
         # Verify analysis completed successfully
@@ -80,9 +80,7 @@ DJI_BASE,-105.0005,40.0005,1001.000"""
         assert version.azel_data is not None
         assert version.azel_data.height > 0
 
-    def test_sync_data_uses_standard_longitude(
-        self, mock_flight_standard_sync, mock_emlid_csv
-    ):
+    def test_sync_data_uses_standard_longitude(self, mock_flight_standard_sync):
         """Test that AZEL analysis uses standard 'longitude' column."""
         from pils.analyze.azel import AZELAnalysis
 
@@ -99,14 +97,11 @@ DJI_BASE,-105.0005,40.0005,1001.000"""
             telescope_name="SATP1",
             dji_broadcast_geod=dji_broadcast,
             drone_timezone_hours=0.0,
-            emlid_csv_path=mock_emlid_csv,
         )
 
         assert version is not None
 
-    def test_sync_data_uses_standard_altitude(
-        self, mock_flight_standard_sync, mock_emlid_csv
-    ):
+    def test_sync_data_uses_standard_altitude(self, mock_flight_standard_sync):
         """Test that AZEL analysis uses standard 'altitude' column."""
         from pils.analyze.azel import AZELAnalysis
 
@@ -123,14 +118,11 @@ DJI_BASE,-105.0005,40.0005,1001.000"""
             telescope_name="SATP1",
             dji_broadcast_geod=dji_broadcast,
             drone_timezone_hours=0.0,
-            emlid_csv_path=mock_emlid_csv,
         )
 
         assert version is not None
 
-    def test_sync_data_uses_standard_timestamp(
-        self, mock_flight_standard_sync, mock_emlid_csv
-    ):
+    def test_sync_data_uses_standard_timestamp(self, mock_flight_standard_sync):
         """Test that AZEL analysis uses standard 'timestamp' column."""
         from pils.analyze.azel import AZELAnalysis
 
@@ -146,16 +138,13 @@ DJI_BASE,-105.0005,40.0005,1001.000"""
             telescope_name="SATP1",
             dji_broadcast_geod=dji_broadcast,
             drone_timezone_hours=0.0,
-            emlid_csv_path=mock_emlid_csv,
         )
 
         assert version is not None
         # Verify output has timestamps
         assert "timestamp" in version.azel_data.columns
 
-    def test_no_conditional_column_mapping(
-        self, mock_flight_standard_sync, mock_emlid_csv
-    ):
+    def test_no_conditional_column_mapping(self, mock_flight_standard_sync):
         """Test that AZEL no longer uses conditional column name mapping."""
         from pils.analyze.azel import AZELAnalysis
 
@@ -169,7 +158,7 @@ DJI_BASE,-105.0005,40.0005,1001.000"""
             "RTK:lat_p",
             "RTK:lon_p",
             "RTK:hmsl_p",
-            "correct_timestamp",
+            "timestamp_old",  # old raw timestamp from GPS:dateTimeStamp
             "Latitude",
             "Longitude",
             "heightMSL",
@@ -185,14 +174,11 @@ DJI_BASE,-105.0005,40.0005,1001.000"""
             telescope_name="SATP1",
             dji_broadcast_geod=dji_broadcast,
             drone_timezone_hours=0.0,
-            emlid_csv_path=mock_emlid_csv,
         )
 
         assert version is not None
 
-    def test_preserve_non_coordinate_columns(
-        self, mock_flight_standard_sync, mock_emlid_csv
-    ):
+    def test_preserve_non_coordinate_columns(self, mock_flight_standard_sync):
         """Test that non-coordinate columns are preserved with original names."""
         from pils.analyze.azel import AZELAnalysis
 
@@ -208,7 +194,6 @@ DJI_BASE,-105.0005,40.0005,1001.000"""
             telescope_name="SATP1",
             dji_broadcast_geod=dji_broadcast,
             drone_timezone_hours=0.0,
-            emlid_csv_path=mock_emlid_csv,
         )
 
         assert version is not None

@@ -1,5 +1,6 @@
 """AZEL (Azimuth-Elevation) analysis module for flight data."""
 
+import datetime
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,6 +11,7 @@ import polars as pl
 import pymap3d as pm
 
 from pils.flight import Flight
+from pils.sensors.emlid import Emlid
 from pils.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -127,136 +129,6 @@ class AZELAnalysis:
         logger.info(f"AZEL directory: {self.azel_dir}")
 
     @staticmethod
-    def _compute_enu_positions(
-        ref_lat: float,
-        ref_lon: float,
-        ref_alt: float,
-        target_lat: float,
-        target_lon: float,
-        target_alt: float,
-    ) -> tuple[float, float, float]:
-        """Convert geodetic coordinates to local ENU (East-North-Up).
-
-        Args:
-            ref_lat: Reference latitude in degrees (WGS84)
-            ref_lon: Reference longitude in degrees (WGS84)
-            ref_alt: Reference altitude in meters (ellipsoidal height)
-            target_lat: Target latitude in degrees (WGS84)
-            target_lon: Target longitude in degrees (WGS84)
-            target_alt: Target altitude in meters (ellipsoidal height)
-
-        Returns:
-            Tuple of (east, north, up) in meters
-
-        Example:
-            >>> e, n, u = AZELAnalysis._compute_enu_positions(
-            ...     40.0, -105.0, 1000.0,
-            ...     40.001, -105.0, 1000.0
-            ... )
-            >>> # Drone is ~111m north of reference
-        """
-        east, north, up = pm.geodetic2enu(
-            target_lat, target_lon, target_alt, ref_lat, ref_lon, ref_alt
-        )
-        return east, north, up
-
-    @staticmethod
-    def _compute_azel(
-        east: float, north: float, up: float
-    ) -> tuple[float, float, float]:
-        """Convert ENU coordinates to azimuth, elevation, slant range.
-
-        Args:
-            east: East position in meters
-            north: North position in meters
-            up: Up position in meters
-
-        Returns:
-            Tuple of (azimuth, elevation, slant_range)
-            - azimuth: Angle in degrees (0° = North, 90° = East)
-            - elevation: Angle in degrees above horizon (0° = horizon, 90° = zenith)
-            - slant_range: Distance in meters
-
-        Example:
-            >>> az, el, sr = AZELAnalysis._compute_azel(0, 100, 0)
-            >>> # Drone is 100m north: az≈0°, el≈0°, range≈100m
-        """
-        azimuth, elevation, slant_range = pm.enu2aer(east, north, up)
-        return azimuth, elevation, slant_range
-
-    def _load_emlid_reference_data(
-        self,
-        telescope_name: str,
-        emlid_csv_path: str | Path = None,
-    ) -> dict[str, dict[str, float]]:
-        """Load telescope and DJI base positions from EMLID reference CSV.
-
-        Args:
-            emlid_csv_path: Path to EMLID CSV file with columns: Name, Longitude, Latitude, Ellipsoidal height
-            telescope_name: Telescope identifier (e.g., 'SATP1') for filtering rows
-
-        Returns:
-            Dictionary with 'telescope' and 'base' keys, each containing:
-            {'lat': float, 'lon': float, 'alt': float} in WGS84 degrees and meters
-
-        Raises:
-            FileNotFoundError: If EMLID CSV file not found
-            ValueError: If telescope or base positions not found in CSV
-
-        Example:
-            >>> ref_data = AZELAnalysis._load_emlid_reference_data(
-            ...     'emlid_ref.csv', 'SATP1'
-            ... )
-            >>> ref_data['telescope']['lat']  # Mean latitude of SATP1 positions
-            40.0001
-        """
-
-        if not emlid_csv_path:
-            emlid_path = self.flight_path.parents[1]
-
-            emlid_path = emlid_path / "coordinates" / "202511_coordinates.csv"
-
-        else:
-            emlid_path = Path(emlid_csv_path)
-            if not emlid_path.exists():
-                raise FileNotFoundError(f"EMLID CSV file not found: {emlid_path}")
-
-        # Load EMLID data with Polars
-        df = pl.read_csv(
-            emlid_path, columns=["Name", "Longitude", "Latitude", "Ellipsoidal height"]
-        )
-
-        # Filter and compute mean for telescope positions
-        telescope_df = df.filter(pl.col("Name").str.starts_with(telescope_name.upper()))
-        if telescope_df.height == 0:
-            raise ValueError(
-                f"No telescope positions found for '{telescope_name}' in EMLID CSV"
-            )
-
-        telescope_mean = telescope_df.select(
-            [
-                pl.col("Latitude").mean().alias("lat"),
-                pl.col("Longitude").mean().alias("lon"),
-                pl.col("Ellipsoidal height").mean().alias("alt"),
-            ]
-        ).row(0, named=True)
-
-        # Filter and compute mean for DJI base positions
-        base_df = df.filter(pl.col("Name").str.starts_with("DJI"))
-        if base_df.height == 0:
-            raise ValueError("No DJI base positions found in EMLID CSV")
-
-        base_mean = base_df.select(
-            [
-                pl.col("Latitude").mean().alias("lat"),
-                pl.col("Longitude").mean().alias("lon"),
-                pl.col("Ellipsoidal height").mean().alias("alt"),
-            ]
-        ).row(0, named=True)
-
-        return {"telescope": telescope_mean, "base": base_mean}
-
-    @staticmethod
     def _compute_rtk_correction(
         dji_base_geod: dict[str, float], dji_broadcast_geod: dict[str, float]
     ) -> tuple[float, float, float]:
@@ -294,29 +166,38 @@ class AZELAnalysis:
     ) -> AZELVersion | None:
         """Run AZEL analysis for drone telescope tracking.
 
-        Loads drone RTK data, applies corrections, and computes azimuth-elevation
-        angles for telescope tracking.
+        Loads drone RTK data, computes reference positions from EMLID survey data,
+        applies RTK corrections, and computes azimuth-elevation angles for telescope
+        tracking. Uses vectorized pymap3d operations for efficient coordinate transforms.
 
         Args:
-            emlid_csv_path: Path to EMLID reference CSV with telescope and base positions
-            telescope_name: Telescope identifier (e.g., 'SATP1')
-            dji_broadcast_geod: Broadcast DJI base position {'lat': float, 'lon': float, 'alt': float}
-            drone_timezone_hours: Timezone offset for drone timestamps (default: 0.0 UTC)
+            telescope_name: Telescope identifier (e.g., 'SATP1') for filtering EMLID data
+            dji_broadcast_geod: Broadcast DJI base position dict with keys:
+                {'lat': float, 'lon': float, 'alt': float} in WGS84 degrees/meters
+            drone_timezone_hours: Timezone offset for drone timestamps (default: 0.0 UTC).
+                Only applied to raw_data, sync_data is assumed UTC.
+            emlid_csv_path: (Deprecated) Path to EMLID CSV. Now auto-detected from
+                flight campaign structure at campaign/metadata/202511_coordinates.csv
 
         Returns:
-            AZELVersion with computed azimuth, elevation, slant range data, or None if no valid data
+            AZELVersion with computed azimuth, elevation, slant range data and metadata,
+            or None if no valid RTK data available after filtering
 
         Raises:
-            ValueError: If drone data not loaded or EMLID data invalid
-            FileNotFoundError: If EMLID CSV file not found
+            ValueError: If drone data not loaded or empty, or telescope/base not found
+            FileNotFoundError: If EMLID CSV file not found at expected location
 
         Example:
+            >>> from pils.flight import Flight
+            >>> from pils.analyze.azel import AZELAnalysis
+            >>> flight = Flight(flight_info)
+            >>> flight.add_drone_data()
             >>> azel = AZELAnalysis(flight)
             >>> dji_broadcast = {'lat': -22.9597732, 'lon': -67.7866847, 'alt': 5173.020}
-            >>> version = azel.run_analysis('emlid_ref.csv', 'SATP1', dji_broadcast)
-            >>> print(version.azel_data)
+            >>> version = azel.run_analysis('SATP1', dji_broadcast)
+            >>> print(version.azel_data.head())
+            >>> # Shows: timestamp, az, el, srange columns
         """
-        import datetime
 
         logger.info("Starting AZEL analysis...")
 
@@ -494,15 +375,23 @@ class AZELAnalysis:
             )
 
         # 4. Load EMLID reference data
-        ref_data = self._load_emlid_reference_data(telescope_name, emlid_csv_path)
-        telescope_geod = ref_data["telescope"]
-        dji_base_geod = ref_data["base"]
+        emlid = Emlid(self.flight)
+
+        ref_data = emlid.load_data(telescope_name=telescope_name)
+
+        # Extract scalar values from DataFrames
+        telescope_geod = ref_data["telescope"].row(0, named=True)
+
+        if format_type == "dji":
+            base_geod = ref_data["base"]["dji"].row(0, named=True)
+        else:
+            base_geod = ref_data["base"]["emlid"].row(0, named=True)
 
         logger.info(
             f"Telescope position: lat={telescope_geod['lat']:.6f}, lon={telescope_geod['lon']:.6f}, alt={telescope_geod['alt']:.2f}"
         )
         logger.info(
-            f"DJI base position: lat={dji_base_geod['lat']:.6f}, lon={dji_base_geod['lon']:.6f}, alt={dji_base_geod['alt']:.2f}"
+            f"DJI base position: lat={base_geod['lat']:.6f}, lon={base_geod['lon']:.6f}, alt={base_geod['alt']:.2f}"
         )
 
         # 5. Compute RTK correction offset (conditional based on drone format)
@@ -511,7 +400,7 @@ class AZELAnalysis:
 
         if rtk_applied:
             delta_e, delta_n, delta_u = self._compute_rtk_correction(
-                dji_base_geod, dji_broadcast_geod
+                base_geod, dji_broadcast_geod
             )
             logger.info(
                 f"RTK correction offset: dE={delta_e:.3f}m, dN={delta_n:.3f}m, dU={delta_u:.3f}m"
@@ -523,41 +412,25 @@ class AZELAnalysis:
                 f"Skipping RTK correction for {format_type} format (not RTK-capable)"
             )
 
-        # 6. Compute ENU positions for each drone position
-        e_list = []
-        n_list = []
-        up_list = []
-
-        for lat, lon, alt in valid_rtk.select([lat_col, lon_col, alt_col]).iter_rows():
-            e, n, u = self._compute_enu_positions(
-                telescope_geod["lat"],
-                telescope_geod["lon"],
-                telescope_geod["alt"],
-                float(lat),
-                float(lon),
-                float(alt),
-            )
-            e_list.append(e)
-            n_list.append(n)
-            up_list.append(u)
+        e, n, u = pm.geodetic2enu(
+            valid_rtk[lat_col],
+            valid_rtk[lon_col],
+            valid_rtk[alt_col],
+            telescope_geod["lat"],
+            telescope_geod["lon"],
+            telescope_geod["alt"],
+        )
 
         # 7. Apply RTK correction (subtract offset from ENU positions)
-        e_corrected = [e - delta_e for e in e_list]
-        n_corrected = [n - delta_n for n in n_list]
-        u_corrected = [u - delta_u for u in up_list]
+        e_corrected = e - delta_e
+        n_corrected = n - delta_n
+        u_corrected = u - delta_u
 
         logger.info("Applied RTK correction to ENU positions")
 
-        # 8. Compute AZEL for each position
-        az_list = []
-        el_list = []
-        srange_list = []
-
-        for e, n, u in zip(e_corrected, n_corrected, u_corrected, strict=True):
-            az, el, sr = self._compute_azel(e, n, u)
-            az_list.append(az)
-            el_list.append(el)
-            srange_list.append(sr)
+        azimuth, elevation, slant_range = pm.enu2aer(
+            e_corrected, n_corrected, u_corrected
+        )
 
         logger.info("Computed azimuth, elevation, slant range")
 
@@ -565,9 +438,9 @@ class AZELAnalysis:
         azel_data = pl.DataFrame(
             {
                 "timestamp": timestamps_ctime,
-                "az": az_list,
-                "el": el_list,
-                "srange": srange_list,
+                "az": azimuth,
+                "el": elevation,
+                "srange": slant_range,
             }
         ).with_columns(
             [
@@ -581,7 +454,7 @@ class AZELAnalysis:
         # 10. Create metadata
         metadata = {
             "telescope_position": telescope_geod,
-            "base_position": dji_base_geod,
+            "base_position": base_geod,
             "dji_broadcast_position": dji_broadcast_geod,
             "rtk_correction": {
                 "delta_e": delta_e,
