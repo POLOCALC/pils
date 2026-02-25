@@ -20,16 +20,19 @@ class Emlid:
     EMLID survey CSV files. It computes barycenters (geometric mean positions)
     when multiple measurements exist for a single reference point.
 
-    Attributes:
-        emlid_path: Path to EMLID CSV file with reference coordinates
+    Attributes
+    ----------
+    emlid_path : Path
+        Path to EMLID CSV file with reference coordinates.
 
-    Example:
-        >>> from pils.flight import Flight
-        >>> flight = Flight(flight_info)
-        >>> emlid = Emlid(flight)
-        >>> ref_data = emlid.load_data(telescope_name='SATP1')
-        >>> telescope_pos = ref_data['telescope']
-        >>> base_pos = ref_data['base']['emlid']
+    Examples
+    --------
+    >>> from pils.flight import Flight
+    >>> flight = Flight(flight_info)
+    >>> emlid = Emlid(flight)
+    >>> ref_data = emlid.load_data(telescope_name='SATP1')
+    >>> telescope_pos = ref_data['telescope']
+    >>> base_pos = ref_data['base']['emlid']
     """
 
     def __init__(self, flight: Flight) -> None:
@@ -39,17 +42,22 @@ class Emlid:
         The expected file structure is:
             campaign_dir/metadata/202511_coordinates.csv
 
-        Args:
-            flight: Flight object with valid flight_path attribute
+        Parameters
+        ----------
+        flight : Flight
+            Flight object with valid flight_path attribute.
 
-        Raises:
-            FileNotFoundError: If EMLID CSV file not found at expected path
+        Raises
+        ------
+        FileNotFoundError
+            If EMLID CSV file not found at expected path.
 
-        Example:
-            >>> flight = Flight(flight_info)
-            >>> emlid = Emlid(flight)
-            >>> print(emlid.emlid_path)
-            /path/to/campaign/metadata/202511_coordinates.csv
+        Examples
+        --------
+        >>> flight = Flight(flight_info)
+        >>> emlid = Emlid(flight)
+        >>> print(emlid.emlid_path)
+        /path/to/campaign/metadata/202511_coordinates.csv
         """
         flight_path = Path(flight.flight_path)
         campaign_dir = flight_path.parent  # Go up one level to campaign
@@ -69,24 +77,30 @@ class Emlid:
         computes the mean ENU position, then converts back to geodetic coordinates.
         This provides a more accurate center position than simple mean lat/lon/alt.
 
-        Args:
-            coordinates: DataFrame with columns 'lat', 'lon', 'alt' (multiple rows)
-            reference: DataFrame with columns 'lat', 'lon', 'alt' (single row, EMLID base)
+        Parameters
+        ----------
+        coordinates : pl.DataFrame
+            DataFrame with columns 'lat', 'lon', 'alt' (multiple rows).
+        reference : pl.DataFrame
+            DataFrame with columns 'lat', 'lon', 'alt' (single row, EMLID base).
 
-        Returns:
+        Returns
+        -------
+        pl.DataFrame
             DataFrame with single row containing barycenter {'lat', 'lon', 'alt'}
-            in WGS84 degrees and meters ellipsoidal height
+            in WGS84 degrees and meters ellipsoidal height.
 
-        Example:
-            >>> coords = pl.DataFrame({
-            ...     'lat': [40.0001, 40.0002, 40.0003],
-            ...     'lon': [-105.001, -105.002, -105.003],
-            ...     'alt': [1500.0, 1500.5, 1501.0]
-            ... })
-            >>> ref = pl.DataFrame({'lat': [40.0], 'lon': [-105.0], 'alt': [1500.0]})
-            >>> barycenter = Emlid._get_barycenter(coords, ref)
-            >>> barycenter.shape
-            (1, 3)
+        Examples
+        --------
+        >>> coords = pl.DataFrame({
+        ...     'lat': [40.0001, 40.0002, 40.0003],
+        ...     'lon': [-105.001, -105.002, -105.003],
+        ...     'alt': [1500.0, 1500.5, 1501.0]
+        ... })
+        >>> ref = pl.DataFrame({'lat': [40.0], 'lon': [-105.0], 'alt': [1500.0]})
+        >>> barycenter = Emlid._get_barycenter(coords, ref)
+        >>> barycenter.shape
+        (1, 3)
         """
         # Extract reference position (scalar values from first row)
         ref_lat = reference["lat"][0]
@@ -132,38 +146,51 @@ class Emlid:
         positions with multiple measurements. The CSV must have columns:
         'Name', 'Longitude', 'Latitude', 'Ellipsoidal height'.
 
-        Args:
-            telescope_name: Telescope identifier (e.g., 'SATP1') to filter rows.
-                Matches rows where 'Name' starts with this prefix (case-insensitive).
-            base_name: EMLID base station identifier (default: 'emlid base').
-                Used as reference for barycenter computation.
-            dji_base_name: DJI RTK base station identifier
-                (default: 'dji rtk base (antenna base)').
+        Parameters
+        ----------
+        telescope_name : str
+            Telescope identifier (e.g., 'SATP1') to filter rows.
+            Matches rows where 'Name' starts with this prefix (case-insensitive).
+        base_name : str, optional
+            EMLID base station identifier.
+            Used as reference for barycenter computation.
+            Default is 'emlid base'.
+        dji_base_name : str, optional
+            DJI RTK base station identifier.
+            Default is 'dji rtk base (antenna base)'.
 
-        Returns:
-            Dictionary with structure:
-            {
-                'telescope': pl.DataFrame({'lat', 'lon', 'alt'}),  # Single row
-                'base': {
-                    'emlid': pl.DataFrame({'lat', 'lon', 'alt'}),  # Single row
-                    'dji': pl.DataFrame({'lat', 'lon', 'alt'})     # Single row
+        Returns
+        -------
+        dict[str, pl.DataFrame | dict[str, pl.DataFrame]]
+            Dictionary with structure::
+
+                {
+                    'telescope': pl.DataFrame({'lat', 'lon', 'alt'}),  # Single row
+                    'base': {
+                        'emlid': pl.DataFrame({'lat', 'lon', 'alt'}),  # Single row
+                        'dji': pl.DataFrame({'lat', 'lon', 'alt'})     # Single row
+                    }
                 }
-            }
+
             All coordinates in WGS84 degrees, altitude in meters (ellipsoidal height).
             If multiple measurements exist, barycenters are computed using ENU.
 
-        Raises:
-            FileNotFoundError: If EMLID CSV file not found (checked in __init__)
-            ValueError: If telescope or DJI base positions not found in CSV
+        Raises
+        ------
+        FileNotFoundError
+            If EMLID CSV file not found (checked in __init__).
+        ValueError
+            If telescope or DJI base positions not found in CSV.
 
-        Example:
-            >>> emlid = Emlid(flight)
-            >>> ref_data = emlid.load_data(telescope_name='SATP1')
-            >>> telescope_pos = ref_data['telescope'].row(0, named=True)
-            >>> print(telescope_pos['lat'], telescope_pos['lon'])
-            -22.9597732 -67.7866847
-            >>> emlid_base = ref_data['base']['emlid'].row(0, named=True)
-            >>> dji_base = ref_data['base']['dji'].row(0, named=True)
+        Examples
+        --------
+        >>> emlid = Emlid(flight)
+        >>> ref_data = emlid.load_data(telescope_name='SATP1')
+        >>> telescope_pos = ref_data['telescope'].row(0, named=True)
+        >>> print(telescope_pos['lat'], telescope_pos['lon'])
+        -22.9597732 -67.7866847
+        >>> emlid_base = ref_data['base']['emlid'].row(0, named=True)
+        >>> dji_base = ref_data['base']['dji'].row(0, named=True)
         """
 
         # Load EMLID data with Polars
