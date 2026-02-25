@@ -12,22 +12,21 @@ class TestEmlidLoader:
         """Create campaign structure with EMLID CSV for testing.
 
         Creates directory structure:
-        campaign/
-            flight_001/
-                drone/
+        tmp_path/
+            campaigns/
+                flight_001/
+                    drone/
             metadata/
                 202511_coordinates.csv
         """
-        campaign_dir = tmp_path / "campaign"
-        campaign_dir.mkdir()
-
-        # Create flight directory
-        flight_dir = campaign_dir / "flight_001"
+        # Create campaigns/flight/drone structure
+        campaigns_dir = tmp_path / "campaigns"
+        flight_dir = campaigns_dir / "flight_001"
         drone_dir = flight_dir / "drone"
         drone_dir.mkdir(parents=True)
 
-        # Create metadata directory with EMLID CSV
-        metadata_dir = campaign_dir / "metadata"
+        # Create metadata directory at tmp_path level (sibling to campaigns)
+        metadata_dir = tmp_path / "metadata"
         metadata_dir.mkdir()
 
         csv_content = """Name,Longitude,Latitude,Ellipsoidal height
@@ -61,9 +60,9 @@ DJI RTK BASE (antenna base) 2,-105.1001,40.1001,1100.5
         from pils.flight import Flight
         from pils.sensors.emlid import Emlid
 
-        # Create flight structure WITHOUT metadata directory
-        campaign_dir = tmp_path / "campaign"
-        flight_dir = campaign_dir / "flight_001"
+        # Create campaigns/flight/drone structure WITHOUT metadata directory
+        campaigns_dir = tmp_path / "campaigns"
+        flight_dir = campaigns_dir / "flight_001"
         drone_dir = flight_dir / "drone"
         drone_dir.mkdir(parents=True)
 
@@ -143,13 +142,14 @@ DJI RTK BASE (antenna base) 2,-105.1001,40.1001,1100.5
         from pils.flight import Flight
         from pils.sensors.emlid import Emlid
 
-        # Create campaign structure
-        campaign_dir = tmp_path / "campaign"
-        flight_dir = campaign_dir / "flight_001"
+        # Create campaigns/flight/drone structure
+        campaigns_dir = tmp_path / "campaigns"
+        flight_dir = campaigns_dir / "flight_001"
         drone_dir = flight_dir / "drone"
         drone_dir.mkdir(parents=True)
 
-        metadata_dir = campaign_dir / "metadata"
+        # Create metadata at tmp_path level (sibling to campaigns)
+        metadata_dir = tmp_path / "metadata"
         metadata_dir.mkdir()
 
         # Create CSV with multiple telescope types
@@ -291,13 +291,14 @@ dji rtk base (antenna base),-105.1000,40.1000,1100.0
         from pils.flight import Flight
         from pils.sensors.emlid import Emlid
 
-        # Create campaign structure
-        campaign_dir = tmp_path / "campaign"
-        flight_dir = campaign_dir / "flight_001"
+        # Create campaigns/flight/drone structure
+        campaigns_dir = tmp_path / "campaigns"
+        flight_dir = campaigns_dir / "flight_001"
         drone_dir = flight_dir / "drone"
         drone_dir.mkdir(parents=True)
 
-        metadata_dir = campaign_dir / "metadata"
+        # Create metadata at tmp_path level (sibling to campaigns)
+        metadata_dir = tmp_path / "metadata"
         metadata_dir.mkdir()
 
         # Create CSV with custom base names
