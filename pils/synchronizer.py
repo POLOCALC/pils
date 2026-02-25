@@ -1019,8 +1019,16 @@ class Synchronizer:
         Returns
         -------
         dict
-            Synchronized data dictionary with interpolated values for each source
-            Keys: "drone", "litchi", "inclinometer" and "payload"
+            Synchronized data dictionary with interpolated values for each source.
+            Keys: "drone", "litchi", "reference_gps", "inclinometer", "camera", "payload"
+
+            GPS sources (drone, litchi, reference_gps) use standardized coordinate columns:
+            - latitude: Latitude in degrees (WGS84)
+            - longitude: Longitude in degrees (WGS84)
+            - altitude: Altitude in meters (ellipsoidal height)
+            - timestamp: Time in seconds
+
+            Non-coordinate columns preserve their original names.
 
         Raises
         ------
