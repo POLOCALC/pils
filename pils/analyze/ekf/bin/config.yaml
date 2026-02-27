@@ -1,0 +1,61 @@
+# EKF Configuration File
+# All tuning parameters for the Extended Kalman Filter attitude estimation
+
+# Filter Configuration
+# Median filter window sizes for spike/outlier removal
+filter:
+  accelerometer:
+    median_window:
+      x: 5
+      y: 5
+      z: 5
+    lowpass_cutoff_hz: 5.0
+  
+  gyroscope:
+    median_window:
+      x: 3
+      y: 3
+      z: 3
+    lowpass_cutoff_hz: 50.0
+
+# EKF Noise Parameters
+ekf:
+  # Process noise (Q matrix)
+  process_noise:
+    quaternion: 1.0e-10  # Noise for quaternion states (q0, q1, q2, q3)
+    gyro_bias: 1.0e-9    # Noise for gyro bias states (bx, by, bz)
+  
+  # Measurement noise (R matrix) - accelerometer
+  measurement_noise:
+    accel_x: 0.5
+    accel_y: 0.5
+    accel_z: 0.5
+
+  # Photo measurement noise (R matrix)
+  # Measures orientation as quaternion (from roll, pitch, yaw)
+  # Higher noise means less trust in photo measurements, lower noise means more trust
+  photo_measurement_noise:
+    quaternion: 1.0e-9
+  
+  # Initial covariance
+  initial_covariance: 1.0
+
+# Integration window for gyro integration (in seconds)
+# 0 or negative = no windowing (cumulative integration)
+integration_window_seconds: 1.0
+
+# Adaptive measurement noise threshold
+# Skip accelerometer updates if magnitude error > this threshold
+accel_magnitude_error_threshold: 0.20
+
+# Frame rotation: ZYX intrinsic Euler angles in degrees [z, y, x]
+frame_rotation_zyx_deg: [0.0, 89.8, 181.479]
+# frame_rotation_zyx_deg: [0.0, 0.0,0.0]
+
+# Axis sign inversion applied to raw IMU data before any processing
+# Set to true to negate the corresponding axis for both accel and gyro
+axis_inversion:
+  x: false
+  y: true
+  z: true
+  
