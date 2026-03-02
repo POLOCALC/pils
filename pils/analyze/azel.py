@@ -56,7 +56,18 @@ class AZELAnalysis:
     File Structure
     --------------
     flight_dir/proc/azel/
-    └── (AZEL analysis outputs will be stored here)
+    └── azel_solution.h5  # HDF5 with telescope-grouped structure
+
+    HDF5 Structure
+    --------------
+    azel_solution.h5
+    ├── SATP1/                     # Telescope group
+    │   ├── rev_20260302_120000/   # Revision 1
+    │   │   ├── azel_data/         # DataFrame columns
+    │   │   └── metadata           # JSON metadata
+    │   └── rev_20260302_130000/   # Revision 2
+    └── SATP2/                     # Another telescope
+        └── rev_20260302_120000/
 
     Attributes
     ----------
@@ -77,6 +88,16 @@ class AZELAnalysis:
     >>> flight = Flight(flight_info)
     >>> # Create new analysis
     >>> azel = AZELAnalysis(flight)
+    >>> # Run analysis with additional metadata
+    >>> dji_broadcast = {'lat': -22.9597732, 'lon': -67.7866847, 'alt': 5173.020}
+    >>> additional_meta = {'weather': 'clear', 'operator': 'Alice'}
+    >>> version = azel.run_analysis('SATP1', dji_broadcast,
+    ...                              additional_metadata=additional_meta,
+    ...                              save_data=True)
+    >>> # List versions for specific telescope
+    >>> versions = azel.list_versions(telescope_name='SATP1')
+    >>> # Get latest for specific telescope
+    >>> latest = azel.get_latest_version(telescope_name='SATP1')
     """
 
     def __init__(self, flight: Flight) -> None:
@@ -183,6 +204,7 @@ class AZELAnalysis:
         dji_broadcast_geod: dict[str, float],
         drone_timezone_hours: float = 0.0,
         save_data: bool = False,
+        additional_metadata: dict[str, Any] | None = None,
     ) -> AZELVersion | None:
         """Run AZEL analysis for drone telescope tracking.
 
@@ -194,6 +216,7 @@ class AZELAnalysis:
         ----------
         telescope_name : str
             Telescope identifier (e.g., 'SATP1') for filtering EMLID data.
+            This will be used as the HDF5 group name when saving.
         dji_broadcast_geod : dict[str, float]
             Broadcast DJI base position dict with keys 'lat', 'lon', 'alt'.
             Values in WGS84 degrees (lat, lon) and meters (alt).
@@ -204,6 +227,10 @@ class AZELAnalysis:
         save_data : bool, optional
             Whether to save the data and create new version.
             Default is False.
+        additional_metadata : dict[str, Any] | None, optional
+            Additional metadata to include in the version metadata.
+            This can include experiment details, weather conditions, etc.
+            Default is None.
 
         Returns
         -------
@@ -226,9 +253,11 @@ class AZELAnalysis:
         >>> flight.add_drone_data()
         >>> azel = AZELAnalysis(flight)
         >>> dji_broadcast = {'lat': -22.9597732, 'lon': -67.7866847, 'alt': 5173.020}
-        >>> version = azel.run_analysis('SATP1', dji_broadcast)
+        >>> additional_meta = {'weather': 'clear', 'wind_speed_ms': 5.2}
+        >>> version = azel.run_analysis('SATP1', dji_broadcast, additional_metadata=additional_meta)
         >>> print(version.azel_data.head())
         >>> # Shows: timestamp, az, el, srange columns
+        >>> print(version.metadata['weather'])  # 'clear'
         """
 
         logger.info("Starting AZEL analysis...")
@@ -500,6 +529,10 @@ class AZELAnalysis:
             "num_samples": len(timestamps_ctime),
         }
 
+        # 10b. Merge additional metadata if provided
+        if additional_metadata is not None:
+            metadata.update(additional_metadata)
+
         # 11. Generate version name (timestamp-based: rev_YYYYMMDD_HHMMSS)
         version_name = datetime.datetime.now().strftime("rev_%Y%m%d_%H%M%S")
 
@@ -514,31 +547,41 @@ class AZELAnalysis:
 
         # Save to HDF5 if requested
         if save_data:
-            self._save_to_hdf5(version)
+            self._save_to_hdf5(version, telescope_name=telescope_name)
 
         return version
 
-    def _save_to_hdf5(self, version: AZELVersion) -> None:
-        """Save AZEL version to HDF5 file.
+    def _save_to_hdf5(self, version: AZELVersion, telescope_name: str) -> None:
+        """Save AZEL version to HDF5 file with telescope grouping.
+
+        Creates hierarchical structure: telescope_name/revision_name/data
 
         Parameters
         ----------
         version : AZELVersion
             AZELVersion object to save to HDF5 file.
+        telescope_name : str
+            Telescope name to use as parent group.
 
         Examples
         --------
-        >>> version = azel.run_analysis(...)
-        >>> azel._save_to_hdf5(version)
+        >>> version = azel.run_analysis('SATP1', ...)
+        >>> azel._save_to_hdf5(version, telescope_name='SATP1')
         """
         hdf5_path = self.azel_dir / "azel_solution.h5"
 
         with h5py.File(hdf5_path, "a") as f:
-            # Create version group (overwrite if exists)
-            if version.version_name in f:
-                del f[version.version_name]
+            # Create telescope group if doesn't exist
+            if telescope_name not in f:
+                telescope_group = f.create_group(telescope_name)
+            else:
+                telescope_group = f[telescope_name]
 
-            version_group = f.create_group(version.version_name)
+            # Create version group under telescope (overwrite if exists)
+            if version.version_name in telescope_group:
+                del telescope_group[version.version_name]
+
+            version_group = telescope_group.create_group(version.version_name)
 
             # Save DataFrame columns
             df_group = version_group.create_group("azel_data")
@@ -555,15 +598,19 @@ class AZELAnalysis:
             # Save metadata
             version_group.attrs["metadata"] = json.dumps(version.metadata)
 
-        logger.info(f"Saved AZEL version '{version.version_name}' to HDF5")
+        logger.info(
+            f"Saved AZEL version '{version.version_name}' for telescope '{telescope_name}' to HDF5"
+        )
 
-    def _load_from_hdf5(self, version_name: str) -> AZELVersion:
+    def _load_from_hdf5(self, version_name: str, telescope_name: str) -> AZELVersion:
         """Load AZEL version from HDF5 file.
 
         Parameters
         ----------
         version_name : str
             Name of version to load (e.g., 'rev_20260218_143022').
+        telescope_name : str
+            Telescope group name containing the version.
 
         Returns
         -------
@@ -575,11 +622,11 @@ class AZELAnalysis:
         FileNotFoundError
             If HDF5 file doesn't exist.
         KeyError
-            If version_name not found in HDF5 file.
+            If telescope_name or version_name not found in HDF5 file.
 
         Examples
         --------
-        >>> version = azel._load_from_hdf5('rev_20260218_143022')
+        >>> version = azel._load_from_hdf5('rev_20260218_143022', telescope_name='SATP1')
         """
         hdf5_path = self.azel_dir / "azel_solution.h5"
 
@@ -587,10 +634,17 @@ class AZELAnalysis:
             raise FileNotFoundError(f"HDF5 file not found: {hdf5_path}")
 
         with h5py.File(hdf5_path, "r") as f:
-            if version_name not in f:
-                raise KeyError(f"Version '{version_name}' not found in HDF5")
+            if telescope_name not in f:
+                raise KeyError(f"Telescope '{telescope_name}' not found in HDF5")
 
-            version_group = f[version_name]
+            telescope_group = f[telescope_name]
+
+            if version_name not in telescope_group:
+                raise KeyError(
+                    f"Version '{version_name}' not found under telescope '{telescope_name}' in HDF5"
+                )
+
+            version_group = telescope_group[version_name]
             df_group = version_group["azel_data"]
 
             # Reconstruct DataFrame from columns
@@ -617,38 +671,74 @@ class AZELAnalysis:
             # Load metadata
             metadata = json.loads(version_group.attrs["metadata"])
 
-        logger.info(f"Loaded AZEL version '{version_name}' from HDF5")
+        logger.info(
+            f"Loaded AZEL version '{version_name}' for telescope '{telescope_name}' from HDF5"
+        )
 
         return AZELVersion(
             version_name=version_name, azel_data=azel_data, metadata=metadata
         )
 
-    def list_versions(self) -> list[str]:
+    def list_versions(
+        self, telescope_name: str | None = None
+    ) -> list[str] | dict[str, list[str]]:
         """List all AZEL versions in HDF5 file.
+
+        Parameters
+        ----------
+        telescope_name : str | None, optional
+            If provided, returns versions for that telescope only.
+            If None, returns a dictionary with all telescopes and their versions.
+            Default is None.
 
         Returns
         -------
-        list[str]
-            List of version names, sorted chronologically.
-            Empty list if HDF5 file doesn't exist.
+        list[str] | dict[str, list[str]]
+            If telescope_name provided: List of version names for that telescope,
+            sorted chronologically. Empty list if telescope doesn't exist.
+            If telescope_name is None: Dictionary mapping telescope names to
+            their version lists. Empty dict if HDF5 file doesn't exist.
 
         Examples
         --------
-        >>> azel.list_versions()
+        >>> # List all versions for specific telescope
+        >>> azel.list_versions(telescope_name='SATP1')
         ['rev_20260218_120000', 'rev_20260218_143022']
+        >>> # List all telescopes and their versions
+        >>> azel.list_versions()
+        {'SATP1': ['rev_20260218_120000'], 'SATP2': ['rev_20260218_130000']}
         """
         hdf5_path = self.azel_dir / "azel_solution.h5"
 
         if not hdf5_path.exists():
-            return []
+            return [] if telescope_name is not None else {}
 
         with h5py.File(hdf5_path, "r") as f:
-            versions = sorted(list(f.keys()))
+            if telescope_name is not None:
+                # Return versions for specific telescope
+                if telescope_name not in f:
+                    return []
+                telescope_group = f[telescope_name]
+                versions = sorted(list(telescope_group.keys()))
+                return versions
+            else:
+                # Return all telescopes with their versions
+                result = {}
+                for tel_name in f.keys():
+                    result[tel_name] = sorted(list(f[tel_name].keys()))
+                return result
 
-        return versions
-
-    def get_latest_version(self) -> AZELVersion | None:
+    def get_latest_version(
+        self, telescope_name: str | None = None
+    ) -> AZELVersion | None:
         """Get the most recent AZEL version.
+
+        Parameters
+        ----------
+        telescope_name : str | None, optional
+            If provided, returns the latest version for that telescope.
+            If None, returns the latest version across all telescopes.
+            Default is None.
 
         Returns
         -------
@@ -657,14 +747,48 @@ class AZELAnalysis:
 
         Examples
         --------
-        >>> latest = azel.get_latest_version()
+        >>> # Get latest for specific telescope
+        >>> latest = azel.get_latest_version(telescope_name='SATP1')
         >>> if latest:
         ...     print(latest.version_name)
+        >>> # Get latest across all telescopes
+        >>> latest = azel.get_latest_version()
+        >>> if latest:
+        ...     print(latest.metadata['telescope_name'])
         """
-        versions = self.list_versions()
+        if telescope_name is not None:
+            # Get latest for specific telescope
+            versions = self.list_versions(telescope_name=telescope_name)
 
-        if not versions:
-            return None
+            if not versions:
+                return None
 
-        latest_name = versions[-1]  # Sorted chronologically, last is latest
-        return self._load_from_hdf5(latest_name)
+            latest_name = versions[-1]  # Sorted chronologically, last is latest
+            return self._load_from_hdf5(latest_name, telescope_name=telescope_name)
+        else:
+            # Get latest across all telescopes
+            all_versions = self.list_versions()
+
+            if not all_versions:
+                return None
+
+            # Find the latest version across all telescopes
+            latest_version_name = None
+            latest_telescope = None
+
+            for tel_name, versions in all_versions.items():
+                if versions:
+                    last_version = versions[-1]
+                    if (
+                        latest_version_name is None
+                        or last_version > latest_version_name
+                    ):
+                        latest_version_name = last_version
+                        latest_telescope = tel_name
+
+            if latest_version_name is None:
+                return None
+
+            return self._load_from_hdf5(
+                latest_version_name, telescope_name=latest_telescope
+            )
