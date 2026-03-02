@@ -882,7 +882,7 @@ class Flight:
             drone_df = drone_data
 
             if "dji" in self.__drone_model.lower():
-                timestamp_col = "correct_timestamp"
+                timestamp_col = "timestamp"
 
                 if use_rtk_data:
                     lat_col = "RTK:lat_p"

@@ -6,14 +6,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
-
-# Check if yaml is available for config file reading
-try:
-    import yaml  # noqa: F401
-
-    YAML_AVAILABLE = True
-except ImportError:
-    YAML_AVAILABLE = False
+import yaml as yaml_module
 
 from ..utils.logging_config import get_logger
 from ..utils.tools import get_logpath_from_datapath, is_ascii_file
@@ -185,11 +178,6 @@ class ADC:
         int
             Gain configuration value (defaults to 16 if not found).
         """
-        if not YAML_AVAILABLE:
-            return 16
-
-        # Import yaml locally to avoid Pylance unbound error
-        import yaml as yaml_module
 
         # Look for config file in the same directory as the ADC file
         adc_dir = os.path.dirname(self.data_path)

@@ -37,7 +37,7 @@ def drone_gps_with_offset(reference_gps):
     t = np.linspace(2.0, 120.0, 1180)  # long, 100 Hz data, 2 s ahead
     return pl.DataFrame(
         {
-            "correct_timestamp": t,
+            "timestamp": t,
             "latitude": 45.0 + 0.0001 * (t - 2.0),
             "longitude": 10.0 + 0.0001 * (t - 2.0),
             "altitude": 100.0 + (t - 2.0),
