@@ -40,20 +40,16 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+import h5py
 import polars as pl
-
-if TYPE_CHECKING:
-    import h5py
 
 from pils.analyze.ppkdata.PPK.pos_analyzer import POSAnalyzer
 from pils.analyze.ppkdata.PPK.report import RTKLIBReport
 from pils.analyze.ppkdata.PPK.stat_analyzer import STATAnalyzer
 from pils.analyze.ppkdata.RINEX.report import RINEXReport
-
-if TYPE_CHECKING:
-    from pils.flight import Flight
+from pils.flight import Flight
 
 logger = logging.getLogger(__name__)
 
@@ -183,8 +179,6 @@ class PPKAnalysis:
         >>> print(ppk.ppk_dir)
         /path/to/flight/proc/ppk
         """
-        # Import here to avoid circular import
-        from pils.flight import Flight
 
         # Validate input type
         if not isinstance(flight, Flight):
@@ -602,7 +596,11 @@ class PPKAnalysis:
             else:
                 rover_path = self.flight_path / "aux" / "sensors"
 
-                rover_ubx = list(rover_path.glob("*_GPS.bin"))[0]
+                try:
+                    rover_ubx = list(rover_path.glob("*_GPS.bin"))[0]
+                except IndexError:
+                    logger.info("Missing rover .bin file")
+                    return None
 
                 cmd = [
                     "convbin",
@@ -659,7 +657,7 @@ class PPKAnalysis:
 
                 start = start_rover - timedelta(minutes=10)
                 date_start, time_start = start.strftime("%Y/%m/%d %H:%M:%S").split(" ")
-                end = end_rover - timedelta(minutes=10)
+                end = end_rover + timedelta(minutes=10)
                 date_end, time_end = end.strftime("%Y/%m/%d %H:%M:%S").split(" ")
 
                 base_ubx = list(base_path.glob("*.[uU][bB][xX]"))[0]

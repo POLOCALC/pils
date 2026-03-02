@@ -21,6 +21,7 @@ from typing import Any
 
 import numpy as np
 import polars as pl
+import pymap3d as pm
 from scipy import signal
 
 logger = logging.getLogger(__name__)
@@ -118,82 +119,6 @@ class Synchronizer:
 
         self.offsets: dict[str, dict[str, Any]] = {}
         self.synchronized_data: dict[str, Any] | None = None
-
-    @staticmethod
-    def _lla_to_enu(
-        ref_lat: float,
-        ref_lon: float,
-        ref_alt: float,
-        target_lat: float,
-        target_lon: float,
-        target_alt: float,
-    ) -> tuple[float, float, float]:
-        """
-        Convert LLA (Latitude, Longitude, Altitude) to local ENU coordinates.
-
-        Converts target LLA coordinates to East-North-Up (ENU) coordinates
-        relative to a reference point. Uses spherical Earth approximation
-        suitable for distances up to ~100 km.
-
-        Parameters
-        ----------
-        ref_lat : float
-            Reference latitude in degrees
-        ref_lon : float
-            Reference longitude in degrees
-        ref_alt : float
-            Reference altitude in meters
-        target_lat : float
-            Target latitude in degrees
-        target_lon : float
-            Target longitude in degrees
-        target_alt : float
-            Target altitude in meters
-
-        Returns
-        -------
-        Tuple[float, float, float]
-            (east, north, up) offsets in meters
-
-        Notes
-        -----
-        - Uses mean Earth radius of 6371 km
-        - Assumes flat Earth for small distances
-        - Longitude correction for latitude (cos factor)
-
-        Examples
-        --------
-        >>> # Point 1 degree north and 1 degree east at same altitude
-        >>> e, n, u = Synchronizer._lla_to_enu(
-        ...     45.0, 10.0, 100.0,
-        ...     46.0, 11.0, 100.0
-        ... )
-        >>> # e ≈ 78 km (1° east at 45° lat), n ≈ 111 km (1° north), u ≈ 0
-        """
-        # Earth radius in meters
-        R = 6371000.0
-
-        # Convert degrees to radians
-        ref_lat_rad = np.deg2rad(ref_lat)
-        ref_lon_rad = np.deg2rad(ref_lon)
-        target_lat_rad = np.deg2rad(target_lat)
-        target_lon_rad = np.deg2rad(target_lon)
-
-        # Differences in radians
-        dlat = target_lat_rad - ref_lat_rad
-        dlon = target_lon_rad - ref_lon_rad
-
-        # ENU calculation (flat Earth approximation)
-        # North: latitude difference
-        north = R * dlat
-
-        # East: longitude difference corrected for latitude
-        east = R * dlon * np.cos(ref_lat_rad)
-
-        # Up: altitude difference
-        up = target_alt - ref_alt
-
-        return east, north, up
 
     @staticmethod
     def _find_subsample_peak(correlation: np.ndarray) -> float:
@@ -423,23 +348,11 @@ class Synchronizer:
         ref_lon = float(lon1[mid_idx])
         ref_alt = float(alt1[mid_idx])
 
-        # Convert GPS1 to ENU
-        e1 = np.zeros_like(lat1)
-        n1 = np.zeros_like(lat1)
-        u1 = np.zeros_like(lat1)
-        for i in range(len(lat1)):
-            e1[i], n1[i], u1[i] = Synchronizer._lla_to_enu(
-                ref_lat, ref_lon, ref_alt, lat1[i], lon1[i], alt1[i]
-            )
+        # Convert GPS1 to ENU (vectorized) using pymap3d
+        e1, n1, u1 = pm.geodetic2enu(lat1, lon1, alt1, ref_lat, ref_lon, ref_alt)
 
-        # Convert GPS2 to ENU
-        e2 = np.zeros_like(lat2)
-        n2 = np.zeros_like(lat2)
-        u2 = np.zeros_like(lat2)
-        for i in range(len(lat2)):
-            e2[i], n2[i], u2[i] = Synchronizer._lla_to_enu(
-                ref_lat, ref_lon, ref_alt, lat2[i], lon2[i], alt2[i]
-            )
+        # Convert GPS2 to ENU (vectorized) using pymap3d
+        e2, n2, u2 = pm.geodetic2enu(lat2, lon2, alt2, ref_lat, ref_lon, ref_alt)
 
         # Filter GPS data
 
@@ -657,6 +570,77 @@ class Synchronizer:
             "correlation": float(correlation),
         }
 
+    def _standardize_coordinate_columns(
+        self, df: pl.DataFrame, column_mapping: dict[str, str]
+    ) -> pl.DataFrame:
+        """
+        Rename GPS coordinate columns to standard names.
+
+        Parameters
+        ----------
+        df : pl.DataFrame
+            DataFrame with GPS columns to standardize
+        column_mapping : dict[str, str]
+            Mapping from column type to actual column name in the DataFrame
+            Expected keys: 'lat_col', 'lon_col', 'alt_col', 'timestamp'
+
+        Returns
+        -------
+        pl.DataFrame
+            DataFrame with standardized coordinate column names:
+            - latitude
+            - longitude
+            - altitude
+            - timestamp
+
+        Notes
+        -----
+        Non-coordinate columns (battery_percent, gimbalPitch, etc.) are preserved
+        with their original names.
+        """
+        rename_map = {}
+
+        # Map source-specific names to standard names (only if different and target doesn't exist)
+        if "lat_col" in column_mapping:
+            lat_name = column_mapping["lat_col"]
+            if (
+                lat_name in df.columns
+                and lat_name != "latitude"
+                and "latitude" not in df.columns
+            ):
+                rename_map[lat_name] = "latitude"
+
+        if "lon_col" in column_mapping:
+            lon_name = column_mapping["lon_col"]
+            if (
+                lon_name in df.columns
+                and lon_name != "longitude"
+                and "longitude" not in df.columns
+            ):
+                rename_map[lon_name] = "longitude"
+
+        if "alt_col" in column_mapping:
+            alt_name = column_mapping["alt_col"]
+            if (
+                alt_name in df.columns
+                and alt_name != "altitude"
+                and "altitude" not in df.columns
+            ):
+                rename_map[alt_name] = "altitude"
+
+        if "timestamp" in column_mapping:
+            ts_name = column_mapping["timestamp"]
+            if (
+                ts_name in df.columns
+                and ts_name != "timestamp"
+                and "timestamp" not in df.columns
+            ):
+                rename_map[ts_name] = "timestamp"
+
+        if rename_map:
+            return df.rename(rename_map)
+        return df
+
     def add_gps_reference(
         self,
         gps_data: pl.DataFrame,
@@ -709,7 +693,7 @@ class Synchronizer:
     def add_drone_gps(
         self,
         gps_data: pl.DataFrame | dict[str, pl.DataFrame],
-        timestamp_col: str = "correct_timestamp",
+        timestamp_col: str = "timestamp",
         lat_col: str = "latitude",
         lon_col: str = "longitude",
         alt_col: str = "altitude",
@@ -948,8 +932,16 @@ class Synchronizer:
         Returns
         -------
         dict
-            Synchronized data dictionary with interpolated values for each source
-            Keys: "drone", "litchi", "inclinometer" and "payload"
+            Synchronized data dictionary with interpolated values for each source.
+            Keys: "drone", "litchi", "reference_gps", "inclinometer", "camera", "payload"
+
+            GPS sources (drone, litchi, reference_gps) use standardized coordinate columns:
+            - latitude: Latitude in degrees (WGS84)
+            - longitude: Longitude in degrees (WGS84)
+            - altitude: Altitude in meters (ellipsoidal height)
+            - timestamp: Time in seconds
+
+            Non-coordinate columns preserve their original names.
 
         Raises
         ------
@@ -1383,6 +1375,30 @@ class Synchronizer:
                     self.synchronized_data[keyp] = pl.DataFrame(valuep)
             else:
                 self.synchronized_data[key] = pl.DataFrame(value)
+
+        # Standardize coordinate column names for GPS sources
+        if "drone" in self.synchronized_data and hasattr(
+            self, "_Synchronizer__drone_names"
+        ):
+            self.synchronized_data["drone"] = self._standardize_coordinate_columns(
+                self.synchronized_data["drone"], self.__drone_names
+            )
+
+        if "litchi" in self.synchronized_data and hasattr(
+            self, "_Synchronizer__litchi_names"
+        ):
+            self.synchronized_data["litchi"] = self._standardize_coordinate_columns(
+                self.synchronized_data["litchi"], self.__litchi_names
+            )
+
+        if "reference_gps" in self.synchronized_data and hasattr(
+            self, "_Synchronizer__ref_names"
+        ):
+            self.synchronized_data["reference_gps"] = (
+                self._standardize_coordinate_columns(
+                    self.synchronized_data["reference_gps"], self.__ref_names
+                )
+            )
 
         logger.info(f"({t_end - t_start:.2f}s duration)")
 

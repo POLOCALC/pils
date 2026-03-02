@@ -223,6 +223,8 @@ class StoutLoader:
                     continue
                 if isinstance(takeoff, str):
                     takeoff = datetime.fromisoformat(takeoff.replace("Z", "+00:00"))
+                if takeoff.tzinfo is None:
+                    takeoff = takeoff.replace(tzinfo=UTC)
 
                 if start_dt <= takeoff < end_dt:
                     if campaign_id is None or flight.get("campaign_id") == campaign_id:
@@ -291,6 +293,8 @@ class StoutLoader:
                     continue
                 if isinstance(takeoff, str):
                     takeoff = datetime.fromisoformat(takeoff.replace("Z", "+00:00"))
+                if takeoff.tzinfo is None:
+                    takeoff = takeoff.replace(tzinfo=UTC)
 
                 if start_dt <= takeoff < end_dt:
                     if campaign_id is None or flight.get("campaign_id") == campaign_id:
@@ -368,6 +372,8 @@ class StoutLoader:
                 continue
             if isinstance(takeoff, str):
                 takeoff = datetime.fromisoformat(takeoff.replace("Z", "+00:00"))
+            if takeoff.tzinfo is None:
+                takeoff = takeoff.replace(tzinfo=UTC)
 
             if start_dt <= takeoff < end_dt:
                 if campaign_id is None or flight.get("campaign_id") == campaign_id:

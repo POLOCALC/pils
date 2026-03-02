@@ -430,7 +430,7 @@ class DJIDrone:
                     "Expected DataFrame for CSV format"
                 )
                 # Calculate mean offset from actual data, not expressions
-                timestamp_vals = self.data.get_column("timestamp").to_numpy()
+                timestamp_vals = self.data.get_column("timestamp_old").to_numpy()
                 tags = np.where(np.diff(timestamp_vals) > 0.5)[0] + 1
 
                 offset_vals = self.data.get_column("Clock:offsetTime").to_numpy()
@@ -441,7 +441,7 @@ class DJIDrone:
 
                 self.data = self.data.with_columns(
                     ((pl.col("Clock:offsetTime") + mean_offset).cast(pl.Float64)).alias(
-                        "correct_timestamp"
+                        "timestamp"
                     )
                 )
             elif self.source_format == "dat":
@@ -513,7 +513,7 @@ class DJIDrone:
                     )
 
             data = data.with_columns(
-                (pl.col("datetime").dt.timestamp("ms") / 1000).alias("timestamp")
+                (pl.col("datetime").dt.timestamp("ms") / 1000).alias("timestamp_old")
             )
 
             if apply_filters:
@@ -962,7 +962,7 @@ class DJIDrone:
         )
         self.data["GPS"] = self.data["GPS"].with_columns(
             pl.Series(
-                "correct_timestamp",
+                "timestamp",
                 (m * tick_arr + c - time_offset).astype(np.float64),
             )
         )
@@ -1151,18 +1151,18 @@ class DJIDrone:
                 aligned_df = pl.DataFrame(aligned_data)
 
                 aligned_df = aligned_df.with_columns(
-                    (pl.col("correct_timestamp") * 1000)
+                    (pl.col("timestamp") * 1000)
                     .cast(pl.Int64)
                     .cast(pl.Datetime("ms"))
                     .alias("datetime_converted")
                 )
 
-                min_val = aligned_data["correct_timestamp"].min()
-                max_val = aligned_data["correct_timestamp"].max()
+                min_val = aligned_data["timestamp"].min()
+                max_val = aligned_data["timestamp"].max()
 
                 logger.info(f"Timestamp corrected {min_val}, {max_val}")
 
-                # Ensure correct_timestamp is present and maybe sort columns
+                # Ensure timestamp is present and maybe sort columns
                 self.aligned_df = aligned_df
 
         else:
@@ -1201,7 +1201,7 @@ class DJIDrone:
                 ((pl.col("tick") - base_tick) / 4_500_000.0).alias("offset")
             )
 
-            timestamp_vals = aligned_df.get_column("timestamp").to_numpy()
+            timestamp_vals = aligned_df.get_column("timestamp_old").to_numpy()
             tags = np.where(np.diff(timestamp_vals) > 0.5)[0] + 1
 
             offset_vals = aligned_df.get_column("offset").to_numpy()
@@ -1211,9 +1211,7 @@ class DJIDrone:
             mean_offset = float(np.mean(timestamp_vals - offset_vals))
 
             aligned_df = aligned_df.with_columns(
-                ((pl.col("offset") + mean_offset).cast(pl.Float64)).alias(
-                    "correct_timestamp"
-                )
+                ((pl.col("offset") + mean_offset).cast(pl.Float64)).alias("timestamp")
             )
 
         return aligned_df
