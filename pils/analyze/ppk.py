@@ -596,7 +596,11 @@ class PPKAnalysis:
             else:
                 rover_path = self.flight_path / "aux" / "sensors"
 
-                rover_ubx = list(rover_path.glob("*_GPS.bin"))[0]
+                try:
+                    rover_ubx = list(rover_path.glob("*_GPS.bin"))[0]
+                except IndexError:
+                    logger.info("Missing rover .bin file")
+                    return None
 
                 cmd = [
                     "convbin",
@@ -653,7 +657,7 @@ class PPKAnalysis:
 
                 start = start_rover - timedelta(minutes=10)
                 date_start, time_start = start.strftime("%Y/%m/%d %H:%M:%S").split(" ")
-                end = end_rover - timedelta(minutes=10)
+                end = end_rover + timedelta(minutes=10)
                 date_end, time_end = end.strftime("%Y/%m/%d %H:%M:%S").split(" ")
 
                 base_ubx = list(base_path.glob("*.[uU][bB][xX]"))[0]
