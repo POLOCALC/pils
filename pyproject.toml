@@ -34,7 +34,6 @@ dependencies = [
     "pyyaml>=6.0",
     "astropy>=6.0",
     "ahrs>=0.3.0",
-    "telemetry-parser>=0.1.0",
 ]
 
 [project.optional-dependencies]
@@ -46,6 +45,7 @@ docs = [
     "mkdocstrings-python>=1.7.0",
 ]
 stout = ["stout>=2.0.0"]
+camera = ["telemetry-parser>=0.1.0"]
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
