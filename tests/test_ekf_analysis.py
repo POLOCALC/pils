@@ -5,6 +5,7 @@ Testing EKFVersion dataclass and related functionality.
 """
 
 from dataclasses import fields
+from pathlib import Path
 
 import numpy as np
 import polars as pl
@@ -519,30 +520,9 @@ class TestRunAnalysis:
             f"Default EKF config not found at {_EKF_DEFAULT_CONFIG}"
         )
 
-    # TODO: Add integration test for full run_analysis pipeline
-    #       Requires compiled Rust EKF binary at ekf/bin/rust-ekf
-    #
-    # def test_run_analysis_full_pipeline(self, mock_flight, sample_imu_df, sample_photo_df):
-    #     """Test full run_analysis pipeline with Rust EKF binary."""
-    #     from pils.analyze.ekf import EKFAnalysis, EKFVersion
-    #     ekf = EKFAnalysis(mock_flight)
-    #     result = ekf.run_analysis(sample_imu_df, sample_photo_df)
-    #     assert result is not None
-    #     assert isinstance(result, EKFVersion)
-    #     assert isinstance(result.ekf_data, pl.DataFrame)
-    #     assert result.version_name.startswith("rev_")
-
-    # TODO: Add test for run_analysis with save_data=True
-    #       (requires full pipeline working end-to-end)
-    #
-    # def test_run_analysis_with_save(self, mock_flight, sample_imu_df, sample_photo_df):
-    #     """Test run_analysis saves to HDF5 when save_data=True."""
-    #     from pils.analyze.ekf import EKFAnalysis
-    #     ekf = EKFAnalysis(mock_flight)
-    #     result = ekf.run_analysis(sample_imu_df, sample_photo_df, save_data=True)
-    #     assert result is not None
-    #     hdf5_path = ekf.ekf_dir / "ekf_solution.h5"
-    #     assert hdf5_path.exists()
+    # Full end-to-end pipeline tests with real flight data are in
+    # TestEKFRealDataIntegration below (requires compiled Rust binary +
+    # ekfTestData/ directory).
 
     def test_ekf_output_schema_column_names(self):
         """Test EKF_OUTPUT_SCHEMA has the expected 14 Euler + covariance columns."""
@@ -610,16 +590,16 @@ class TestRunAnalysis:
             EKFAnalysis._load_ekf_output(b"\x00\x01")
 
     def test_load_ekf_output_raises_on_truncated_payload(self):
-        """Test that _load_ekf_output raises ValueError if payload is truncated."""
+        """Test that _load_ekf_output raises ValueError when payload holds no Arrow data."""
         import struct
 
         from pils.analyze.ekf import EKFAnalysis
 
-        # Claim 1000 bytes but only provide 10
+        # Claim 1000 bytes but only provide 10 — Arrow magic not present either
         fake_header = struct.pack("<Q", 1000)
         truncated_payload = fake_header + b"\x00" * 10
 
-        with pytest.raises(ValueError, match="truncated"):
+        with pytest.raises(ValueError, match="Arrow IPC magic bytes not found"):
             EKFAnalysis._load_ekf_output(truncated_payload)
 
     # TODO: Add test for run_analysis metadata content
@@ -1031,3 +1011,300 @@ class TestHDF5Persistence:
 
         # Should still be only 1 version
         assert len(ekf.list_versions()) == 1
+
+
+# ==================== Real Data Integration Tests ====================
+
+_TEST_DATA_DIR = (
+    Path(__file__).parent.parent / "pils" / "analyze" / "ekf" / "ekfTestData"
+)
+
+
+@pytest.fixture(scope="module")
+def real_imu_df():
+    """Load sample_imu.csv — module-scoped to avoid repeated CSV I/O."""
+    if not _TEST_DATA_DIR.exists():
+        pytest.skip(f"Test data directory not found: {_TEST_DATA_DIR}")
+    return pl.read_csv(_TEST_DATA_DIR / "sample_imu.csv").select(
+        [
+            "monotonic_ns",
+            "timestamp_ns",
+            "pqr_P_rad_s",
+            "pqr_Q_rad_s",
+            "pqr_R_rad_s",
+            "acc_X_m_s2",
+            "acc_Y_m_s2",
+            "acc_Z_m_s2",
+        ]
+    ).cast({"monotonic_ns": pl.Int64, "timestamp_ns": pl.Int64})
+
+
+@pytest.fixture(scope="module")
+def real_photo_df():
+    """Build photo DataFrame from sample_photo.ecsv — module-scoped."""
+    if not _TEST_DATA_DIR.exists():
+        pytest.skip(f"Test data directory not found: {_TEST_DATA_DIR}")
+
+    from astropy.table import Table
+
+    photo = Table.read(str(_TEST_DATA_DIR / "sample_photo.ecsv"))
+    time_s = np.array(photo["time"], dtype=np.float64)
+    qw = np.array(photo["quat_w_corr_world"], dtype=np.float64)
+    qx = np.array(photo["quat_x_corr_world"], dtype=np.float64)
+    qy = np.array(photo["quat_y_corr_world"], dtype=np.float64)
+    qz = np.array(photo["quat_z_corr_world"], dtype=np.float64)
+
+    timestamp_ns = (time_s * 1e9).astype(np.int64)
+    monotonic_ns = ((time_s - time_s[0]) * 1e9).astype(np.int64)
+
+    return pl.DataFrame(
+        {
+            "monotonic_ns": monotonic_ns.tolist(),
+            "timestamp_ns": timestamp_ns.tolist(),
+            "quat_w": qw.tolist(),
+            "quat_x": qx.tolist(),
+            "quat_y": qy.tolist(),
+            "quat_z": qz.tolist(),
+        }
+    )
+
+
+@pytest.fixture(scope="module")
+def real_photo_euler():
+    """Return reference Euler angles (roll/pitch/yaw in deg) from ECSV — module-scoped."""
+    if not _TEST_DATA_DIR.exists():
+        pytest.skip(f"Test data directory not found: {_TEST_DATA_DIR}")
+
+    from astropy.table import Table
+    from scipy.spatial.transform import Rotation
+
+    photo = Table.read(str(_TEST_DATA_DIR / "sample_photo.ecsv"))
+    time_s = np.array(photo["time"], dtype=np.float64)
+    quats = np.column_stack(
+        [
+            np.array(photo["quat_x_corr_world"], dtype=np.float64),
+            np.array(photo["quat_y_corr_world"], dtype=np.float64),
+            np.array(photo["quat_z_corr_world"], dtype=np.float64),
+            np.array(photo["quat_w_corr_world"], dtype=np.float64),
+        ]
+    )
+    zyx = Rotation.from_quat(quats).as_euler("ZYX", degrees=True)
+    return {
+        "time_s": time_s,
+        "roll_deg": zyx[:, 2],
+        "pitch_deg": zyx[:, 1],
+        "yaw_deg": zyx[:, 0],
+    }
+
+
+class TestEKFRealDataIntegration:
+    """End-to-end tests using real flight data and the compiled Rust binary."""
+
+    @pytest.fixture(autouse=True)
+    def _skip_if_unavailable(self):
+        from pils.analyze.ekf import _EKF_BINARY_PATH
+
+        if not _EKF_BINARY_PATH.exists():
+            pytest.skip(
+                f"Rust EKF binary not compiled at {_EKF_BINARY_PATH}. "
+                "Run: cargo build --release"
+            )
+        if not _TEST_DATA_DIR.exists():
+            pytest.skip(f"Test data directory not found: {_TEST_DATA_DIR}")
+
+    def test_run_analysis_with_real_data(
+        self, mock_flight, real_imu_df, real_photo_df
+    ):
+        """Full EKF pipeline with real IMU and photogrammetry data."""
+        from pils.analyze.ekf import EKFAnalysis, EKFVersion
+
+        ekf = EKFAnalysis(mock_flight)
+        result = ekf.run_analysis(real_imu_df, real_photo_df)
+
+        assert result is not None
+        assert isinstance(result, EKFVersion)
+        assert isinstance(result.ekf_data, pl.DataFrame)
+        assert result.version_name.startswith("rev_")
+        assert result.ekf_data.height > 0
+
+        # Required EKF output columns are present
+        expected_cols = {
+            "timestamp_s",
+            "roll_deg",
+            "pitch_deg",
+            "yaw_deg",
+            "euler_cov_0_0",
+        }
+        assert expected_cols.issubset(set(result.ekf_data.columns))
+
+        # Metadata is fully populated
+        assert result.metadata["num_imu_samples"] == real_imu_df.height
+        assert result.metadata["num_photo_samples"] == real_photo_df.height
+        assert result.metadata["num_output_samples"] == result.ekf_data.height
+
+    def test_run_analysis_with_save(self, mock_flight, real_imu_df, real_photo_df):
+        """EKF run_analysis with save_data=True creates an HDF5 version."""
+        from pils.analyze.ekf import EKFAnalysis
+
+        ekf = EKFAnalysis(mock_flight)
+        result = ekf.run_analysis(real_imu_df, real_photo_df, save_data=True)
+
+        assert result is not None
+        hdf5_path = ekf.ekf_dir / "ekf_solution.h5"
+        assert hdf5_path.exists()
+
+        # Version is retrievable
+        loaded = ekf._load_from_hdf5(result.version_name)
+        assert loaded.ekf_data.height == result.ekf_data.height
+
+    def test_euler_angles_within_physical_bounds(
+        self, mock_flight, real_imu_df, real_photo_df
+    ):
+        """All output Euler angles must lie within [-180°, 180°]."""
+        from pils.analyze.ekf import EKFAnalysis
+
+        ekf = EKFAnalysis(mock_flight)
+        result = ekf.run_analysis(real_imu_df, real_photo_df)
+
+        assert result is not None
+        for col in ("roll_deg", "pitch_deg", "yaw_deg"):
+            vals = result.ekf_data[col].to_numpy()
+            assert np.all(vals >= -180.0) and np.all(vals <= 180.0), (
+                f"{col} out of [-180°, 180°] range"
+            )
+
+    def test_ekf_comparison_plot(
+        self, mock_flight, real_imu_df, real_photo_df, real_photo_euler
+    ):
+        """Run EKF, compare against photogrammetry reference, save comparison plot."""
+        import matplotlib
+        import matplotlib.pyplot as plt
+
+        matplotlib.use("Agg")
+
+        from pils.analyze.ekf import EKFAnalysis
+
+        ekf = EKFAnalysis(mock_flight)
+        result = ekf.run_analysis(real_imu_df, real_photo_df)
+        assert result is not None
+
+        # Work with numpy arrays directly — no pandas required
+        ekf_df = result.ekf_data
+        t_ekf = ekf_df["timestamp_s"].to_numpy()
+        roll_ekf = ekf_df["roll_deg"].to_numpy()
+        pitch_ekf = ekf_df["pitch_deg"].to_numpy()
+        yaw_ekf = ekf_df["yaw_deg"].to_numpy()
+
+        # Derive 1σ from covariance diagonal
+        std = {}
+        for axis, cov_col in [
+            ("roll", "euler_cov_0_0"),
+            ("pitch", "euler_cov_1_1"),
+            ("yaw", "euler_cov_2_2"),
+        ]:
+            if cov_col in ekf_df.columns:
+                std[axis] = np.sqrt(np.clip(ekf_df[cov_col].to_numpy(), 0, None))
+            else:
+                std[axis] = None
+
+        # Error stats: interpolate photo reference onto EKF timestamps
+        photo = real_photo_euler
+        ekf_vals = {"roll": roll_ekf, "pitch": pitch_ekf, "yaw": yaw_ekf}
+        stats = {}
+        for axis in ("roll", "pitch", "yaw"):
+            ref = np.interp(t_ekf, photo["time_s"], photo[f"{axis}_deg"])
+            err = ekf_vals[axis] - ref
+            stats[axis] = {
+                "mean": float(np.mean(err)),
+                "std": float(np.std(err)),
+                "rmse": float(np.sqrt(np.mean(err**2))),
+                "error": err,
+            }
+
+        # Print summary table
+        print(
+            "\nEKF vs Photogrammetry Error Statistics\n"
+            + "=" * 55
+            + f"\n{'Axis':<8} {'Mean (°)':>12} {'Std (°)':>12} {'RMSE (°)':>12}\n"
+            + "-" * 55
+        )
+        for axis in ("roll", "pitch", "yaw"):
+            s = stats[axis]
+            print(f"{axis:<8} {s['mean']:>+12.4f} {s['std']:>12.4f} {s['rmse']:>12.4f}")
+
+        # ── Build comparison figure (3 × 2: angle traces + error traces) ──────
+        axis_cfg = [("roll", "r", "Roll"), ("pitch", "g", "Pitch"), ("yaw", "m", "Yaw")]
+        fig, axes = plt.subplots(3, 2, figsize=(16, 18))
+        fig.suptitle("EKF vs Photogrammetry Reference", fontsize=14, fontweight="bold")
+
+        for row, (axis, color, label) in enumerate(axis_cfg):
+            err = stats[axis]["error"]
+
+            # Angle comparison with ±1σ band
+            axes[row, 0].plot(
+                photo["time_s"],
+                photo[f"{axis}_deg"],
+                "b-",
+                linewidth=0.8,
+                label="Photogrammetry (reference)",
+                alpha=0.8,
+            )
+            axes[row, 0].plot(
+                t_ekf,
+                ekf_vals[axis],
+                f"{color}-",
+                linewidth=0.8,
+                label="EKF",
+                alpha=0.8,
+            )
+            if std.get(axis) is not None:
+                axes[row, 0].fill_between(
+                    t_ekf,
+                    ekf_vals[axis] - std[axis],
+                    ekf_vals[axis] + std[axis],
+                    alpha=0.2,
+                    color=color,
+                    label="±1σ",
+                )
+            axes[row, 0].set_ylabel(f"{label} (°)")
+            axes[row, 0].set_title(f"{label} Angle Comparison")
+            axes[row, 0].grid(True, alpha=0.3)
+            axes[row, 0].legend(fontsize=8)
+
+            # Error trace with mean ± std markers
+            axes[row, 1].plot(t_ekf, err, f"{color}-", linewidth=0.5, alpha=0.8)
+            axes[row, 1].axhline(0, color="k", linestyle="--", linewidth=0.5)
+            axes[row, 1].axhline(
+                stats[axis]["mean"],
+                color="b",
+                linestyle="-",
+                linewidth=1,
+                label=f"Mean: {stats[axis]['mean']:+.2f}°",
+            )
+            for sign in (1, -1):
+                axes[row, 1].axhline(
+                    stats[axis]["mean"] + sign * stats[axis]["std"],
+                    color="b",
+                    linestyle="--",
+                    linewidth=0.8,
+                    alpha=0.7,
+                )
+            axes[row, 1].set_ylabel(f"{label} Error (°)")
+            axes[row, 1].set_title(
+                f"{label} Error   RMSE={stats[axis]['rmse']:.3f}°"
+            )
+            axes[row, 1].grid(True, alpha=0.3)
+            axes[row, 1].legend(fontsize=8)
+
+        for ax in axes.flat:
+            if ax.get_visible():
+                ax.set_xlabel("Time (s)" if ax.get_xlabel() == "" else ax.get_xlabel())
+
+        plt.tight_layout()
+        output_path = _TEST_DATA_DIR / "ekf_comparison.png"
+        plt.savefig(output_path, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        print(f"\nComparison plot saved → {output_path}")
+
+        assert output_path.exists()
+
