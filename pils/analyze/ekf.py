@@ -380,7 +380,8 @@ class EKFAnalysis:
                 "Ensure the binary is compiled (cargo build --release)."
             )
 
-        # Launch Rust process
+        # Launch Rust process — omit --log to keep stdout clean for Arrow IPC.
+        # Pass --log manually when running the binary directly for debugging.
         logger.info("Launching Rust EKF binary with IPC input...")
         process = subprocess.Popen(
             [
@@ -390,7 +391,6 @@ class EKFAnalysis:
                 str(output_dir),
                 "--config-file",
                 str(config_file),
-                "--log",
             ],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -469,9 +469,7 @@ class EKFAnalysis:
         Raises
         ------
         ValueError
-            If ipc_bytes is too short or the payload length is inconsistent.
-        RuntimeError
-            If Arrow IPC deserialization fails.
+            If no Arrow IPC payload can be located in ipc_bytes.
 
         Examples
         --------
@@ -480,26 +478,41 @@ class EKFAnalysis:
         >>> print(ekf_data.columns)
         ['timestamp_s', 'timestamp_monotonic_ns', 'roll_deg', ...]
         """
+        _ARROW_MAGIC = b"ARROW1\x00\x00"
+
         if len(ipc_bytes) < 8:
             raise ValueError(
                 f"EKF stdout too short for length header: {len(ipc_bytes)} bytes. "
                 "Expected at least 8 bytes for the length prefix."
             )
 
-        # Read 8-byte little-endian length prefix
+        # ── Try length-prefix protocol (primary path) ─────────────────────────
+        # Wire format: [8-byte LE uint64: payload_len][Arrow IPC file bytes]
         payload_len = struct.unpack("<Q", ipc_bytes[:8])[0]
-        payload = ipc_bytes[8 : 8 + payload_len]
+        if payload_len > 0 and len(ipc_bytes) >= 8 + payload_len:
+            payload = ipc_bytes[8 : 8 + payload_len]
+            if payload[:8] == _ARROW_MAGIC:
+                reader = pa.ipc.open_file(io.BytesIO(payload))
+                return pl.from_arrow(reader.read_all())
 
-        if len(payload) < payload_len:
+        # ── Fallback: scan for Arrow magic bytes ──────────────────────────────
+        # Handles any stdout prepended before the IPC payload (e.g. stray
+        # println! or polars progress output in the Rust binary).
+        idx = ipc_bytes.find(_ARROW_MAGIC)
+        if idx < 0:
             raise ValueError(
-                f"EKF IPC payload truncated: expected {payload_len} bytes, "
-                f"got {len(payload)}"
+                f"Arrow IPC magic bytes not found in EKF stdout "
+                f"({len(ipc_bytes):,} bytes received). "
+                "Ensure the Rust binary is up to date (cargo build --release)."
+            )
+        if idx > 0:
+            logger.warning(
+                f"EKF stdout: {idx} bytes of non-IPC data before Arrow payload "
+                "(stdout pollution detected — check for println! in the Rust binary)"
             )
 
-        # Deserialize Arrow IPC file to Polars DataFrame
-        reader = pa.ipc.open_file(io.BytesIO(payload))
-        table = reader.read_all()
-        return pl.from_arrow(table)
+        reader = pa.ipc.open_file(io.BytesIO(ipc_bytes[idx:]))
+        return pl.from_arrow(reader.read_all())
 
     def run_analysis(
         self,
