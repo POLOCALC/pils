@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import polars as pl
+import telemetry_parser
 from ahrs import Quaternion
 from ahrs.common.orientation import acc2q
 from ahrs.filters import Madgwick
@@ -301,9 +302,7 @@ class Camera:
         >>> df['qw'].mean()  # Quaternion w component
         """
         try:
-            import telemetry_parser  # type: ignore
-
-            parser = telemetry_parser.Parser(path)
+            parser = telemetry_parser.Parser(path)  # type: ignore
             imu_data = parser.normalized_imu()
         except Exception as e:
             logger.error(f"Failed to parse Sony telemetry from {path}: {e}")
