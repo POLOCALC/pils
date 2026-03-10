@@ -301,7 +301,9 @@ class Camera:
         >>> df['qw'].mean()  # Quaternion w component
         """
         try:
-            parser = telemetry_parser.Parser(path)  # type: ignore
+            import telemetry_parser  # type: ignore
+
+            parser = telemetry_parser.Parser(path)
             imu_data = parser.normalized_imu()
         except Exception as e:
             logger.error(f"Failed to parse Sony telemetry from {path}: {e}")
