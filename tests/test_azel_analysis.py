@@ -768,8 +768,9 @@ class TestHDF5Persistence:
 
         azel = AZELAnalysis(mock_flight)
 
-        # Save version to HDF5
-        azel._save_to_hdf5(sample_azel_version)
+        # Save version to HDF5 (extract telescope name from metadata)
+        telescope_name = sample_azel_version.metadata["telescope_name"]
+        azel._save_to_hdf5(sample_azel_version, telescope_name=telescope_name)
 
         # Verify HDF5 file exists
         hdf5_path = azel.azel_dir / "azel_solution.h5"
@@ -783,10 +784,13 @@ class TestHDF5Persistence:
         azel = AZELAnalysis(mock_flight)
 
         # Save version
-        azel._save_to_hdf5(sample_azel_version)
+        telescope_name = sample_azel_version.metadata["telescope_name"]
+        azel._save_to_hdf5(sample_azel_version, telescope_name=telescope_name)
 
         # Load version back
-        loaded_version = azel._load_from_hdf5("rev_20260218_120000")
+        loaded_version = azel._load_from_hdf5(
+            "rev_20260218_120000", telescope_name=telescope_name
+        )
 
         # Verify version name matches
         assert loaded_version.version_name == sample_azel_version.version_name
@@ -825,8 +829,11 @@ class TestHDF5Persistence:
         assert sample_azel_version.azel_data["srange"].dtype == pl.Float64
 
         # Save and load
-        azel._save_to_hdf5(sample_azel_version)
-        loaded_version = azel._load_from_hdf5("rev_20260218_120000")
+        telescope_name = sample_azel_version.metadata["telescope_name"]
+        azel._save_to_hdf5(sample_azel_version, telescope_name=telescope_name)
+        loaded_version = azel._load_from_hdf5(
+            "rev_20260218_120000", telescope_name=telescope_name
+        )
 
         # Verify loaded dtypes match original
         assert loaded_version.azel_data["timestamp"].dtype == pl.Float64
@@ -840,8 +847,8 @@ class TestHDF5Persistence:
 
         azel = AZELAnalysis(mock_flight)
 
-        # Initially no versions
-        assert azel.list_versions() == []
+        # Initially no versions (returns empty dict when no telescope specified)
+        assert azel.list_versions() == {}
 
         # Create and save multiple versions
         for i, timestamp in enumerate(["120000", "130000", "140000"]):
@@ -864,12 +871,12 @@ class TestHDF5Persistence:
             version = AZELVersion(
                 version_name=f"rev_20260218_{timestamp}",
                 azel_data=azel_data,
-                metadata={"num_samples": 1},
+                metadata={"num_samples": 1, "telescope_name": "SATP1"},
             )
-            azel._save_to_hdf5(version)
+            azel._save_to_hdf5(version, telescope_name="SATP1")
 
-        # List versions
-        versions = azel.list_versions()
+        # List versions for specific telescope
+        versions = azel.list_versions(telescope_name="SATP1")
 
         # Should return all 3 versions in chronological order
         assert len(versions) == 3
@@ -909,12 +916,12 @@ class TestHDF5Persistence:
             version = AZELVersion(
                 version_name=f"rev_20260218_{timestamp}",
                 azel_data=azel_data,
-                metadata={"version_id": i},
+                metadata={"version_id": i, "telescope_name": "SATP1"},
             )
-            azel._save_to_hdf5(version)
+            azel._save_to_hdf5(version, telescope_name="SATP1")
 
-        # Get latest version
-        latest = azel.get_latest_version()
+        # Get latest version for specific telescope
+        latest = azel.get_latest_version(telescope_name="SATP1")
 
         # Should return the last version (145000)
         assert latest is not None
@@ -950,14 +957,16 @@ class TestHDF5Persistence:
             version = AZELVersion(
                 version_name=f"rev_20260218_12{i}000",
                 azel_data=azel_data,
-                metadata={"version_num": i},
+                metadata={"version_num": i, "telescope_name": "SATP1"},
             )
             versions_to_save.append(version)
-            azel._save_to_hdf5(version)
+            azel._save_to_hdf5(version, telescope_name="SATP1")
 
         # Verify all versions can be loaded independently
         for i, original_version in enumerate(versions_to_save):
-            loaded_version = azel._load_from_hdf5(original_version.version_name)
+            loaded_version = azel._load_from_hdf5(
+                original_version.version_name, telescope_name="SATP1"
+            )
 
             assert loaded_version.version_name == original_version.version_name
             assert loaded_version.azel_data.shape == original_version.azel_data.shape
@@ -976,7 +985,7 @@ class TestHDF5Persistence:
 
         # Try to load without saving first
         with pytest.raises(FileNotFoundError):
-            azel._load_from_hdf5("nonexistent_version")
+            azel._load_from_hdf5("nonexistent_version", telescope_name="SATP1")
 
     def test_hdf5_version_not_found_raises_error(
         self, mock_flight, sample_azel_version
@@ -987,11 +996,12 @@ class TestHDF5Persistence:
         azel = AZELAnalysis(mock_flight)
 
         # Save one version
-        azel._save_to_hdf5(sample_azel_version)
+        telescope_name = sample_azel_version.metadata["telescope_name"]
+        azel._save_to_hdf5(sample_azel_version, telescope_name=telescope_name)
 
         # Try to load a different version
         with pytest.raises(KeyError):
-            azel._load_from_hdf5("rev_99999999_999999")
+            azel._load_from_hdf5("rev_99999999_999999", telescope_name=telescope_name)
 
 
 # ==================== Data Source Selection Tests ====================
@@ -1527,3 +1537,395 @@ class TestRTKCorrectionByDroneFormat:
         assert version is not None
         assert "drone_format" in version.metadata
         assert version.metadata["drone_format"] == "blacksquare"
+
+
+# ==================== Telescope-Grouped HDF5 Tests ====================
+
+
+class TestTelescopeGroupedHDF5:
+    """Test new telescope-grouped HDF5 structure."""
+
+    @pytest.fixture
+    def sample_azel_version(self):
+        """Create sample AZELVersion for testing."""
+        from pils.analyze.azel import AZELVersion
+
+        azel_data = pl.DataFrame(
+            {
+                "timestamp": [1000.0, 2000.0, 3000.0],
+                "az": [45.0, 90.0, 135.0],
+                "el": [30.0, 45.0, 60.0],
+                "srange": [100.5, 150.3, 200.8],
+            }
+        ).with_columns(
+            [
+                pl.col("timestamp").cast(pl.Float64),
+                pl.col("az").cast(pl.Float64),
+                pl.col("el").cast(pl.Float64),
+                pl.col("srange").cast(pl.Float64),
+            ]
+        )
+
+        metadata = {"telescope_name": "SATP1", "num_samples": 3}
+
+        return AZELVersion(
+            version_name="rev_20260302_120000", azel_data=azel_data, metadata=metadata
+        )
+
+    def test_save_to_hdf5_creates_telescope_group(
+        self, mock_flight, sample_azel_version
+    ):
+        """Test saving creates telescope/revision hierarchy."""
+        import h5py
+
+        from pils.analyze.azel import AZELAnalysis
+
+        azel = AZELAnalysis(mock_flight)
+
+        # Save version with telescope group
+        azel._save_to_hdf5(sample_azel_version, telescope_name="SATP1")
+
+        # Verify HDF5 structure
+        hdf5_path = azel.azel_dir / "azel_solution.h5"
+        with h5py.File(hdf5_path, "r") as f:
+            # Telescope group should exist
+            assert "SATP1" in f
+            # Revision should be under telescope
+            assert "rev_20260302_120000" in f["SATP1"]
+            # Data should be under revision
+            assert "azel_data" in f["SATP1"]["rev_20260302_120000"]
+
+    def test_save_multiple_telescopes_different_groups(self, mock_flight):
+        """Test multiple telescopes stored in separate groups."""
+        import h5py
+
+        from pils.analyze.azel import AZELAnalysis, AZELVersion
+
+        azel = AZELAnalysis(mock_flight)
+
+        # Create versions for different telescopes
+        for telescope in ["SATP1", "SATP2", "SATP3"]:
+            azel_data = pl.DataFrame(
+                {
+                    "timestamp": [1000.0],
+                    "az": [45.0],
+                    "el": [30.0],
+                    "srange": [100.0],
+                }
+            ).with_columns(
+                [
+                    pl.col(col).cast(pl.Float64)
+                    for col in ["timestamp", "az", "el", "srange"]
+                ]
+            )
+
+            version = AZELVersion(
+                version_name="rev_20260302_120000",
+                azel_data=azel_data,
+                metadata={"telescope_name": telescope},
+            )
+            azel._save_to_hdf5(version, telescope_name=telescope)
+
+        # Verify all telescopes exist as separate groups
+        hdf5_path = azel.azel_dir / "azel_solution.h5"
+        with h5py.File(hdf5_path, "r") as f:
+            assert "SATP1" in f
+            assert "SATP2" in f
+            assert "SATP3" in f
+            # Each should have the revision
+            assert "rev_20260302_120000" in f["SATP1"]
+            assert "rev_20260302_120000" in f["SATP2"]
+            assert "rev_20260302_120000" in f["SATP3"]
+
+    def test_save_multiple_revisions_same_telescope(self, mock_flight):
+        """Test multiple revisions under same telescope group."""
+        import h5py
+
+        from pils.analyze.azel import AZELAnalysis, AZELVersion
+
+        azel = AZELAnalysis(mock_flight)
+
+        # Create multiple revisions for same telescope
+        for i, timestamp in enumerate(["120000", "130000", "140000"]):
+            azel_data = pl.DataFrame(
+                {
+                    "timestamp": [float(i * 1000)],
+                    "az": [45.0],
+                    "el": [30.0],
+                    "srange": [100.0],
+                }
+            ).with_columns(
+                [
+                    pl.col(col).cast(pl.Float64)
+                    for col in ["timestamp", "az", "el", "srange"]
+                ]
+            )
+
+            version = AZELVersion(
+                version_name=f"rev_20260302_{timestamp}",
+                azel_data=azel_data,
+                metadata={"telescope_name": "SATP1"},
+            )
+            azel._save_to_hdf5(version, telescope_name="SATP1")
+
+        # Verify all revisions under same telescope
+        hdf5_path = azel.azel_dir / "azel_solution.h5"
+        with h5py.File(hdf5_path, "r") as f:
+            assert "SATP1" in f
+            assert "rev_20260302_120000" in f["SATP1"]
+            assert "rev_20260302_130000" in f["SATP1"]
+            assert "rev_20260302_140000" in f["SATP1"]
+
+    def test_load_from_hdf5_with_telescope_name(self, mock_flight, sample_azel_version):
+        """Test loading version with telescope parameter."""
+        from pils.analyze.azel import AZELAnalysis
+
+        azel = AZELAnalysis(mock_flight)
+
+        # Save with telescope group
+        azel._save_to_hdf5(sample_azel_version, telescope_name="SATP1")
+
+        # Load with telescope name
+        loaded = azel._load_from_hdf5("rev_20260302_120000", telescope_name="SATP1")
+
+        assert loaded.version_name == "rev_20260302_120000"
+        assert loaded.metadata["telescope_name"] == "SATP1"
+        assert loaded.azel_data.shape == (3, 4)
+
+    def test_list_versions_with_telescope_filter(self, mock_flight):
+        """Test listing versions for specific telescope."""
+        from pils.analyze.azel import AZELAnalysis, AZELVersion
+
+        azel = AZELAnalysis(mock_flight)
+
+        # Create versions for multiple telescopes
+        for telescope in ["SATP1", "SATP2"]:
+            for i, timestamp in enumerate(["120000", "130000"]):
+                azel_data = pl.DataFrame(
+                    {
+                        "timestamp": [float(i * 1000)],
+                        "az": [45.0],
+                        "el": [30.0],
+                        "srange": [100.0],
+                    }
+                ).with_columns(
+                    [
+                        pl.col(col).cast(pl.Float64)
+                        for col in ["timestamp", "az", "el", "srange"]
+                    ]
+                )
+
+                version = AZELVersion(
+                    version_name=f"rev_20260302_{timestamp}",
+                    azel_data=azel_data,
+                    metadata={"telescope_name": telescope},
+                )
+                azel._save_to_hdf5(version, telescope_name=telescope)
+
+        # List versions for SATP1 only
+        versions_satp1 = azel.list_versions(telescope_name="SATP1")
+        assert len(versions_satp1) == 2
+        assert "rev_20260302_120000" in versions_satp1
+        assert "rev_20260302_130000" in versions_satp1
+
+        # List versions for SATP2 only
+        versions_satp2 = azel.list_versions(telescope_name="SATP2")
+        assert len(versions_satp2) == 2
+
+    def test_list_versions_without_telescope_returns_all(self, mock_flight):
+        """Test listing without telescope returns dict with all telescopes."""
+        from pils.analyze.azel import AZELAnalysis, AZELVersion
+
+        azel = AZELAnalysis(mock_flight)
+
+        # Create versions for multiple telescopes
+        for telescope in ["SATP1", "SATP2"]:
+            azel_data = pl.DataFrame(
+                {
+                    "timestamp": [1000.0],
+                    "az": [45.0],
+                    "el": [30.0],
+                    "srange": [100.0],
+                }
+            ).with_columns(
+                [
+                    pl.col(col).cast(pl.Float64)
+                    for col in ["timestamp", "az", "el", "srange"]
+                ]
+            )
+
+            version = AZELVersion(
+                version_name="rev_20260302_120000",
+                azel_data=azel_data,
+                metadata={"telescope_name": telescope},
+            )
+            azel._save_to_hdf5(version, telescope_name=telescope)
+
+        # List all versions (no telescope filter)
+        all_versions = azel.list_versions()
+
+        # Should return dict with telescope keys
+        assert isinstance(all_versions, dict)
+        assert "SATP1" in all_versions
+        assert "SATP2" in all_versions
+        assert "rev_20260302_120000" in all_versions["SATP1"]
+        assert "rev_20260302_120000" in all_versions["SATP2"]
+
+    def test_get_latest_version_with_telescope(self, mock_flight):
+        """Test getting latest version for specific telescope."""
+        from pils.analyze.azel import AZELAnalysis, AZELVersion
+
+        azel = AZELAnalysis(mock_flight)
+
+        # Create multiple versions for SATP1
+        for i, timestamp in enumerate(["120000", "130000", "140000"]):
+            azel_data = pl.DataFrame(
+                {
+                    "timestamp": [float(i * 1000)],
+                    "az": [45.0 + i * 10],
+                    "el": [30.0],
+                    "srange": [100.0],
+                }
+            ).with_columns(
+                [
+                    pl.col(col).cast(pl.Float64)
+                    for col in ["timestamp", "az", "el", "srange"]
+                ]
+            )
+
+            version = AZELVersion(
+                version_name=f"rev_20260302_{timestamp}",
+                azel_data=azel_data,
+                metadata={"telescope_name": "SATP1", "version_id": i},
+            )
+            azel._save_to_hdf5(version, telescope_name="SATP1")
+
+        # Get latest for SATP1
+        latest = azel.get_latest_version(telescope_name="SATP1")
+
+        assert latest is not None
+        assert latest.version_name == "rev_20260302_140000"
+        assert latest.metadata["version_id"] == 2
+        assert latest.azel_data["az"][0] == pytest.approx(65.0)
+
+
+class TestAdditionalMetadata:
+    """Test additional metadata parameter in run_analysis."""
+
+    @pytest.fixture
+    def mock_flight_with_emlid(self, tmp_path):
+        """Create mock Flight with EMLID data for run_analysis."""
+        # Create proper structure that Emlid expects:
+        # root/campaign/flight1/drone
+        # root/metadata/  <- Emlid uses parents[1] from flight_path
+        # flight_path.parents[1] == root
+        root_path = tmp_path / "root"
+        campaign_path = root_path / "campaign"
+        flight_path = campaign_path / "flight1"
+        drone_data_path = flight_path / "drone"
+        aux_data_path = flight_path / "aux" / "emlid"
+        metadata_path = root_path / "metadata"  # At root level, not campaign level
+
+        drone_data_path.mkdir(parents=True)
+        aux_data_path.mkdir(parents=True)
+        metadata_path.mkdir(parents=True)
+
+        # Create mock EMLID CSV in root/metadata/
+        emlid_csv = metadata_path / "202511_coordinates.csv"
+        emlid_csv.write_text(
+            "Name,Longitude,Latitude,Ellipsoidal height\n"
+            "SATP1,-105.0,40.0,1000.0\n"
+            "emlid base,-105.0,40.001,1000.0\n"
+            "dji rtk base (antenna base),-105.0,40.001,1000.0\n"
+        )
+
+        flight_info = {
+            "drone_data_folder_path": str(drone_data_path),
+            "aux_data_folder_path": str(flight_path / "aux"),
+        }
+        flight = Flight(flight_info)
+
+        # Create minimal sync_data
+        flight.sync_data = {
+            "drone": pl.DataFrame(
+                {
+                    "timestamp": [1000.0, 2000.0],
+                    "latitude": [40.0001, 40.0002],
+                    "longitude": [-105.0001, -105.0002],
+                    "altitude": [1000.0, 1001.0],
+                }
+            )
+        }
+
+        return flight
+
+    def test_run_analysis_accepts_additional_metadata(self, mock_flight_with_emlid):
+        """Test run_analysis accepts additional_metadata parameter."""
+        from pils.analyze.azel import AZELAnalysis
+
+        azel = AZELAnalysis(mock_flight_with_emlid)
+
+        dji_broadcast = {"lat": 40.001, "lon": -105.0, "alt": 1000.0}
+
+        additional_meta = {
+            "weather": "clear",
+            "wind_speed_ms": 5.2,
+            "operator": "Alice",
+            "notes": "Test flight",
+        }
+
+        version = azel.run_analysis(
+            "SATP1",
+            dji_broadcast,
+            additional_metadata=additional_meta,
+        )
+
+        assert version is not None
+        # Verify additional metadata is included
+        assert "weather" in version.metadata
+        assert version.metadata["weather"] == "clear"
+        assert version.metadata["wind_speed_ms"] == 5.2
+        assert version.metadata["operator"] == "Alice"
+        assert version.metadata["notes"] == "Test flight"
+
+    def test_additional_metadata_preserved_in_hdf5(self, mock_flight_with_emlid):
+        """Test additional metadata is saved and loaded from HDF5."""
+        from pils.analyze.azel import AZELAnalysis
+
+        azel = AZELAnalysis(mock_flight_with_emlid)
+
+        dji_broadcast = {"lat": 40.001, "lon": -105.0, "alt": 1000.0}
+
+        additional_meta = {
+            "experiment_id": "EXP-2026-001",
+            "calibration_offset": 0.5,
+        }
+
+        version = azel.run_analysis(
+            "SATP1",
+            dji_broadcast,
+            additional_metadata=additional_meta,
+            save_data=True,
+        )
+
+        # Load back and verify
+        loaded = azel._load_from_hdf5(version.version_name, telescope_name="SATP1")
+
+        assert loaded.metadata["experiment_id"] == "EXP-2026-001"
+        assert loaded.metadata["calibration_offset"] == 0.5
+
+    def test_additional_metadata_defaults_to_empty_dict(self, mock_flight_with_emlid):
+        """Test run_analysis works without additional_metadata."""
+        from pils.analyze.azel import AZELAnalysis
+
+        azel = AZELAnalysis(mock_flight_with_emlid)
+
+        dji_broadcast = {"lat": 40.001, "lon": -105.0, "alt": 1000.0}
+
+        # Should work without additional_metadata parameter
+        version = azel.run_analysis("SATP1", dji_broadcast)
+
+        assert version is not None
+        # Standard metadata should still exist
+        assert "telescope_name" in version.metadata
+        assert "num_samples" in version.metadata

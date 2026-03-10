@@ -38,9 +38,11 @@ class Emlid:
     def __init__(self, flight: Flight) -> None:
         """Initialize EMLID coordinate loader from flight path.
 
-        Locates the EMLID reference CSV file in the campaign metadata directory.
+        Locates the EMLID reference CSV file in the campaign metadata directory
+        by searching for files matching the pattern "*_coordinates.csv".
+
         The expected file structure is:
-            campaign_dir/metadata/202511_coordinates.csv
+            campaign_dir/metadata/<YYYYMM>_coordinates.csv
 
         Parameters
         ----------
@@ -50,7 +52,7 @@ class Emlid:
         Raises
         ------
         FileNotFoundError
-            If EMLID CSV file not found at expected path.
+            If no EMLID CSV file found or multiple matches found.
 
         Examples
         --------
@@ -60,12 +62,30 @@ class Emlid:
         /path/to/campaign/metadata/202511_coordinates.csv
         """
         flight_path = Path(flight.flight_path)
-        campaign_dir = flight_path.parents[1]  # Go up one level to campaign
+        campaign_dir = flight_path.parents[1]  # Go up two levels to campaign
 
-        self.emlid_path = campaign_dir / "metadata" / "202511_coordinates.csv"
+        metadata_dir = campaign_dir / "metadata"
 
-        if not self.emlid_path.exists():
-            raise FileNotFoundError(f"EMLID CSV file not found: {self.emlid_path}")
+        # Find coordinate files matching pattern
+        if not metadata_dir.exists():
+            raise FileNotFoundError(
+                f"EMLID CSV file not found: metadata directory does not exist at {metadata_dir}"
+            )
+
+        coord_files = list(metadata_dir.glob("*_coordinates.csv"))
+
+        if len(coord_files) == 0:
+            raise FileNotFoundError(
+                f"EMLID CSV file not found: no files matching '*_coordinates.csv' in {metadata_dir}"
+            )
+        elif len(coord_files) > 1:
+            file_list = ", ".join(f.name for f in coord_files)
+            raise FileNotFoundError(
+                f"EMLID CSV file not found: multiple coordinate files found in {metadata_dir}: {file_list}. "
+                "Expected exactly one file matching '*_coordinates.csv'."
+            )
+
+        self.emlid_path = coord_files[0]
 
     @staticmethod
     def _get_barycenter(
@@ -216,10 +236,20 @@ class Emlid:
                 pl.col("Ellipsoidal height").alias("alt"),
             ]
         )
-        base["emlid"] = emlid_base
+
+        if emlid_base.height > 1:
+            # For emlid base barycenter, use first measurement as initial reference
+            initial_ref = emlid_base.head(1)
+            emlid_base_barycenter = self._get_barycenter(emlid_base, initial_ref)
+        else:
+            emlid_base_barycenter = emlid_base.clone()
+
+        base["emlid"] = emlid_base_barycenter
 
         # Filter and compute mean for telescope positions
-        telescope_df = df.filter(pl.col("Name").str.starts_with(telescope_name.upper()))
+        telescope_df = df.filter(
+            pl.col("Name").str.to_lowercase().str.starts_with(telescope_name.lower())
+        )
         if telescope_df.height == 0:
             raise ValueError(
                 f"No telescope positions found for '{telescope_name}' in EMLID CSV"
