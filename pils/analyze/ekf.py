@@ -571,9 +571,7 @@ class EKFAnalysis:
         logger.info("Starting EKF analysis...")
 
         # 1. Validate input DataFrames
-        if imu_df is None or (
-            isinstance(imu_df, pl.DataFrame) and imu_df.height == 0
-        ):
+        if imu_df is None or (isinstance(imu_df, pl.DataFrame) and imu_df.height == 0):
             raise ValueError("IMU DataFrame is empty or None")
 
         if photo_df is None or (
@@ -619,13 +617,9 @@ class EKFAnalysis:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # 6. Send data to Rust EKF binary via IPC
-        result = self._send_ipc_to_rust(
-            imu_bytes, photo_bytes, output_dir, config_file
-        )
+        result = self._send_ipc_to_rust(imu_bytes, photo_bytes, output_dir, config_file)
 
-        logger.info(
-            f"Rust EKF completed with return code: {result.returncode}"
-        )
+        logger.info(f"Rust EKF completed with return code: {result.returncode}")
 
         # 7. Load EKF output data from stdout Arrow IPC
         ekf_data = self._load_ekf_output(result.stdout)

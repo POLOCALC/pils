@@ -123,9 +123,7 @@ def test_ekf_version_dataclass_creation():
     }
 
     # Create EKFVersion instance
-    version = EKFVersion(
-        version_name="v1_test", ekf_data=ekf_data, metadata=metadata
-    )
+    version = EKFVersion(version_name="v1_test", ekf_data=ekf_data, metadata=metadata)
 
     # Verify all fields
     assert version.version_name == "v1_test"
@@ -376,7 +374,9 @@ class TestArrowIPCSerialization:
             }
         )
 
-        with pytest.raises(ValueError, match="Photogrammetry DataFrame missing required columns"):
+        with pytest.raises(
+            ValueError, match="Photogrammetry DataFrame missing required columns"
+        ):
             EKFAnalysis._prepare_photo_table(incomplete_df)
 
     def test_imu_schema_column_names(self):
@@ -946,9 +946,7 @@ class TestHDF5Persistence:
         with pytest.raises(FileNotFoundError):
             ekf._load_from_hdf5("nonexistent_version")
 
-    def test_hdf5_version_not_found_raises_error(
-        self, mock_flight, sample_ekf_version
-    ):
+    def test_hdf5_version_not_found_raises_error(self, mock_flight, sample_ekf_version):
         """Test loading non-existent version raises KeyError."""
         from pils.analyze.ekf import EKFAnalysis
 
@@ -1024,18 +1022,22 @@ def real_imu_df():
     """Load sample_imu.csv — module-scoped to avoid repeated CSV I/O."""
     if not _TEST_DATA_DIR.exists():
         pytest.skip(f"Test data directory not found: {_TEST_DATA_DIR}")
-    return pl.read_csv(_TEST_DATA_DIR / "sample_imu.csv").select(
-        [
-            "monotonic_ns",
-            "timestamp_ns",
-            "pqr_P_rad_s",
-            "pqr_Q_rad_s",
-            "pqr_R_rad_s",
-            "acc_X_m_s2",
-            "acc_Y_m_s2",
-            "acc_Z_m_s2",
-        ]
-    ).cast({"monotonic_ns": pl.Int64, "timestamp_ns": pl.Int64})
+    return (
+        pl.read_csv(_TEST_DATA_DIR / "sample_imu.csv")
+        .select(
+            [
+                "monotonic_ns",
+                "timestamp_ns",
+                "pqr_P_rad_s",
+                "pqr_Q_rad_s",
+                "pqr_R_rad_s",
+                "acc_X_m_s2",
+                "acc_Y_m_s2",
+                "acc_Z_m_s2",
+            ]
+        )
+        .cast({"monotonic_ns": pl.Int64, "timestamp_ns": pl.Int64})
+    )
 
 
 @pytest.fixture(scope="module")
@@ -1111,9 +1113,7 @@ class TestEKFRealDataIntegration:
         if not _TEST_DATA_DIR.exists():
             pytest.skip(f"Test data directory not found: {_TEST_DATA_DIR}")
 
-    def test_run_analysis_with_real_data(
-        self, mock_flight, real_imu_df, real_photo_df
-    ):
+    def test_run_analysis_with_real_data(self, mock_flight, real_imu_df, real_photo_df):
         """Full EKF pipeline with real IMU and photogrammetry data."""
         from pils.analyze.ekf import EKFAnalysis, EKFVersion
 
@@ -1289,9 +1289,7 @@ class TestEKFRealDataIntegration:
                     alpha=0.7,
                 )
             axes[row, 1].set_ylabel(f"{label} Error (°)")
-            axes[row, 1].set_title(
-                f"{label} Error   RMSE={stats[axis]['rmse']:.3f}°"
-            )
+            axes[row, 1].set_title(f"{label} Error   RMSE={stats[axis]['rmse']:.3f}°")
             axes[row, 1].grid(True, alpha=0.3)
             axes[row, 1].legend(fontsize=8)
 
@@ -1306,4 +1304,3 @@ class TestEKFRealDataIntegration:
         print(f"\nComparison plot saved → {output_path}")
 
         assert output_path.exists()
-
