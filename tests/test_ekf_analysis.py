@@ -331,7 +331,7 @@ class TestArrowIPCSerialization:
 
     def test_prepare_imu_table_valid(self, sample_imu_df):
         """Test IMU table preparation with valid data."""
-        from pils.analyze.ekf import EKFAnalysis, IMU_SCHEMA
+        from pils.analyze.ekf import IMU_SCHEMA, EKFAnalysis
 
         table = EKFAnalysis._prepare_imu_table(sample_imu_df)
 
@@ -356,7 +356,7 @@ class TestArrowIPCSerialization:
 
     def test_prepare_photo_table_valid(self, sample_photo_df):
         """Test photogrammetry table preparation with valid data."""
-        from pils.analyze.ekf import EKFAnalysis, PHOTO_SCHEMA
+        from pils.analyze.ekf import PHOTO_SCHEMA, EKFAnalysis
 
         table = EKFAnalysis._prepare_photo_table(sample_photo_df)
 
@@ -413,7 +413,7 @@ class TestArrowIPCSerialization:
         """Test IPC bytes can be length-prefixed for the Rust protocol."""
         import struct
 
-        from pils.analyze.ekf import EKFAnalysis, IMU_SCHEMA
+        from pils.analyze.ekf import IMU_SCHEMA, EKFAnalysis
 
         table = EKFAnalysis._prepare_imu_table(sample_imu_df)
         ipc_bytes = EKFAnalysis._table_to_ipc_bytes(table, IMU_SCHEMA)
@@ -511,9 +511,9 @@ class TestRunAnalysis:
 
     def test_run_analysis_uses_default_config(self, mock_flight):
         """Test that run_analysis resolves to default config when None is passed."""
-        from pils.analyze.ekf import EKFAnalysis, _EKF_DEFAULT_CONFIG
+        from pils.analyze.ekf import _EKF_DEFAULT_CONFIG, EKFAnalysis
 
-        ekf = EKFAnalysis(mock_flight)
+        EKFAnalysis(mock_flight)
 
         # Verify default config path exists (it's bundled with the module)
         assert _EKF_DEFAULT_CONFIG.exists(), (
@@ -663,10 +663,9 @@ class TestRustBinaryValidation:
 
     def test_send_ipc_to_rust_raises_without_binary(self, tmp_path):
         """Test _send_ipc_to_rust raises FileNotFoundError when binary missing."""
-        from pils.analyze.ekf import EKFAnalysis
-
         # Use a non-existent path for the binary
         import pils.analyze.ekf as ekf_module
+        from pils.analyze.ekf import EKFAnalysis
 
         original_path = ekf_module._EKF_BINARY_PATH
         try:

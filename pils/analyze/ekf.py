@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 import h5py
-import numpy as np
 import polars as pl
 import pyarrow as pa
 
@@ -410,11 +409,11 @@ class EKFAnalysis:
             process.stdin.flush()
             logger.info("IMU + photogrammetry data sent to Rust EKF via IPC")
 
-        except BrokenPipeError:
+        except BrokenPipeError as err:
             raise RuntimeError(
                 "Rust EKF process closed the connection unexpectedly. "
                 "Check binary compatibility and input data."
-            )
+            ) from err
 
         # Close stdin to signal end of data
         if process.stdin:
