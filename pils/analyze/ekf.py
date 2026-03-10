@@ -415,11 +415,7 @@ class EKFAnalysis:
                 "Check binary compatibility and input data."
             ) from err
 
-        # Close stdin to signal end of data
-        if process.stdin:
-            process.stdin.close()
-
-        # Wait for Rust to finish
+        # communicate() flushes, closes stdin, reads stdout/stderr, and waits
         stdout, stderr = process.communicate()
 
         # Log process output — stdout carries raw Arrow IPC binary, not text
