@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import polars as pl
+import telemetry_parser
 from ahrs import Quaternion
 from ahrs.common.orientation import acc2q
 from ahrs.filters import Madgwick
