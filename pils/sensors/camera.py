@@ -302,6 +302,7 @@ class Camera:
         """
         try:
             import telemetry_parser  # lazy: only needed for Sony camera parsing
+
             parser = telemetry_parser.Parser(path)  # type: ignore
             imu_data = parser.normalized_imu()
         except Exception as e:
