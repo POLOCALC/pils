@@ -35,6 +35,7 @@ dependencies = [
     "astropy>=6.0",
     "ahrs>=0.3.0",
     "telemetry-parser>=0.1.0",
+    "pyarrow>=14.0.0",
 ]
 
 [project.optional-dependencies]
