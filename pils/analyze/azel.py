@@ -235,8 +235,8 @@ class AZELAnalysis:
         Returns
         -------
         AZELVersion | None
-            AZELVersion with computed azimuth, elevation, slant range data and metadata,
-            or None if no valid RTK data available after filtering.
+            AZELVersion with computed azimuth, elevation, slant range, ENU coordinates data
+            and metadata, or None if no valid RTK data available after filtering.
 
         Raises
         ------
@@ -502,6 +502,9 @@ class AZELAnalysis:
                 "az": azimuth,
                 "el": elevation,
                 "srange": slant_range,
+                "E": e_corrected,
+                "N": n_corrected,
+                "U": u_corrected,
             }
         ).with_columns(
             [
@@ -509,6 +512,9 @@ class AZELAnalysis:
                 pl.col("az").cast(pl.Float64),
                 pl.col("el").cast(pl.Float64),
                 pl.col("srange").cast(pl.Float64),
+                pl.col("E").cast(pl.Float64),
+                pl.col("N").cast(pl.Float64),
+                pl.col("U").cast(pl.Float64),
             ]
         )
 
