@@ -235,7 +235,7 @@ class AZELAnalysis:
         Returns
         -------
         AZELVersion | None
-            AZELVersion with computed azimuth, elevation, slant range, ENU coordinates data 
+            AZELVersion with computed azimuth, elevation, slant range, ENU coordinates data
             and metadata, or None if no valid RTK data available after filtering.
 
         Raises
