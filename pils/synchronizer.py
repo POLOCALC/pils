@@ -1324,6 +1324,8 @@ class Synchronizer:
                 n_samples = int((t_end - t_start) * target_rate["payload"]) + 1
                 target_time = np.linspace(t_start, t_end, n_samples)
 
+                sync_data["payload"][f"{sensor_name}"] = {}
+
                 if "timestamp" in sensor_df.columns:
                     sensor_time = sensor_df["timestamp"].to_numpy().copy()
 
@@ -1340,11 +1342,11 @@ class Synchronizer:
                     for col in sensor_df.columns:
                         if col == "timestamp":
                             if common_time:
-                                sync_data["payload"][f"{sensor_name}_timestamp"] = (
+                                sync_data["payload"][f"{sensor_name}"]["timestamp"] = (
                                     target_time
                                 )
                             else:
-                                sync_data["payload"][f"{sensor_name}_timestamp"] = (
+                                sync_data["payload"][f"{sensor_name}"]["timestamp"] = (
                                     sensor_time
                                 )
                         else:
@@ -1357,11 +1359,11 @@ class Synchronizer:
                                     left=np.nan,
                                     right=np.nan,
                                 )
-                                sync_data["payload"][f"{sensor_name}_{col}"] = (
+                                sync_data["payload"][f"{sensor_name}"][f"{col}"] = (
                                     interpolated
                                 )
                             else:
-                                sync_data["payload"][f"{sensor_name}_{col}"] = (
+                                sync_data["payload"][f"{sensor_name}"][f"{col}"] = (
                                     sensor_df[col].to_numpy()
                                 )
 
