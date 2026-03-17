@@ -741,9 +741,11 @@ class Flight:
 
         for sensor in sensor_name:
             sensor_data = self._read_sensor_data(sensor, sensor_path)
-            if(isinstance(sensor_data,dict) and (sensor != "inclinometer")):
+            if isinstance(sensor_data, dict) and (sensor != "inclinometer"):
                 setattr(self.raw_data.payload_data, sensor, sensor_data["data"])
-                self.flight_info["flight_info"].update({f"{sensor}_metadata": sensor_data["metadata"]})
+                self.flight_info["flight_info"].update(
+                    {f"{sensor}_metadata": sensor_data["metadata"]}
+                )
 
             else:
                 setattr(self.raw_data.payload_data, sensor, sensor_data)
@@ -962,8 +964,10 @@ class Flight:
             if "payload" not in target_rate:
                 target_rate["payload"] = 100.0
             lm76_sensor = payload["lm76"]
-            lm76_data = lm76_sensor.data if hasattr(lm76_sensor, "data") else lm76_sensor
-            sync.add_payload_sensor("lm76",lm76_data)
+            lm76_data = (
+                lm76_sensor.data if hasattr(lm76_sensor, "data") else lm76_sensor
+            )
+            sync.add_payload_sensor("lm76", lm76_data)
 
         # Add IMU sensors if available
         if "imu" in payload:

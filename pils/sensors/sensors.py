@@ -13,14 +13,10 @@ sensor_config = {
         "class": IMU,
         "load_method": "load_all",
     },
-    "adc": {"class": ADC,
-            "load_method": "load_data"
-    },
+    "adc": {"class": ADC, "load_method": "load_data"},
     "inclinometer": {
         "class": Inclinometer,
         "load_method": "load_data",
     },
-    "lm76": {"class": LM76,
-             "load_method": "load_data"
-    },
+    "lm76": {"class": LM76, "load_method": "load_data"},
 }
