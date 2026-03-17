@@ -691,9 +691,8 @@ class Flight:
         This is an internal method used by add_sensor_data().
         """
         result = None
-
         config = sensor_config.get(sensor_name.lower())
-
+        
         if config:
             sensor = config["class"](sensor_folder)
 
@@ -742,7 +741,12 @@ class Flight:
 
         for sensor in sensor_name:
             sensor_data = self._read_sensor_data(sensor, sensor_path)
-            setattr(self.raw_data.payload_data, sensor, sensor_data)
+            if(isinstance(sensor_data,dict) and (sensor != "inclinometer")):
+                setattr(self.raw_data.payload_data, sensor, sensor_data["data"])
+                self.flight_info["flight_info"].update({f"{sensor}_metadata": sensor_data["metadata"]})
+                
+            else:
+                setattr(self.raw_data.payload_data, sensor, sensor_data)
 
     def add_camera_data(
         self, use_photogrammetry: bool = False, get_sony_angles: bool = True
@@ -953,6 +957,14 @@ class Flight:
             adc_data = adc_sensor.data if hasattr(adc_sensor, "data") else adc_sensor
             sync.add_payload_sensor("adc", adc_data)
 
+        # Add LM76 if available
+        if "lm76" in payload:
+            if "payload" not in target_rate:
+                target_rate["payload"] = 100.0
+            lm76_sensor = payload["lm76"]
+            lm76_data = lm76_sensor.data if hasattr(lm76_sensor, "data") else lm76_sensor
+            sync.add_payload_sensor("lm76",lm76_data)
+                
         # Add IMU sensors if available
         if "imu" in payload:
             if "payload" not in target_rate:
