@@ -74,7 +74,7 @@ SENSOR_MAP = {
     "lm76": {
         "module": ".sensors.LM76",
         "class": "LM76",
-        "patterns": ["sensors/*TMP*.csv"]
+        "patterns": ["sensors/*TMP*.csv"],
     },
 }
 
