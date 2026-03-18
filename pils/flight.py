@@ -612,34 +612,31 @@ class Flight:
 
         # Find candidate files
         available_files = glob.glob(str(drone_folder) + "/*")
-        drone_data_path = None
-        litchi_data_path = None
 
-        for file in available_files:
-            fname = file.lower()
-            if (
-                fname.endswith("drone.dat")
-                and dji_dat_loader
-                and "dji" in self.__drone_model.lower()
-            ):
-                drone_data_path = file
-            elif fname.endswith("drone.csv"):
-                drone_data_path = file
-            if fname.endswith("litchi.csv") and "dji" in self.__drone_model.lower():
-                litchi_data_path = file
-
-        # Load according to detected model
-        litchi_data = None
         if isinstance(self.__drone_model, str) and "dji" in self.__drone_model.lower():
-            if drone_data_path is None:
-                # try passing folder to DJIDrone which may discover files
-                drone = DJIDrone(drone_folder)
-            else:
-                drone = DJIDrone(drone_data_path)
+            drone_data_path = None
+            litchi_data_path = None
+
+            for file in available_files:
+                fname = file.lower()
+
+                if dji_dat_loader and fname.endswith("drone.dat"):
+                    drone_data_path = file
+
+                else:
+                    if fname.endswith("drone.csv") and drone_data_path is None:
+                        drone_data_path = file
+
+                if fname.endswith("litchi.csv") and "dji" in self.__drone_model.lower():
+                    litchi_data_path = file
+
+            logger.info(f"Drone : {drone_data_path}")
+            drone = DJIDrone(drone_data_path)
             drone.load_data(use_dat=dji_dat_loader)
             drone_data = drone.data
 
-            # load litchi if available (prefer explicit litchi file path)
+            litchi_data = None
+
             if litchi_data_path is not None:
                 litchi_loader = Litchi(litchi_data_path)
                 litchi_loader.load_data()
@@ -736,19 +733,22 @@ class Flight:
         """
         sensor_path = Path(self.flight_info["aux_data_folder_path"]) / "sensors"
 
-        if isinstance(sensor_name, str):
-            sensor_name = [sensor_name]
+        if sensor_path.exists():
+            if isinstance(sensor_name, str):
+                sensor_name = [sensor_name]
 
-        for sensor in sensor_name:
-            sensor_data = self._read_sensor_data(sensor, sensor_path)
-            if isinstance(sensor_data, dict) and (sensor != "inclinometer"):
-                setattr(self.raw_data.payload_data, sensor, sensor_data["data"])
-                self.flight_info["flight_info"].update(
-                    {f"{sensor}_metadata": sensor_data["metadata"]}
-                )
+            for sensor in sensor_name:
+                sensor_data = self._read_sensor_data(sensor, sensor_path)
+                if isinstance(sensor_data, dict) and (sensor != "inclinometer"):
+                    setattr(self.raw_data.payload_data, sensor, sensor_data["data"])
+                    self.flight_info["flight_info"].update(
+                        {f"{sensor}_metadata": sensor_data["metadata"]}
+                    )
 
-            else:
-                setattr(self.raw_data.payload_data, sensor, sensor_data)
+                else:
+                    setattr(self.raw_data.payload_data, sensor, sensor_data)
+        else:
+            logger.info("Sensor datasets are not available")
 
     def add_camera_data(
         self, use_photogrammetry: bool = False, get_sony_angles: bool = True
@@ -792,13 +792,17 @@ class Flight:
             self.__camera_data_type = "camera"
             path = Path(self.flight_info["aux_data_folder_path"]) / "camera"
 
-        camera = Camera(path, use_photogrammetry=use_photogrammetry)
+        if path.exists():
+            camera = Camera(path, use_photogrammetry=use_photogrammetry)
 
-        camera.load_data()
+            camera.load_data()
 
-        self.raw_data.payload_data.camera = camera.data[0]
+            self.raw_data.payload_data.camera = camera.data[0]
 
-        self.__camera_model = camera.data[1]
+            self.__camera_model = camera.data[1]
+
+        else:
+            logger.info("Camera Path does not exist")
 
     def sync(
         self,
