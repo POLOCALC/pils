@@ -80,7 +80,7 @@ class TestSynchronizerCommonTimeTrue:
             target_rate={"drone": 10.0, "payload": 10.0},
             common_time=True,
         )
-        adc_ts = result["adc_timestamp"].to_numpy()
+        adc_ts = result["adc"]["timestamp"].to_numpy()
         diffs = np.diff(adc_ts)
         assert np.allclose(diffs, diffs[0], rtol=1e-6), (
             "Timestamps should be uniformly spaced with common_time=True"
@@ -96,7 +96,7 @@ class TestSynchronizerCommonTimeTrue:
             common_time=True,
         )
         ref_ts = basic_synchronizer.gps_payload["timestamp"].to_numpy()
-        adc_ts = result["adc_timestamp"].to_numpy()
+        adc_ts = result["adc"]["timestamp"].to_numpy()
         assert adc_ts[0] == pytest.approx(ref_ts[0], abs=1e-6)
         assert adc_ts[-1] == pytest.approx(ref_ts[-1], abs=0.2)
 
@@ -113,7 +113,7 @@ class TestSynchronizerCommonTimeTrue:
         ref_ts = basic_synchronizer.gps_payload["timestamp"].to_numpy()
         duration = ref_ts[-1] - ref_ts[0]
         expected_n = int(duration * target_rate) + 1
-        adc_ts = result["adc_timestamp"].to_numpy()
+        adc_ts = result["adc"]["timestamp"].to_numpy()
         assert len(adc_ts) == expected_n
 
     def test_reference_gps_always_included(self, basic_synchronizer, payload_sensor):
@@ -144,7 +144,7 @@ class TestSynchronizerCommonTimeFalse:
         )
         # Values should be identical to the original sensor data
         original_values = payload_sensor["voltage"].to_numpy().flatten()
-        output_values = result["adc_voltage"].to_numpy().flatten()
+        output_values = result["adc"]["voltage"].to_numpy().flatten()
         np.testing.assert_array_equal(original_values, output_values)
 
     def test_payload_sensor_row_count_unchanged(
@@ -156,7 +156,7 @@ class TestSynchronizerCommonTimeFalse:
             target_rate={"drone": 10.0, "payload": 10.0},
             common_time=False,
         )
-        assert len(result["adc_voltage"]) == len(payload_sensor)
+        assert len(result["adc"]) == len(payload_sensor)
 
     def test_payload_timestamp_shifted_by_zero_when_no_offsets(
         self, basic_synchronizer, payload_sensor
@@ -168,7 +168,7 @@ class TestSynchronizerCommonTimeFalse:
             common_time=False,
         )
         original_ts = payload_sensor["timestamp"].to_numpy().flatten()
-        output_ts = result["adc_timestamp"].to_numpy().flatten()
+        output_ts = result["adc"]["timestamp"].to_numpy().flatten()
         # Total offset = inclinometer_offset (0.0) + litchi_offset (0.0) = 0.0
         np.testing.assert_allclose(output_ts, original_ts, atol=1e-9)
 
@@ -217,8 +217,8 @@ class TestCommonTimeDifference:
             common_time=False,
         )
 
-        n_true = len(result_true["adc_timestamp"])
-        n_false = len(result_false["adc_timestamp"])
+        n_true = len(result_true["adc"])
+        n_false = len(result_false["adc"])
         # common_time=True: int(10 * 3) + 1 = 31 rows
         # common_time=False: same as input = 101 rows
         assert n_true != n_false
@@ -282,9 +282,9 @@ class TestFlightSyncCommonTime:
             common_time=True,
         )
         assert isinstance(result, dict)
-        assert "adc_timestamp" in result
+        assert "adc" in result
         # Timestamps should be uniformly spaced
-        ts = result["adc_timestamp"].to_numpy()
+        ts = result["adc"]["timestamp"].to_numpy()
         diffs = np.diff(ts)
         assert np.allclose(diffs, diffs[0], rtol=1e-6)
 
@@ -296,8 +296,8 @@ class TestFlightSyncCommonTime:
             target_rate={"drone": 1.0, "payload": 10.0},
             common_time=False,
         )
-        assert "adc_voltage" in result
-        assert len(result["adc_voltage"]) == original_n
+        assert "adc" in result
+        assert len(result["adc"]) == original_n
 
     def test_common_time_false_preserves_values(self, flight_with_gps):
         """Flight.sync(common_time=False) must not change the sensor values."""
@@ -309,7 +309,7 @@ class TestFlightSyncCommonTime:
             target_rate={"drone": 1.0, "payload": 10.0},
             common_time=False,
         )
-        output_values = result["adc_voltage"].to_numpy().flatten()
+        output_values = result["adc"]["voltage"].to_numpy().flatten()
         np.testing.assert_array_equal(original_values, output_values)
 
     def test_common_time_flag_stored_in_sync_data(self, flight_with_gps):

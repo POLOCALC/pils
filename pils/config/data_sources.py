@@ -71,6 +71,11 @@ SENSOR_MAP = {
         "class": "Inclinometer",
         "patterns": ["sensors/*.csv", "sensors/*.kernel", "*.csv", "*.kernel"],
     },
+    "lm76": {
+        "module": ".sensors.LM76",
+        "class": "LM76",
+        "patterns": ["sensors/*TMP*.csv"],
+    },
 }
 
 # Drone mapping: drone_type -> configuration
