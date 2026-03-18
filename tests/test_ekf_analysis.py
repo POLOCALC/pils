@@ -1012,9 +1012,7 @@ class TestHDF5Persistence:
 
 # ==================== Real Data Integration Tests ====================
 
-_TEST_DATA_DIR = (
-    Path(__file__).parent.parent / "pils" / "analyze" / "ekf" / "ekfTestData"
-)
+_TEST_DATA_DIR = Path(__file__).parent.parent / "tests" / "ekf_test_data"
 
 
 @pytest.fixture(scope="module")
