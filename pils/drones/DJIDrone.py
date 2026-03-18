@@ -629,6 +629,7 @@ class DJIDrone:
             If DAT file cannot be parsed.
         """
         try:
+            logger.info(f"PATH: {self.path}")
             with open(self.path, "rb") as f:
                 file_data = f.read()
 
