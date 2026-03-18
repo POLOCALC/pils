@@ -627,7 +627,6 @@ class Flight:
                     if fname.endswith("drone.csv") and drone_data_path is None:
                         drone_data_path = file
 
-
                 if fname.endswith("litchi.csv") and "dji" in self.__drone_model.lower():
                     litchi_data_path = file
 
