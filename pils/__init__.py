@@ -28,7 +28,7 @@ Example Usage:
         print(f"IMU data: {flight.payload.imu.data}")
 """
 
-__version__ = "2026.3.3"
+__version__ = "2026.3.4"
 __author__ = "POLOCALC Team"
 __license__ = "MIT"
 
