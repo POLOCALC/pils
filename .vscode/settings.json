@@ -61,9 +61,6 @@
     "**/tests/test_emlid.py": "default",
     "/home/gabriele/Documents/data_loader/tests/test_azel_standard_columns.py": "default",
     "tests/test_azel_standard_columns.py": "default",
-    "**/tests/test_azel_standard_columns.py": "default",
-    "/home/gabriele/Documents/data_loader/pils/sensors/LM76.py": "default",
-    "pils/sensors/LM76.py": "default",
-    "**/pils/sensors/LM76.py": "default"
+    "**/tests/test_azel_standard_columns.py": "default"
   }
 }

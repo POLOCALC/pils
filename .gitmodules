@@ -1,0 +1,3 @@
+[submodule "pils/analyze/ekf/sst-rust-ekf"]
+	path = pils/analyze/ekf/sst-rust-ekf
+	url = git@github.com:POLOCALC/sst-rust-ekf.git
