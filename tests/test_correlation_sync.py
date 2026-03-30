@@ -151,8 +151,8 @@ class TestGPSOffsetDetection:
         t1 = np.linspace(0, 50, 500)
         t2 = np.linspace(100, 150, 500)
 
-        lat = 45.0 + 0.001 * np.sin(0.1 * np.arange(500))
-        lon = 10.0 + 0.001 * np.cos(0.1 * np.arange(500))
+        lat = 45.0 + 0.001 * np.sin(0.01 * np.arange(500))
+        lon = 10.0 + 0.001 * np.cos(0.01 * np.arange(500))
         alt = 100.0 + 10.0 * np.sin(0.05 * np.arange(500))
 
         result = Synchronizer._find_gps_offset(
