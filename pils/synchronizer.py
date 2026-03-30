@@ -245,7 +245,7 @@ class Synchronizer:
         good_mask[outliers + 1] = False  # Also remove the next sample
 
         # Also remove NaN values
-        nan_mask = ~(np.isnan(east) | np.isnan(north) | np.isnan(up))
+        nan_mask = ~(np.isnan(east) | np.isnan(north) | np.isnan(up) | np.isnan(time))
         good_mask = good_mask & nan_mask
 
         return time[good_mask], east[good_mask], north[good_mask], up[good_mask]
@@ -328,19 +328,6 @@ class Synchronizer:
         >>> print(f"Correlation: {result['correlation']:.3f}")
         Correlation: 0.998
         """
-        # Check for minimum overlap
-        t1_start, t1_end = time1[0], time1[-1]
-        t2_start, t2_end = time2[0], time2[-1]
-
-        overlap_start = max(t1_start, t2_start)
-        overlap_end = min(t1_end, t2_end)
-        overlap_duration = overlap_end - overlap_start
-
-        if overlap_duration < 10.0:
-            logger.warning(
-                f"Insufficient GPS overlap: {overlap_duration:.1f}s < 10s minimum"
-            )
-            return None
 
         # Use midpoint of first GPS as ENU reference
         mid_idx = 0
@@ -351,12 +338,37 @@ class Synchronizer:
         # Convert GPS1 to ENU (vectorized) using pymap3d
         e1, n1, u1 = pm.geodetic2enu(lat1, lon1, alt1, ref_lat, ref_lon, ref_alt)
 
+        time1, e1, n1, u1 = Synchronizer.__clean_data(time1, e1, n1, u1)
+
         # Convert GPS2 to ENU (vectorized) using pymap3d
         e2, n2, u2 = pm.geodetic2enu(lat2, lon2, alt2, ref_lat, ref_lon, ref_alt)
 
         # Filter GPS data
 
         time2, e2, n2, u2 = Synchronizer.__clean_data(time2, e2, n2, u2)
+
+        logger.debug(
+            f"Correlation: {np.any(np.isnan(e2))} {np.any(np.isnan(n2))} {np.any(np.isnan(u2))}"
+        )
+
+        logger.debug(f"Correlation: {e2} {n2} {u2}")
+        logger.debug(f"Correlation: {e1} {n1} {u1}")
+
+        # Check for minimum overlap
+        t1_start, t1_end = time1[0], time1[-1]
+        t2_start, t2_end = time2[0], time2[-1]
+
+        overlap_start = max(t1_start, t2_start)
+        overlap_end = min(t1_end, t2_end)
+        overlap_duration = overlap_end - overlap_start
+
+        logger.info(f"Correlation: {overlap_start} {overlap_end}")
+
+        if overlap_duration < 10.0:
+            logger.warning(
+                f"Insufficient GPS overlap: {overlap_duration:.1f}s < 10s minimum"
+            )
+            return None
 
         # Create common timebase for correlation (high rate for precision)
         dt = 1.0 / target_rate_hz
@@ -367,15 +379,26 @@ class Synchronizer:
         n1_interp = np.interp(common_time, time1, n1)
         u1_interp = np.interp(common_time, time1, u1)
 
+        logger.debug(
+            f"Correlation: {np.any(np.isnan(common_time))} {np.any(np.isnan(e1_interp))} {np.any(np.isnan(n1_interp))} {np.any(np.isnan(u1_interp))}"
+        )
+
         # Interpolate GPS2 to common timebase
         e2_interp = np.interp(common_time, time2, e2)
         n2_interp = np.interp(common_time, time2, n2)
         u2_interp = np.interp(common_time, time2, u2)
 
+        logger.debug(
+            f"Correlation: {np.any(np.isnan(common_time))} {np.any(np.isnan(e2_interp))} {np.any(np.isnan(n2_interp))} {np.any(np.isnan(u2_interp))}"
+        )
+
         # Cross-correlate each axis independently
         corr_e = signal.correlate(e1_interp, e2_interp, mode="same")
+        logger.debug(f"Correlation East: {corr_e}")
         corr_n = signal.correlate(n1_interp, n2_interp, mode="same")
+        logger.debug(f"Correlation North: {corr_n}")
         corr_u = signal.correlate(u1_interp, u2_interp, mode="same")
+        logger.debug(f"Correlation Up: {corr_u}")
 
         # Normalize correlations properly
         # Divide by sqrt of auto-correlations at zero lag

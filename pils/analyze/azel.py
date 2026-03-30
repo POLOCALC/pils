@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import h5py
+import numpy as np
 import polars as pl
 import pymap3d as pm
 
@@ -498,7 +499,7 @@ class AZELAnalysis:
         # 9. Create output DataFrame
         azel_data = pl.DataFrame(
             {
-                "timestamp": timestamps_ctime,
+                "timestamp": np.asarray(timestamps_ctime),
                 "az": azimuth,
                 "el": elevation,
                 "srange": slant_range,
@@ -517,6 +518,17 @@ class AZELAnalysis:
                 pl.col("U").cast(pl.Float64),
             ]
         )
+
+        mask_expr = (
+            (~pl.col("timestamp").is_nan())
+            & (~pl.col("az").is_nan())
+            & (~pl.col("el").is_nan())
+            & (~pl.col("srange").is_nan())
+            & (~pl.col("E").is_nan())
+            & (~pl.col("N").is_nan())
+            & (~pl.col("U").is_nan())
+        )
+        azel_data = azel_data.filter(mask_expr)
 
         # 10. Create metadata
         metadata = {
