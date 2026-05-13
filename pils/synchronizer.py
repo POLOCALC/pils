@@ -868,6 +868,9 @@ class Synchronizer:
         if inclinometer_type == "imx5":
             self.__inclinometer_names = {"timestamp": "timestamp", "pitch": "pitch"}
 
+        elif inclinometer_type == "kernel":
+            self.__inclinometer_names = {"timestamp": "timestamp", "pitch": "pitch"}
+
         logger.info(f"Added inclinometer with {len(inclinometer_data)} samples")
 
     def add_camera(
@@ -1237,9 +1240,11 @@ class Synchronizer:
 
                             sync_data["inclinometer"]["timestamp"] = target_time
 
+                            skip_cols = np.array(["timestamp","Type","USW","datetime"])
                             for col in self.inclinometer.columns:
-                                if col == "timestamp":
+                                if col in skip_cols:
                                     continue
+                                    
                                 values = self.inclinometer[col].to_numpy().astype(float)
                                 interpolated = np.interp(
                                     target_time,

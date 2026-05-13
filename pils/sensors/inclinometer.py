@@ -333,18 +333,25 @@ class KernelInclinometer:
     Decoder for Kernel-100 inclinometer data (binary format).
     """
 
-    def __init__(self, path: Path, logpath: str | None = None) -> None:
+    def __init__(self, dirpath: Path, logpath: str | None = None) -> None:
         """
         Initialize KernelInclinometer.
 
         Parameters
         ----------
-        path : Path
-            Path to the Kernel binary file (*_INC.bin).
+        dirpath : Path
+            Path to the directory where the Kernel binary file (*_INC.bin) is contained.
         logpath : Optional[str], optional
             Path to log file for timing information (optional).
         """
-        self.path = path
+        #self.path = path
+        
+        self.dirpath = dirpath
+        #self.logpath = logpath
+
+        # Find Kernel binary file
+        self.path = self._find_file("*_INC.bin")
+
         if logpath is not None:
             self.logpath = logpath
         else:
@@ -354,6 +361,22 @@ class KernelInclinometer:
                 self.logpath = None
 
         self.tstart = None
+
+    def _find_file(self, pattern: str) -> str | None:
+        """Find a file matching the pattern in dirpath.
+
+        Parameters
+        ----------
+        pattern : str
+            Glob pattern to match files.
+
+        Returns
+        -------
+        Optional[str]
+            Path to first matching file, or None if not found.
+        """
+        files = glob.glob(os.path.join(self.dirpath, pattern))
+        return files[0] if files else None
 
     def read_log_time(self, logfile: str | None = None) -> None:
         """
@@ -395,6 +418,7 @@ class KernelInclinometer:
         """
         # Load data from binary decoder
         decoded = decode_inclino(self.path)
+        
         inclino_data = pl.DataFrame(decoded)
 
         # Detect counter wrap-arounds (where counter resets)
@@ -424,6 +448,7 @@ class KernelInclinometer:
             [(pl.col("new_counter") / 2000.0).alias("counter_timestamp")]
         )
 
+        print("Logpath:",self.logpath)
         if self.logpath is not None:
             # Convert Path to str if needed
             logfile_path = (
