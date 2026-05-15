@@ -350,8 +350,9 @@ class KernelInclinometer:
         #self.logpath = logpath
 
         # Find Kernel binary file
-        self.path = self._find_file("*_INC.bin")
-
+        
+        self.path = self._find_file("*_INC*.bin")
+        print("Inclino path:",self.path)
         if logpath is not None:
             self.logpath = logpath
         else:
