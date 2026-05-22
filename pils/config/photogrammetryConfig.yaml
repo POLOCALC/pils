@@ -1,0 +1,62 @@
+# =============================================================================
+# Photogrammetry Pipeline Configuration
+# =============================================================================
+# This file contains all parameters that cannot be derived from the Flight
+# object or the geodetic targets CSV. Everything else (reference_point,
+# video_code, date, geodetic_targets, tel_positions, etc.) is parsed at
+# runtime from the Flight object and the --csv_file argument.
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# Camera intrinsics
+# -----------------------------------------------------------------------------
+camera:
+  # 3x3 intrinsic matrix [[fx, 0, cx], [0, fy, cy], [0, 0, 1]]
+  camera_matrix:
+    - [2569.605957, 0., 1881.56543]
+    - [0., 2568.584961, 1087.135376]
+    - [0.0,    0.0,    1.0]
+
+
+
+  # Distortion coefficients [k1, k2, p1, p2, k3]
+  distortion_coeffs: [0.019473, -0.041976, -0.000273, -0.001083, 0.030603]
+
+
+# -----------------------------------------------------------------------------
+# Pipeline step parameters
+# -----------------------------------------------------------------------------
+pipeline:
+
+  # Fixed ENU origin [lat, lon, alt] — campaign-level constant
+  reference_point: [-22.9597732, -67.7866847, 5173.020]
+
+  # --- Step p2: TargetFinder.finderSequential --------------------------------
+  finder:
+    box_height: 20        # Search box half-height in pixels
+    box_width: 20         # Search box half-width in pixels
+    color_tol: 10         # ΔE color tolerance for target detection
+
+  # --- Step p3: AttitudeReconstruction.run_pnp --------------------------------
+  pnp:
+    ransac: true          # Use RANSAC for outlier rejection in PnP
+
+  # --- Step p4: DroneData.correlate_drone_photo --------------------------------
+  drone_correlation:
+    trigger: false        # Use hardware trigger signal for synchronization
+    payload: false        # Include payload data in correlation
+    plot: false           # Save correlation diagnostic plots
+    use_fft: false        # Use FFT-based cross-correlation (vs. direct)
+
+  # --- Step p6: ConcerningTelescope ------------------------------------------
+  telescope:
+    tel_names:
+      - SATp1
+      - SATp2
+      - SATp3
+      - CLASS1
+      - CLASS2
+
+  # --- Step p7: PolarizationAngle --------------------------------------------
+  polarization: {}        # No extra params currently — extend as needed
