@@ -1,6 +1,8 @@
 """
 Drones module - Drone-specific data parsers and utilities.
 """
+import sys
+sys.path.append("/home/fastori/Desktop/ARS/pils/pils")
 
 import logging
 import os

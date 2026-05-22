@@ -20,6 +20,9 @@ Usage:
     flights = loader.load_flights_by_date(start_date='2025-01-01', end_date='2025-01-15')
 """
 
+import sys
+sys.path.append("/home/fastori/Desktop/ARS/")
+
 import importlib
 import logging
 from datetime import UTC, datetime, timedelta
