@@ -116,32 +116,38 @@ class PathLoader:
 
     def load_all_campaign_flights(
         self, campaign_name: str | None = None, campaign_id=None
-    ) -> dict[str, Any] | None:
+    ) -> list[dict[str, Any]]:
         """
-        Load data for a single flight.
+        Load all flights for a specific campaign.
 
         Parameters
         ----------
         campaign_name : Optional[str]
-            Flight name to load (alternative to flight_id)
+            Campaign name to filter flights by.
+        campaign_id : Optional[str]
+            Unused, reserved for future use.
 
         Returns
         -------
-        Optional[Dict[str, Any]]
-            Flight dictionary with metadata and paths, or None if not found.
+        List[Dict[str, Any]]
+            List of flight dictionaries for the given campaign,
+            or empty list if none found.
         """
-        if campaign_name:
-            raise ValueError("Either flight_id or flight_name must be provided")
+        if not campaign_name:
+            raise ValueError("campaign_name must be provided")
 
-        logger.info(f"Loading all campaign flighs: campaign_name={campaign_name}")
+        logger.info(f"Loading all campaign flights: campaign_name={campaign_name}")
 
         all_flights = self.load_all_flights()
 
-        for flight in all_flights:
-            if flight.get("campaign_name") == campaign_name:
-                return flight
+        campaign_flights = [
+            flight for flight in all_flights
+            if flight.get("campaign_name") == campaign_name
+        ]
 
-        return None
+        logger.info(f"Found {len(campaign_flights)} flights for campaign '{campaign_name}'")
+        return campaign_flights
+
 
     def load_single_flight(
         self, flight_id: str | None = None, flight_name: str | None = None
