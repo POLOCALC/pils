@@ -11,17 +11,26 @@
 # -----------------------------------------------------------------------------
 # Camera intrinsics
 # -----------------------------------------------------------------------------
-camera:
+sony_camera:
   # 3x3 intrinsic matrix [[fx, 0, cx], [0, fy, cy], [0, 0, 1]]
   camera_matrix:
-    - [2569.605957, 0., 1881.56543]
-    - [0., 2568.584961, 1087.135376]
+    - [2543.02197265625, 0., 1908.13916015625]
+    - [ 0., 2541.0712890625, 1072.185791015625]
     - [0.0,    0.0,    1.0]
 
+  # Distortion coefficients [k1, k2, p1, p2, k3]
+  distortion_coeffs: [0.03171190991997719, -0.05128732696175575, -0.00039321804069913924, 0.00012248533312231302, 0.04870585724711418]
 
+alvium_camera:
+  # 3x3 intrinsic matrix [[fx, 0, cx], [0, fy, cy], [0, 0, 1]]
+  camera_matrix:
+    - [9079.129569669898, 0., 1957.9697725824976]
+    - [0., 9057.738125201759 , 1603.3806948543029]
+    - [0.0,    0.0,    1.0]
 
   # Distortion coefficients [k1, k2, p1, p2, k3]
-  distortion_coeffs: [0.019473, -0.041976, -0.000273, -0.001083, 0.030603]
+  distortion_coeffs: [-0.06874197362777763, 0.525453999633465, 0.0, 0.0, 0.0]
+
 
 
 # -----------------------------------------------------------------------------
@@ -29,11 +38,12 @@ camera:
 # -----------------------------------------------------------------------------
 pipeline:
 
-  # Fixed ENU origin [lat, lon, alt] — campaign-level constant
+  # Fixed ENU origin [lat, lon, alt] — campaign-level constant geodetic not ellipsoidal to handle drone altitude
   reference_point: [-22.9597732, -67.7866847, 5173.020]
 
   # --- Step p2: TargetFinder.finderSequential --------------------------------
   finder:
+    tg_by_hand: "click"
     box_height: 20        # Search box half-height in pixels
     box_width: 20         # Search box half-width in pixels
     color_tol: 10         # ΔE color tolerance for target detection
@@ -46,7 +56,6 @@ pipeline:
   drone_correlation:
     trigger: false        # Use hardware trigger signal for synchronization
     payload: false        # Include payload data in correlation
-    plot: false           # Save correlation diagnostic plots
     use_fft: false        # Use FFT-based cross-correlation (vs. direct)
 
   # --- Step p6: ConcerningTelescope ------------------------------------------
