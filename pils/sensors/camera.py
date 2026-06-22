@@ -62,6 +62,26 @@ class PhotogrammetryConfig:
 
         self._parse()
 
+    # def _parse(self) -> None:
+    #     model_key = self._resolve_camera_model()
+    #     cam = self.raw.get(model_key, {})
+    #     if not cam:
+    #         raise ValueError(
+    #             f"Camera calibration block '{model_key}' not found in {self.config_path}"
+    #         )
+    #     self.camera_matrix = np.array(cam["camera_matrix"], dtype=np.float64)
+    #     self.distortion_coeffs = np.array(cam["distortion_coeffs"], dtype=np.float64)
+
+    #     pipeline = self.raw.get("pipeline", {})
+    #     self.reference_point = np.array(pipeline["reference_point"], dtype="double")
+
+    #     self.finder = pipeline.get("finder", {})
+    #     self.pnp = pipeline.get("pnp", {})
+    #     self.mcmc = pipeline.get("mcmc", {})
+    #     self.drone_correlation = pipeline.get("drone_correlation", {})
+    #     self.telescope = pipeline.get("telescope", {})
+    #     self.polarization = pipeline.get("polarization", {})
+
     def _parse(self) -> None:
         model_key = self._resolve_camera_model()
         cam = self.raw.get(model_key, {})
@@ -75,8 +95,13 @@ class PhotogrammetryConfig:
         pipeline = self.raw.get("pipeline", {})
         self.reference_point = np.array(pipeline["reference_point"], dtype="double")
 
+        # ← ADD THIS
+        raw_base = pipeline.get("dji_base_logged")
+        self.dji_base_logged = np.array(raw_base, dtype="double") if raw_base is not None else None
+
         self.finder = pipeline.get("finder", {})
         self.pnp = pipeline.get("pnp", {})
+        self.mcmc = pipeline.get("mcmc", {})
         self.drone_correlation = pipeline.get("drone_correlation", {})
         self.telescope = pipeline.get("telescope", {})
         self.polarization = pipeline.get("polarization", {})
@@ -157,6 +182,22 @@ class Camera:
     # load_data
     # ------------------------------------------------------------------
 
+    # def load_data(self) -> None:
+    #     """Detect camera type and load data into ``self.data``."""
+    #     if not self.path.exists():
+    #         raise FileNotFoundError(f"Camera path does not exist: {self.path}")
+
+    #     if self.use_photogrammetry:
+    #         camera_data, camera_model = self._load_photogrammetry_data()
+    #     else:
+    #         video_files = [p for p in self.path.iterdir() if p.suffix.lower() == ".mp4"]
+    #         if video_files:
+    #             camera_data, camera_model = self._load_sony_camera_data(video_files)
+    #         else:
+    #             camera_data, camera_model = self._load_alvium_camera_data()
+
+    #     self.data = (camera_data, camera_model)
+
     def load_data(self) -> None:
         """Detect camera type and load data into ``self.data``."""
         if not self.path.exists():
@@ -166,12 +207,36 @@ class Camera:
             camera_data, camera_model = self._load_photogrammetry_data()
         else:
             video_files = [p for p in self.path.iterdir() if p.suffix.lower() == ".mp4"]
+
             if video_files:
                 camera_data, camera_model = self._load_sony_camera_data(video_files)
             else:
-                camera_data, camera_model = self._load_alvium_camera_data()
+                # Check for Alvium: log in self.path, images in ../../proc/images/
+                log_files  = list(self.path.glob("*.[Ll][Oo][Gg]"))
+                images_dir = self.path.parent.parent / "proc" / "images"
+                image_extensions = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
+                image_files = (
+                    [p for p in images_dir.iterdir() if p.suffix.lower() in image_extensions]
+                    if images_dir.exists() else []
+                )
+
+                if log_files and image_files:
+                    camera_data, camera_model = self._load_alvium_camera_data()
+                elif log_files:
+                    # Log present but no images — raise clearly
+                    raise FileNotFoundError(
+                        f"Alvium log found in {self.path} but no images in {images_dir}"
+                    )
+                else:
+                    raise FileNotFoundError(
+                        f"No recognised camera data found in {self.path}. "
+                        "Expected .mp4 files (Sony) or Alvium log + proc/images/."
+                    )
 
         self.data = (camera_data, camera_model)
+
+
+
 
     # ------------------------------------------------------------------
     # Private loaders
@@ -270,22 +335,83 @@ class Camera:
 
         return camera_data, "sony"
 
+    # def _load_alvium_camera_data(self) -> tuple[pl.DataFrame, str]:
+    #     log_file = list(self.path.glob("*.[Ll][Oo][Gg]"))
+    #     if not log_file:
+    #         raise FileNotFoundError(f"No video files or log files found in {self.path}")
+
+    #     self.logpath = log_file[0]
+    #     self.is_image_sequence = True
+    #     self.images = sorted(glob.glob(os.path.join(str(self.path), "*.*")))
+
+    #     if not self.images:
+    #         raise FileNotFoundError(f"No images found in {self.path}")
+
+    #     self.fps = 1.0
+    #     self.alvium_log = self._parse_alvium_log(self.logpath)
+    #     camera_data = read_alvium_log_time(keyphrase="Saving frame", logfile=self.logpath)
+    #     return camera_data, "alvium"
+
     def _load_alvium_camera_data(self) -> tuple[pl.DataFrame, str]:
         log_file = list(self.path.glob("*.[Ll][Oo][Gg]"))
         if not log_file:
-            raise FileNotFoundError(f"No video files or log files found in {self.path}")
+            raise FileNotFoundError(f"No log file found for Alvium camera in {self.path}")
 
         self.logpath = log_file[0]
-        self.is_image_sequence = True
-        self.images = sorted(glob.glob(os.path.join(str(self.path), "*.*")))
+
+        flight_root = self.path.parent.parent
+        images_dir  = flight_root / "proc" / "images"
+
+        if not images_dir.exists():
+            raise FileNotFoundError(
+                f"Expected Alvium images directory not found: {images_dir}"
+            )
+
+        image_extensions = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
+        self.images = sorted(
+            str(p) for p in images_dir.iterdir()
+            if p.suffix.lower() in image_extensions
+        )
 
         if not self.images:
-            raise FileNotFoundError(f"No images found in {self.path}")
+            raise FileNotFoundError(f"No images found in {images_dir}")
 
+        self.is_image_sequence = True
         self.fps = 1.0
+
+        self._read_alvium_tstart()
+
         self.alvium_log = self._parse_alvium_log(self.logpath)
-        camera_data = read_alvium_log_time(keyphrase="Saving frame", logfile=self.logpath)
+        camera_data = read_alvium_log_time(keyphrase="captured.", logfile=self.logpath)
         return camera_data, "alvium"
+
+
+
+
+
+
+    def _read_alvium_tstart(self) -> None:
+        """Parse tstart from Alvium log format: [2025-12-11 13:54:16.011 - INFO]"""
+        import re
+        pattern = re.compile(r"\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+) - INFO\]")
+        
+        try:
+            with open(self.logpath, "r") as f:
+                for line in f:
+                    if "Started image acquisition." in line:
+                        match = pattern.search(line)
+                        if match:
+                            from datetime import datetime
+                            self.tstart = datetime.strptime(
+                                match.group(1), "%Y-%m-%d %H:%M:%S.%f"
+                            )
+                            logger.info(f"Alvium tstart: {self.tstart}")
+                            return
+            logger.warning("Keyphrase 'Started image acquisition.' not found in Alvium log.")
+            self.tstart = None
+        except Exception as e:
+            logger.warning(f"Could not read Alvium tstart from log: {e}")
+            self.tstart = None
 
     def _parse_alvium_log(self, logpath: Path) -> pl.DataFrame | None:
         if logpath is None or not Path(logpath).is_file():
@@ -294,13 +420,36 @@ class Camera:
             df = pd.read_csv(str(logpath), sep=None, engine="python")
             first_col = df.columns[0]
             try:
-                df[first_col] = pd.to_datetime(df[first_col], utc=True)
+                df[first_col] = pd.to_datetime(
+                    df[first_col], format="mixed", utc=True
+                )
             except Exception:
-                pass
+                try:
+                    df[first_col] = pd.to_datetime(
+                        df[first_col], format="ISO8601", utc=True
+                    )
+                except Exception:
+                    pass  # leave column as-is if all parsing fails
             return pl.from_pandas(df)
         except Exception as e:
             logger.warning(f"Failed parsing Alvium log: {e}")
             return None
+
+
+    # def _parse_alvium_log(self, logpath: Path) -> pl.DataFrame | None:
+    #     if logpath is None or not Path(logpath).is_file():
+    #         return None
+    #     try:
+    #         df = pd.read_csv(str(logpath), sep=None, engine="python")
+    #         first_col = df.columns[0]
+    #         try:
+    #             df[first_col] = pd.to_datetime(df[first_col], utc=True)
+    #         except Exception:
+    #             pass
+    #         return pl.from_pandas(df)
+    #     except Exception as e:
+    #         logger.warning(f"Failed parsing Alvium log: {e}")
+    #         return None
 
     # ------------------------------------------------------------------
     # Sony telemetry
@@ -779,6 +928,8 @@ class Camera:
         config: "PhotogrammetryConfig",
         output_dir: str | Path,
         start_from_dict: str | Path | None = None,
+        target_indices: list[int] | None = None,
+        mcmc_solution: bool = False,
     ) -> pl.DataFrame:
         """Run the full pipeline across multiple flights.
 
@@ -847,15 +998,30 @@ class Camera:
 
         # ── 2. Build TargetFinder from first valid flight's params ─────────
         first_flight = valid_flights[0][1]
+        # params = GenParamFile.GeoPlot(
+        #     csv_file=str(csv_file),
+        #     reference_point=config.reference_point,
+        #     flight=first_flight,
+        #     dji_base_logged=config.dji_base_logged
+        # )
+
+        # AFTER
         params = GenParamFile.GeoPlot(
-            csv_file=str(csv_file),
-            reference_point=config.reference_point,
-            flight=first_flight,
+                csv_file=str(csv_file),
+                reference_point=config.reference_point,
+                flight=first_flight,                   # ← fix 1: use first_flight
+                dji_base_logged=getattr(config, "dji_base_logged", None),
+            )
+
+        geodetic_targets_filtered = (
+            [params["geodetic_targets"][i] for i in target_indices]
+            if target_indices is not None
+            else params["geodetic_targets"]
         )
 
         target_finder = TargetFinder(
             wrappers[0],
-            params["geodetic_targets"],
+            geodetic_targets_filtered,                 # ← fix 2: filtered list
             params["geodetic_tel_positions"],
             params["image_tel_positions"],
             config.camera_matrix,
@@ -907,6 +1073,8 @@ class Camera:
                     check_results=None,
                     start_from_dict=start_from_dict,
                     precomputed_targets=flight_targets,
+                    mcmc_solution=mcmc_solution,
+                    target_indices=target_indices,
                 )
                 result = result.with_columns([pl.lit(orig_idx).alias("flight_idx")])
                 all_results.append(result)
@@ -933,6 +1101,8 @@ class Camera:
         check_results: str | Path | None = None,
         start_from_dict: str | Path | None = None,
         precomputed_targets=None,
+        target_indices: list[int] | None = None,
+        mcmc_solution: bool = False,
     ) -> pl.DataFrame:
         """Run the full IPA_flight photogrammetry pipeline for a single flight.
 
@@ -992,11 +1162,24 @@ class Camera:
             check_results = output_dir / "plots"
 
         # ── Parse targets from CSV ─────────────────────────────────────────
-        params     = GenParamFile.GeoPlot(
-            csv_file=str(csv_file),
-            reference_point=config.reference_point,
-            flight=flight,
-        )
+        params = GenParamFile.GeoPlot(
+                csv_file=str(csv_file),
+                reference_point=config.reference_point,
+                flight=flight,
+                dji_base_logged=getattr(config, "dji_base_logged", None),
+            )
+        if target_indices is not None:
+            params["geodetic_targets"] = [
+                params["geodetic_targets"][i]
+                for i in target_indices
+            ]
+
+            # if "image_tel_positions" in params:
+            #     params["image_tel_positions"] = [
+            #         params["image_tel_positions"][i]
+            #         for i in target_indices
+            #     ]
+
         gps_offset = params["gps_offset"]
 
         # ── Build IPA_flight modules ───────────────────────────────────────
@@ -1041,12 +1224,24 @@ class Camera:
                 logger.info("Step p2: using precomputed targets from multi-flight run.")
                 return self._ensure_polars(precomputed_targets)
             return target_finder.finderSequential(**config.finder)
+        
+        if mcmc_solution:
+            print("\n⚠️  Using MCMC solution for step p3 (this may be very slow) …")
+            p3_step = lambda prev: attitude_reconstruction.run_mcmc(
+                prev,
+                **config.mcmc,
+                )
+        else:
+            p3_step = lambda prev: attitude_reconstruction.run_pnp(
+                prev,
+                **config.pnp,
+            )
 
         steps = {
             "dictionary_p2.ecsv": _step_p2,
-            "dictionary_p3.ecsv": lambda prev: attitude_reconstruction.run_pnp(
-                prev, **config.pnp
-            ),
+           
+            "dictionary_p3.ecsv": p3_step,
+            
             "dictionary_p4.ecsv": lambda prev: drone_data.correlate_drone_photo(
                 prev, gps_offset=gps_offset, **config.drone_correlation
             ),
@@ -1062,28 +1257,39 @@ class Camera:
 
         # ── Determine start point ──────────────────────────────────────────
         if start_from_dict:
-            start_file = Path(start_from_dict).name
+            # Resolve to per-flight output dir if only a filename was given
+            sfd_path = Path(os.path.expanduser(str(start_from_dict)))
+
+            if not sfd_path.exists():
+                sfd_resolved = output_dir / sfd_path.name
+
+                if not sfd_resolved.exists():
+                    raise FileNotFoundError(
+                        f"Dictionary file '{start_from_dict}' not found. "
+                        f"Also tried: {sfd_resolved}"
+                    )
+
+                sfd_path = sfd_resolved
+
+            start_file = sfd_path.name
+
             if start_file not in step_order:
-                raise ValueError(f"Unknown starting dictionary: {start_file}")
-            start_index  = step_order.index(start_file) + 1
-            current_dict = self._ensure_polars(load_dictionary(start_from_dict))
-            logger.info(f"Resuming photogrammetry from: {start_file}")
-        elif precomputed_targets is not None:
-            # p2 was done externally — save it and start from p3
-            current_dict = self._ensure_polars(precomputed_targets)
-            save_intermediate_results(
-                current_dict,
-                str(output_dir / "dictionary_p2.ecsv"),
-                params["video_code"],
-                params["date"],
-                params["video_name"],
+                raise ValueError(
+                    f"Unknown starting dictionary: {start_file}"
+                )
+
+            start_index = step_order.index(start_file) + 1
+            current_dict = self._ensure_polars(
+                load_dictionary(str(sfd_path))
             )
-            start_index = 1   # index of p3 in step_order
-            logger.info("Step p2 supplied externally — starting pipeline from p3.")
+
+            logger.info(
+                f"Resuming photogrammetry from: {sfd_path}"
+            )
+
         else:
-            start_index  = 0
+            start_index = 0
             current_dict = None
-            logger.info("Starting photogrammetry pipeline from the beginning.")
 
         # ── Run pipeline ───────────────────────────────────────────────────
         for i in range(start_index, len(step_order)):
