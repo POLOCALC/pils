@@ -39,18 +39,34 @@ alvium_camera:
 pipeline:
 
   # Fixed ENU origin [lat, lon, alt] — campaign-level constant geodetic not ellipsoidal to handle drone altitude
-  reference_point: [-22.9597732, -67.7866847, 5173.020]
+  reference_point: [-22.95977493, -67.78669737, 5182.496] # enu system is built concerning this reference taken with the emlid stick
+  dji_base_logged: [-22.9597732, -67.7866847, 5173.020] # drone is flying with respect to this reference (DJi rtk base self measured)
+  
 
   # --- Step p2: TargetFinder.finderSequential --------------------------------
   finder:
-    tg_by_hand: "click"
+    tg_by_hand: "click_with_tel" # click
     box_height: 20        # Search box half-height in pixels
     box_width: 20         # Search box half-width in pixels
     color_tol: 10         # ΔE color tolerance for target detection
 
-  # --- Step p3: AttitudeReconstruction.run_pnp --------------------------------
+
+  # --- Step p3: AttitudeReconstruction.run_pnp or .run_mcmc ----------------
   pnp:
     ransac: true          # Use RANSAC for outlier rejection in PnP
+
+  mcmc:
+    omega_init:    [180, -45, 0]    # Initial guess [roll, pitch, yaw] in degrees
+    t_init:      [-1, 10, 500]      # Initial guess [x, y, z] in metres
+    sigma_pixel:   1.0              # Observation noise in pixels (likelihood std)
+    sigma_omega:   0.01              # Prior std on RPY angles in degrees
+    sigma_t:       0.01              # Prior std on translation in metres
+    sigma_K:       15.0             # Prior std on intrinsics (fx, fy, cx, cy) in pixels  
+    sigma_dist:    0.01             # Percent gaussian noise on distortion coefficients
+    n_samples:     1000             # MCMC draws per chain
+    n_tune:        1000             # MCMC tuning steps per chain
+    batch_size:    24               # Frames per parallel worker batch
+    subsample:     2               # Frame subsampling factor e.g. 1 means use every 30th frame for MCMC (to speed up inference)
 
   # --- Step p4: DroneData.correlate_drone_photo --------------------------------
   drone_correlation:
