@@ -226,7 +226,7 @@ if __name__ == "__main__":
     multiplier_item = inv_service.get_item_by_id(item_id=multiplier_id)
     diode_item = inv_service.get_item_by_id(item_id=diode_id)
 
-    print(multiplier_item,"\n",diode_item)
+    print("\nProcessing data for the following items:\n\n"multiplier_item,"\n\n",diode_item)
 
     #print(aux_items)
 
