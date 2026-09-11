@@ -82,6 +82,7 @@ nav:
     - Directory Structure: user-guide/directory-structure.md
     - Time Synchronization: user-guide/synchronization.md
     - Drone: user-guide/dji-drone.md
+    - Photogrammetry Pipeline: user-guide/photogrammetry-pipeline.md
   - Development:
     - development/index.md
     - Architecture: development/architecture.md
