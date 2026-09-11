@@ -41,14 +41,28 @@ pipeline:
   # Fixed ENU origin [lat, lon, alt] — campaign-level constant geodetic not ellipsoidal to handle drone altitude
   reference_point: [-22.95977493, -67.78669737, 5182.496] # enu system is built concerning this reference taken with the emlid stick
   dji_base_logged: [-22.9597732, -67.7866847, 5173.020] # drone is flying with respect to this reference (DJi rtk base self measured)
-  
+
+  # GPS-antenna-to-camera lever arm [dE, dN, dU] in metres, added to the drone's
+  # GPS (antenna) ENU position in DroneData.correlate_drone_photo to approximate
+  # the camera's actual position. Measured/expected magnitude ~0.75-0.8m.
+  # NOT yet rotated by drone attitude (yaw/pitch/roll) -- treated as an already-ENU
+  # offset, exact only if the true body-frame lever arm is purely vertical (camera
+  # slung straight down from the antenna) and the drone stays close to level.
+  # RTK:yaw/RTK:pitch in this drone's telemetry currently contain unfiltered
+  # sentinel/garbage values and there's no roll channel, so a proper per-frame
+  # body-to-ENU rotation isn't wired up yet -- revisit once that's cleaned up.
+  lever_arm_enu:  [0.0, 0.0, -0.75]
+
 
   # --- Step p2: TargetFinder.finderSequential --------------------------------
   finder:
     tg_by_hand: "click_with_tel" # click
-    box_height: 20        # Search box half-height in pixels
-    box_width: 20         # Search box half-width in pixels
+    box_height: 25        # Search box half-height in pixels
+    box_width: 25        # Search box half-width in pixels
     color_tol: 10         # ΔE color tolerance for target detection
+    tracking_method: "optical_flow"  # per-frame tracking: "optical_flow" (default) or "orb" (legacy, ORB + homography)
+    orb_nfeatures: 1000              # ORB feature count -- only used when tracking_method: "orb"
+    refine_threshold: 0.98         # ΔE-filter match threshold in the per-frame box-search refinement (finder.py's _refine_target_centers) -- higher = stricter/tighter color match required before a center is accepted
 
 
   # --- Step p3: AttitudeReconstruction.run_pnp or .run_mcmc ----------------

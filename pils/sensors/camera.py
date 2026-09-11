@@ -99,6 +99,9 @@ class PhotogrammetryConfig:
         raw_base = pipeline.get("dji_base_logged")
         self.dji_base_logged = np.array(raw_base, dtype="double") if raw_base is not None else None
 
+        raw_lever_arm = pipeline.get("lever_arm_enu")
+        self.lever_arm_enu = np.array(raw_lever_arm, dtype="double") if raw_lever_arm is not None else None
+
         self.finder = pipeline.get("finder", {})
         self.pnp = pipeline.get("pnp", {})
         self.mcmc = pipeline.get("mcmc", {})
@@ -1117,7 +1120,12 @@ class Camera:
         output_dir : str | Path
             Root output directory; a per-flight subfolder is created automatically.
         gps_offset : list[float] | None
-            Optional RTK base offset ``[dE, dN, dU]`` in ENU metres.
+            Optional RTK base correction ``[dlat, dlon, dalt]`` in geodetic
+            degrees/metres (surveyed base minus DJI-logged base), added to
+            the drone's raw lat/lon/alt before ENU conversion. Normally left
+            as ``None`` -- it is computed from the CSV's logged vs. surveyed
+            base rows and passed in automatically via ``params["gps_offset"]``
+            (see ``GenParamFile.GeoPlot``); it is NOT an ENU-metres offset.
         check_results : str | Path | None
             If set, diagnostic plots are saved here.
             Defaults to ``<output_dir>/<flight_name>/plots/``.
@@ -1243,7 +1251,9 @@ class Camera:
             "dictionary_p3.ecsv": p3_step,
             
             "dictionary_p4.ecsv": lambda prev: drone_data.correlate_drone_photo(
-                prev, gps_offset=gps_offset, **config.drone_correlation
+                prev, gps_offset=gps_offset,
+                lever_arm_enu=getattr(config, "lever_arm_enu", None),
+                **config.drone_correlation
             ),
             "dictionary_p5.ecsv": lambda prev: attitude_reconstruction._correct_tvec_with_gps(
                 dataDict=prev,
@@ -1320,7 +1330,14 @@ class Camera:
                 )
 
         # ── Merge final results ────────────────────────────────────────────
-        dicts = [
+        # Several steps re-emit columns unchanged from the step before them
+        # (e.g. p4 carries p3's rvec_* through untouched, p5 carries p4's
+        # GPS fix through untouched, p7 carries all of p6 through untouched).
+        # Joining on "frame" alone would otherwise duplicate each of those as
+        # "<col>_right" (polars' default join suffix) -- drop the redundant
+        # copy instead so each quantity appears exactly once, under its one
+        # name. `coalesce=True` does the same for the "frame" key itself.
+        p2, p3, p4, p5, p6, p7 = [
             self._ensure_polars(
                 load_dictionary(str(output_dir / f"dictionary_p{i}.ecsv"))
             )
@@ -1328,12 +1345,21 @@ class Camera:
         ]
 
         df_merged = (
-            dicts[0]
-            .join(dicts[1], on="frame", how="outer")
-            .join(dicts[2], on="frame", how="outer")
-            .join(dicts[3], on="frame", how="outer")
-            .join(dicts[4].drop("time"), on="frame", how="outer")
-            .join(dicts[5].drop("time"), on="frame", how="outer")
+            p2
+            .join(p3, on="frame", how="full", coalesce=True)
+            .join(
+                p4.drop(["rvec_x", "rvec_y", "rvec_z"]),
+                on="frame", how="full", coalesce=True,
+            )
+            .join(
+                p5.drop(["time", "drone_E", "drone_N", "drone_U"]),
+                on="frame", how="full", coalesce=True,
+            )
+            .join(p6.drop("time"), on="frame", how="full", coalesce=True)
+            .join(
+                p7.drop(["time", "az", "el", "yaw", "pitch", "roll"]),
+                on=["frame", "tel_name"], how="full", coalesce=True,
+            )
         )
 
         out_parquet = output_dir / "attitude_reconstruction.parquet"
