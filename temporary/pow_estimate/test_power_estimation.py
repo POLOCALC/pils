@@ -14,6 +14,8 @@ from scipy.signal import find_peaks
 from glob import glob
 import os
 from tqdm import tqdm
+from pathlib import Path
+import h5py
 
 from pils.loader.path import PathLoader
 from pils.loader.stout import StoutLoader
@@ -29,6 +31,19 @@ import sys
 sys.path.insert(0, "/home/jupyter-ludovico/stout")
 from stout.services.campaigns.service import CampaignService
 
+def h5_to_dict(h5obj):
+    """Recursively convert an h5py Group/Dataset into a nested dict."""
+    result = {}
+    for key, item in h5obj.items():
+        if isinstance(item, h5py.Group):
+            result[key] = h5_to_dict(item)          # recurse into subgroup
+        else:  # h5py.Dataset
+            result[key] = item[:]                    # load array into memory
+    return result
+
+def load_data(file_path):
+    with h5py.File(file_path, "r") as f:
+        return h5_to_dict(f)
 
 def get_beam_solid_angle(fwhm):
     """
@@ -90,53 +105,109 @@ def mW_to_dBm(pwr_mW):
 def dBm_to_mW(pwr_dBm):
     return 10**(pwr_dBm/10)
 
-def get_item_from_paylaod(payload,item_category):
+def get_item_from_payload(payload,item_category):
     """
     Returns the desired item given the flying payload object and the item category string.
     """
+    items_list = []
+
+    try:
     
-    for i in payload["items"]:
-            if i["category"]==item_category:
-                item = i
+        for i in payload["items"]:
+                if i["category"]==item_category:
+                    items_list.append(i)
 
-    return item
+        if len(items_list)==1:
+            return items_list[0]
 
-def get_out_pwr_coupl_Interp1d(in_pwr_diode,std_in_pwr_diode,transm, coupling):
+        elif len(items_list)>1:
+            return items_list
+
+        elif len(items_list)==0:
+            raise ValueError("No items with given item_category found")
+
+    except Exception as e:
+        raise ValueError(f"Error in finding {item_category} in the paylaod: {e}")
+
+def get_item_lab_charact_datapath(dB_dirpath,item,meas_type,key):
+    """
+    Returns the path to the lab characterization database of the item.
+    Input:
+        dB_dirpath (str): general path to the database (usually 'mnt/data/POLOCALC/lab')
+        item (dB object): database item object present in the paylaod
+        meas_type (str): item measurement type
+        key (str): key to be find in the files to get the correct characterization file
+    """
+    try:
+        item_spec = item["specifications"]
+        band_mask = ["band" in p for p in list(item_spec.keys())]
+        band_key = np.asarray(list(item_spec.keys()))[band_mask][0]
+        item_charact_path = dB_dirpath / item_spec[band_key] / item["category"] / item["name"] / meas_type
+
+        item_charact_file = sorted(p for p in item_charact_path.iterdir() if p.is_file() and key in p.name.lower())[0]
+
+    except Exception as e:
+        raise ValueError(f"Error in loading the lab characterization file for {item['name']}: \n{e}")
+        
+    return item_charact_file
+        
+def get_item_lab_charact(dB_dirpath,item,meas_type,key):
+    """
+    Returns the path to the lab characterization database of the item.
+    Input:
+        dB_dirpath (str): general path to the database (usually 'mnt/data/POLOCALC/lab')
+        item (dB object): database item object present in the paylaod
+        meas_type (str): item measurement type
+        key (str): key to be find in the files to get the correct characterization file
+    """
+    try:
+        item_spec = item["specifications"]
+        band_mask = ["band" in p for p in list(item_spec.keys())]
+        band_key = np.asarray(list(item_spec.keys()))[band_mask][0]
+        item_charact_path = dB_dirpath / item_spec[band_key] / item["category"] / item["name"] / meas_type
+
+        item_charact_file = sorted(p for p in item_charact_path.iterdir() if p.is_file() and key in p.name.lower())[0]
+
+        #print(item_charact_file)
+
+        if item_charact_file.name.lower().endswith(".csv"):
+            charact_file = pd.read_csv(item_charact_file)
+
+        elif item_charact_file.name.lower().endswith((".h5py", ".hdf5")):
+            charact_file = load_data(item_charact_file)
+
+        else: 
+            raise ValueError(f"{item_charact_file} format not supported.")
+
+    except Exception as e:
+        raise ValueError(f"Error in loading the lab characterization file for {item['name']}: \n{e}")
+        
+    return charact_file
+
+def get_out_pwr_coupl_Interp1d(in_pwr_diode,std_in_pwr_diode,coupler):
 
     # estimate the output power from the directional coupler taking into account the transmissivity and the directivity of the coupler
-    out_pwr_coupl_dBm = mW_to_dBm(in_pwr_diode * 10**((transm-coupling)/10))
-    std_out_pwr_coupl_mW = std_in_pwr_diode * 10**((transm-coupling)/10) # assuming negligible the uncertainties on the coupling and transmission factor of the coupler
+    out_pwr_coupl_dBm = mW_to_dBm(in_pwr_diode * 10**((coupler["Transmission [dB]"]-coupler["Coupling [dB]"])/10))
+    # assuming negligible the uncertainties on the coupling and transmission factor of the coupler
+    std_out_pwr_coupl_mW = std_in_pwr_diode * 10**((coupler["Transmission [dB]"]-coupler["Coupling [dB]"])/10) 
     
     return out_pwr_coupl_dBm,std_out_pwr_coupl_mW
     
 
-def get_output_pwr_Interp1d(in_pwr_diode,std_in_pwr_diode,coupler,components,campaign,freq_idx,band):
+def get_output_pwr_Interp1d(in_pwr_diode,std_in_pwr_diode,RF_components):
 
-    if band=="f090":
-        
-        if campaign=="202504":
-            attenuation = components["Attenuator 30dB"][freq_idx]
-            antenna_gain = components["Near field probe"][freq_idx]
+    out_pwr_coupl_dBm,std_out_pwr_coupl_mW = get_out_pwr_coupl_Interp1d(in_pwr_diode,std_in_pwr_diode,RF_components["coupler"])
 
-        elif(campaign=="202511"):
-            attenuation = components["Attenuator 30dB"][freq_idx] + components["Attenuator 20dB"][freq_idx]
-            antenna_gain = components["15 dBi antenna"][freq_idx]
+    attenuation = 0
+    for att in RF_components["attenuators"]:
+        attenuation += att["Attenuation [dB]"]
 
-        else:
-            raise ValueError("Wrong campaign ID: it should be 202511 or 202504")
-
-    elif band=="f150":
-        attenuation = components["Attenuator 30dB elmika"][freq_idx]
-        antenna_gain = components["15 dBi antenna"][freq_idx]
-
-    else:
-        raise ValueError("Invalid frequency band or frequency band not yet implemented")
-
-    out_pwr_coupl_dBm,std_out_pwr_coupl_mW = get_out_pwr_coupl_Interp1d(in_pwr_diode,std_in_pwr_diode,
-                                                                        coupler["Transmission [dB]"][freq_idx], coupler["Coupling [dB]"][freq_idx])
+    antenna_gain = RF_components["antenna"]["Gain [dBi]"]
+    antenna_IL = RF_components["antenna"]["Insertion Loss [dB]"]
+    antenna_ML = mW_to_dBm(1-dBm_to_mW(RF_components["antenna"]["Impedance Match [dB]"]))
     
-    source_out_pwr_dBm = out_pwr_coupl_dBm + attenuation + antenna_gain
-    source_out_pwr_std_mW = std_out_pwr_coupl_mW * 10**((attenuation + antenna_gain)/10)
+    source_out_pwr_dBm = out_pwr_coupl_dBm + attenuation + antenna_gain + antenna_IL + antenna_ML
+    source_out_pwr_std_mW = std_out_pwr_coupl_mW * 10**((attenuation + antenna_gain + antenna_IL + antenna_ML)/10)
     
     return source_out_pwr_dBm,source_out_pwr_std_mW
 
@@ -173,7 +244,7 @@ def compute_power_on_det(flight,campaign,payload,tele,ws,solid_angle="gab",bandp
     source_freq = flight.flight_info["flight_info"]["frequency"]
     flight_ID = flight.flight_info["flight_name"].split("flight_")[-1]
 
-    multiplier = get_item_from_paylaod(paylaod,item_category="multiplier")
+    multiplier = get_item_from_payload(payload,item_category="multiplier")
     band = multiplier["specifications"]["output_band"]
     freqs[band] = source_freq
 
@@ -183,40 +254,49 @@ def compute_power_on_det(flight,campaign,payload,tele,ws,solid_angle="gab",bandp
         print("\nTelescope name:",tele)
         # Get beam solid angle
         if band=="WR10":
-            fwhm_df = pd.read_csv(f"beams/{tele}/fwhms_{tele}_{ws}.csv")
-        
-            if((source_freq!=90) & (source_freq!=96)):
-                fwhms[band] = fwhm_df[fwhm_df["freq"]==source_freq]["fwhm"].values[0]
-
-                # compute the beam solid angle from drone characterization
-                if tele=="satp1":
-                    beam_path = f"beams/{tele}/coadded_invw_fitted_full_unsmoothed_prof_T_{tele}_{int(source_freq)}_{ws}_mid.txt"
-                    angle,power = np.loadtxt(beam_path,unpack=True)
-                    angle_deg = angle/60
-                    log_pow = 10*np.log10(power/max(power))
-                elif tele =="satp3":
-                    beam_path = f"beams/{tele}/coadded_unsmoothed_prof_T_{tele}_{int(source_freq)}_{ws}_mid.txt"
-                    angle,power = np.loadtxt(beam_path,unpack=True)
-                    angle_deg = np.rad2deg(angle)
-                    log_pow = 10*np.log10(power/max(power))
-
-                else:
-                    raise ValueError("Invalid telescope name")
-
-                norm_pow = power/max(power)
-                theta = np.deg2rad(angle_deg)
-
-                # integrate over the angular distance
-                integrand = norm_pow * np.sin(theta)
-                integral_trapz = scipy.integrate.trapezoid(integrand,theta)
-                omega = 2*np.pi*integral_trapz *u.rad**2
-
-            else:
-                print("\nusing average band fwhm\n")
-                fwhms[band] = np.mean(np.asarray(fwhm_df["fwhm"].values))
             
+            if (tele=="satp3") & (ws=="ws5"):
+                fwhms[band] = 28.6 #arcmin, from SO MF SAT commissioning paper
+                print("\nUsing the avg beam from MF SAT commissioning paper:",fwhms[band]," arcmin\n")
                 omega_rad = np.deg2rad(fwhms[band]/60) 
                 omega = get_beam_solid_angle(omega_rad)
+
+            else:
+                
+                fwhm_df = pd.read_csv(f"/home/jupyter-ludovico/optical efficiency/beams/{tele}/fwhms_{tele}_{ws}.csv")
+        
+                if((source_freq!=90) & (source_freq!=96)):
+                    fwhms[band] = fwhm_df[fwhm_df["freq"]==source_freq]["fwhm"].values[0]
+
+                    # compute the beam solid angle from drone characterization
+                    if tele=="satp1":
+                        beam_path = f"/home/jupyter-ludovico/optical efficiency/beams/{tele}/coadded_invw_fitted_full_unsmoothed_prof_T_{tele}_{int(source_freq)}_{ws}_mid.txt"
+                        angle,power = np.loadtxt(beam_path,unpack=True)
+                        angle_deg = angle/60
+                        log_pow = 10*np.log10(power/max(power))
+                    elif tele =="satp3":
+                        beam_path = f"/home/jupyter-ludovico/optical efficiency/beams/{tele}/coadded_unsmoothed_prof_T_{tele}_{int(source_freq)}_{ws}_mid.txt"
+                        angle,power = np.loadtxt(beam_path,unpack=True)
+                        angle_deg = np.rad2deg(angle)
+                        log_pow = 10*np.log10(power/max(power))
+
+                    else:
+                        raise ValueError("Invalid telescope name")
+
+                    norm_pow = power/max(power)
+                    theta = np.deg2rad(angle_deg)
+
+                    # integrate over the angular distance
+                    integrand = norm_pow * np.sin(theta)
+                    integral_trapz = scipy.integrate.trapezoid(integrand,theta)
+                    omega = 2*np.pi*integral_trapz *u.rad**2
+
+                else:
+                    print("\nusing average band fwhm\n")
+                    fwhms[band] = np.mean(np.asarray(fwhm_df["fwhm"].values))
+                
+                    omega_rad = np.deg2rad(fwhms[band]/60) 
+                    omega = get_beam_solid_angle(omega_rad)
 
         elif band=="WR06":
 
@@ -272,7 +352,8 @@ def compute_power_on_det(flight,campaign,payload,tele,ws,solid_angle="gab",bandp
     # generate azel and get the init and end scanning times:
     try:
         azel = AZELAnalysis(flight)
-        azel_data = azel.run_analysis(tele, dji_broadcast_geod={'lat': -22.9597732, 'lon': -67.7866847, 'alt': 5173.020})
+        azel_result = azel.run_analysis(tele, dji_broadcast_geod={'lat': -22.9597732, 'lon': -67.7866847, 'alt': 5173.020})
+        azel_data = azel_result.azel_data
         
     except Exception as e:
         raise ValueError(f"Error in creating the azel file for flight {f_ID}: {e}")
@@ -323,49 +404,34 @@ def compute_power_on_det(flight,campaign,payload,tele,ws,solid_angle="gab",bandp
         rel_yaw[i],rel_pitch[i],rel_roll[i] = pointing_correction_tools.relative_yaw_pitch_roll(tele_newframe[i],poi_newframe[i])
 
     # model the 2D Gaussian beam of the source:
-    antenna = get_item_from_paylaod(payload,item_category="antenna")
+    antenna = get_item_from_payload(payload,item_category="antenna")
+
+    dB_dirpath = Path("/mnt/data/POLOCALC/lab")
     
-    if(flight.flight_info["flight_type"]=="Beam/Pol. Angle"):
+    fwhm_antenna = get_item_lab_charact(dB_dirpath=dB_dirpath,item=antenna,meas_type="radiation_pattern",key="fwhm_processed")
         
-        if band=="f090":
-            
-            if campaign=="202511":
-                file_Hplane = "/home/jupyter-ludovico/source_beams/WR10/plots/horn_30deg/FWHM_Hplane"
-                file_Eplane = "/home/jupyter-ludovico/source_beams/WR10/plots/horn_30deg/FWHM_Eplane"
-                
-            elif campaign=="202504":
-                file_Hplane = "/home/jupyter-ludovico/source_beams/WR10/plots/nfp/FWHM_Hplane"
-                file_Eplane = "/home/jupyter-ludovico/source_beams/WR10/plots/nfp/FWHM_Eplane"
-
-            else:
-                raise ValueError("Wrong campaign ID: it should be 202511 or 202504")
-
-        elif band=="f150":
-            file_Hplane = "/home/jupyter-ludovico/source_beams/WR6/plots/horn_30deg/FWHM_Hplane"
-            file_Eplane = "/home/jupyter-ludovico/source_beams/WR6/plots/horn_30deg/FWHM_Eplane"
-
-        else:
-            raise ValueError("Invalid frequency band or frequency band not yet implemented")
-
-    elif(flight_type=="Sidelobes"):
-        file_Hplane = "/home/jupyter-ludovico/source_beams/WR10/plots/LPage_horn/FWHM_Hplane"
-        file_Eplane = "/home/jupyter-ludovico/source_beams/WR10/plots/LPage_horn/FWHM_Eplane"
-
-    else:
-        raise ValueError("Invalid flight type")
-
-    FWHM_H,err_FWHM_H,FWHM_E,err_FWHM_E = pointing_correction_tools.load_measured_beams(file_Hplane,file_Eplane,freq=source_freq)
-    
     # --- Coordinate grid ---
     x = np.linspace(-90, 90, 501)
     y = np.linspace(-90, 90, 501)
     
     # --- 2D Gaussian beam ---
-    beam_dB = 10*np.log10(pointing_correction_tools.beam_2D_gauss(x,y,FWHM_H,FWHM_E))
+
+    # get the correct frequency:
+    fwhm_H_freq_mask = fwhm_antenna["Hplane"]["Frequency [GHz]"]==freqs[band]
+    
+    fwhm_H = fwhm_antenna["Hplane"]["FWHM [deg]"][fwhm_H_freq_mask]
+    err_fwhm_H = fwhm_antenna["Hplane"]["err FWHM [deg]"][fwhm_H_freq_mask]
+
+    fwhm_E_freq_mask = fwhm_antenna["Eplane"]["Frequency [GHz]"]==freqs[band]
+    
+    fwhm_E = fwhm_antenna["Eplane"]["FWHM [deg]"][fwhm_E_freq_mask]
+    err_fwhm_E = fwhm_antenna["Eplane"]["err FWHM [deg]"][fwhm_E_freq_mask]
+    
+    beam_dB = 10*np.log10(pointing_correction_tools.beam_2D_gauss(x,y,fwhm_H,fwhm_E))
     beam_dB = np.maximum(beam_dB, -60)
 
     # interpolating the 2D linear beam to estimate values
-    beam_lin_interp = scipy.interpolate.RegularGridInterpolator((y,x),pointing_correction_tools.beam_2D_gauss(x,y,FWHM_H,FWHM_E),
+    beam_lin_interp = scipy.interpolate.RegularGridInterpolator((y,x),pointing_correction_tools.beam_2D_gauss(x,y,fwhm_H,fwhm_E),
                                                                 method='linear',bounds_error=False,fill_value=0.0)
     # compute power corrections:
     gain_losses = np.zeros(len(poi))
@@ -450,7 +516,7 @@ def compute_power_on_det(flight,campaign,payload,tele,ws,solid_angle="gab",bandp
                 plt.savefig(f"{out_dir_fig}/Average_temp.png",dpi=300)
                 
             plt.show()
-    elif((campaign=="202511")&(band!="f090")):
+    elif((campaign=="202511")&(band!="WR10")):
         avg_flight_temp = 10 # need to be adjusted, this is an estimate based on previous flight
 
     elif((campaign=="202511") & (band=="WR10")):
@@ -491,32 +557,78 @@ def compute_power_on_det(flight,campaign,payload,tele,ws,solid_angle="gab",bandp
         raise ValueError("Invalid campaign or frequency band")
     
     # from source characterization in the lab:------------------------------------------------------------------------------------------------------------------------
-    
-    # load diode-detector characterization
-    diode_charact_file = f'lab_characterization/{band}/diode_responsivity/eravant_diode_{int(source_freq)}GHz_temp.pickle'
-    print("\n",diode_charact_file,"\n")
-    with open(diode_charact_file, 'rb') as handle:
-        diode_dict = pickle.load(handle)
-        
-    temp_idx = np.where(abs(diode_dict["temp [°C]"]-avg_flight_temp) == min(abs(diode_dict["temp [°C]"]-avg_flight_temp)))[0][0]
+    diode = get_item_from_payload(payload,item_category="detector")
+    diode_charact = get_item_lab_charact(dB_dirpath=dB_dirpath,item=diode,meas_type="responsivity",key="processed")
 
+    freq_key = f"{int(source_freq)} GHz"
+
+    temp_vals = np.asarray([float(t.split(" C")[0]) for t in diode_charact[freq_key].keys()])
+    temp_key = np.asarray(list(diode_charact[freq_key].keys()))[np.where(abs(temp_vals-avg_flight_temp) == min(abs(temp_vals-avg_flight_temp)))[0][0]]
+
+    # good diode working regions: enough snr and not saturated
+    good_det_mask = (diode_charact[freq_key][temp_key]["Diode output [mV]"]>1) & (diode_charact[freq_key][temp_key]["Diode output [mV]"]<256)
+    
     # get the diode lab-characterization results
-    mask_range = diode_dict["mask_range"][temp_idx]
-    diode_resp = diode_dict["diode_response [mV]"][temp_idx][mask_range]
-    err_diode_resp = diode_dict["sigma_diode_resp [mV]"][temp_idx][mask_range]
-    diode_input_pwr = diode_dict["input_pwr [mW]"][temp_idx][mask_range]
-    err_diode_in_pwr = diode_dict["sigma_input_pwr [mW]"][temp_idx][mask_range]
+    diode_resp = diode_charact[freq_key][temp_key]["Diode output [mV]"][good_det_mask]
+    err_diode_resp = diode_charact[freq_key][temp_key]["err diode output [mV]"][good_det_mask]
+    diode_input_pwr = diode_charact[freq_key][temp_key]["Diode input pwr [mW]"][good_det_mask]
+    err_diode_in_pwr = diode_charact[freq_key][temp_key]["err diode input [mW]"][good_det_mask]
 
     # load other components characterization
-    if(band=="WR10"):
-        coupler = pd.read_csv(f"lab_characterization/{band}/20dBcoupler.csv")
-    elif(band=="WR6"):
-        coupler = pd.read_csv(f"lab_characterization/{band}/20dB_XGuide.csv")
+    coupler = get_item_from_payload(payload,item_category="coupler")
+    coupler_transm = get_item_lab_charact(dB_dirpath=dB_dirpath,item=coupler,meas_type="transmission",key=".csv")
+    coupler_coupl = get_item_lab_charact(dB_dirpath=dB_dirpath,item=coupler,meas_type="coupling_performance",key=".csv")
 
-    freq_idx = coupler[coupler["Frequency [GHz]"] == source_freq].index[0]
+    #print(coupler_transm,"\n",coupler_coupl)
+    
+    attenuators = get_item_from_payload(payload,item_category="attenuator")
 
-    components = pd.read_csv(f"lab_characterization/{band}/{band}_components.csv")
+    # make a list of attenuators no matter the actual length
+    attenuators_list = attenuators if isinstance(attenuators, list) else [attenuators]
+    
+    atten_charact = []
 
+    for att in attenuators_list:
+        atten_charact.append(get_item_lab_charact(dB_dirpath=dB_dirpath,item=att,meas_type="attenuation",key=".csv"))
+        
+    #print("\n",atten_charact)
+
+    antenna_gain = get_item_lab_charact(dB_dirpath=dB_dirpath,item=antenna,meas_type="radiation_pattern",key="gain_processed")
+    ant_ins_loss = get_item_lab_charact(dB_dirpath=dB_dirpath,item=antenna,meas_type="insertion_loss",key=".csv")
+    ant_imp_match = get_item_lab_charact(dB_dirpath=dB_dirpath,item=antenna,meas_type="impedance_matching",key="0.h5py")
+
+    #print("\n",antenna_gain,"\n",ant_ins_loss,"\n",ant_imp_match)
+
+    RF_components = {
+        "coupler":
+        {
+            "name": coupler["name"],
+            "Transmission [dB]": coupler_transm["S12 avg [dB]"][coupler_transm["Frequency"]==source_freq].values[0],
+            "err transmission [dB]": coupler_transm["S12 std [dB]"][coupler_transm["Frequency"]==source_freq].values[0],
+            "Coupling [dB]": coupler_coupl["S12 avg [dB]"][coupler_coupl["Frequency"]==source_freq].values[0],
+            "err coupling [dB]": coupler_coupl["S12 std [dB]"][coupler_coupl["Frequency"]==source_freq].values[0],
+        },
+        "attenuators": [
+        {
+            "name": att["name"],
+            "Attenuation [dB]": att_charact["S12 avg [dB]"][att_charact["Frequency"]==source_freq].values[0],
+            "err attenuation [dB]": att_charact["S12 std [dB]"][att_charact["Frequency"]==source_freq].values[0],
+        }
+        for att, att_charact in zip(attenuators_list, atten_charact)
+        ],
+        "antenna":
+            {
+                "name": antenna["name"],
+                "Gain [dBi]": antenna_gain["Gain [dBi]"][antenna_gain["Frequency [GHz]"]==source_freq].values[0],
+                "err gain [dB]": antenna_gain["err gain [dB]"][antenna_gain["Frequency [GHz]"]==source_freq].values[0],
+                "Insertion Loss [dB]": ant_ins_loss["Insertion Loss [dB]"][ant_ins_loss["Frequency [GHz]"]==source_freq].values[0],
+                "Impedance Match [dB]": ant_imp_match["fsp_impedance_kapton"]["S11 avg [dB]"][ant_imp_match["fsp_impedance_kapton"]["frequency [GHz]"]==source_freq][0],
+                "err impedance match [dB]": ant_imp_match["fsp_impedance_kapton"]["S11 std [dB]"][ant_imp_match["fsp_impedance_kapton"]["frequency [GHz]"]==source_freq][0]
+            },
+    }
+
+    print("\n",RF_components,"\n")
+    
     # compute the power from the source --------------------------------------------------------------------------------------------------------------------------
     
     # get the adc data:
@@ -534,10 +646,10 @@ def compute_power_on_det(flight,campaign,payload,tele,ws,solid_angle="gab",bandp
     filtered_signal = medfilt(adc_data["amplitude"], kernel_size=9)
 
     # Parameters: adjust based on your square wave period
-    if band=="f090":
+    if band=="WR10":
         window_size = 200  # Number of samples in one square-wave high or low region
 
-    elif band=="f150":
+    elif band=="WR06":
         window_size = 50
 
     else: 
@@ -609,11 +721,7 @@ def compute_power_on_det(flight,campaign,payload,tele,ws,solid_angle="gab",bandp
         
         out_pwr, out_pwr_std = get_output_pwr_Interp1d(y_nd,
                                                        sigma_y_nd,
-                                                       coupler,
-                                                       components,
-                                                       campaign,
-                                                       freq_idx,
-                                                       band
+                                                       RF_components
                                                        )
 
         source_out_pwr_dBm[i] = out_pwr
@@ -732,7 +840,7 @@ if __name__ == "__main__":
         flight_meta = stout_loader.load_single_flight(flight_name="flight_"+args.flight_ID)
         payload = camp_service.get_payload_by_id(payload_id=flight_meta["payload_id"])
 
-        multiplier = get_item_from_paylaod(paylaod,item_category="multiplier")
+        multiplier = get_item_from_payload(payload,item_category="multiplier")
 
         if multiplier["specifications"]["output_band"]=="WR10":
             payload_sensors = ["lm76","adc","inclinometer","gps"]
@@ -753,14 +861,14 @@ if __name__ == "__main__":
     flight.add_sensor_data(payload_sensors)
     flight.add_drone_data()
 
-    out_dir = f"results/{campaign_ID}/{args.telescope_ID}/{date}/flight_{args.flight_ID}"
+    out_dir = f"/home/jupyter-ludovico/optical efficiency/results/{campaign_ID}/{args.telescope_ID}/{date}/flight_{args.flight_ID}"
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
     
     results_df, sampling_freq, bandpass, omega = compute_power_on_det(flight=flight,campaign=campaign_ID,payload=payload,tele=args.telescope_ID,ws=args.wafer_slot,
                                                                       out_dir=out_dir,bandpass_str=args.setting_det)
     
-    outfile = f"{out_dir}/expected_pwr.csv"
+    outfile = f"{out_dir}/stout_expected_pwr.csv"
 
     header_lines = [
                     f"# Signal frequency: {flight.flight_info["flight_info"]["frequency"]} GHz",
