@@ -4,6 +4,7 @@ import astropy.constants as const
 import scipy
 import argparse
 from scipy.signal import medfilt
+from scipy.interpolate import RegularGridInterpolator
 import pickle
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -30,6 +31,13 @@ import time_alignment
 import sys
 sys.path.insert(0, "/home/jupyter-ludovico/stout")
 from stout.services.campaigns.service import CampaignService
+
+def filter_to_common(data_list, cv_list, cv_common):
+        out = []
+        for data_row, cv in zip(data_list, cv_list):
+            mask = np.isin(cv, cv_common)
+            out.append(data_row[mask])
+        return np.array(out)
 
 def h5_to_dict(h5obj):
     """Recursively convert an h5py Group/Dataset into a nested dict."""
@@ -562,6 +570,87 @@ def compute_power_on_det(flight,campaign,payload,tele,ws,solid_angle="gab",bandp
 
     freq_key = f"{int(source_freq)} GHz"
 
+    # interpolate the diode responsivity on the temperature reading
+
+    c_temperature = []
+    control_voltage = []
+    diode_output = []
+    err_diode_output = []
+    diode_input_pwr = []
+    err_diode_input = []
+    
+    for temp in diode_charact[freq_key]:
+        c_temperature.append(int(temp.split(" C")[0]))
+    
+        diode_data = diode_charact[freq_key][temp]
+        
+        control_voltage.append(diode_data["Control Voltage [V]"])
+        diode_output.append(diode_data["Diode output [mV]"])
+        err_diode_output.append(diode_data["err diode output [mV]"])
+        diode_input_pwr.append(diode_data["Diode input pwr [mW]"])
+        err_diode_input.append(diode_data["err diode input [mW]"])
+
+    # Find the common control voltages across all temperatures
+    cv_common = control_voltage[0]
+    for cv in control_voltage[1:]:
+        cv_common = np.intersect1d(cv_common, cv)
+    
+    print(f"Common CV points: {len(cv_common)} "
+          f"(from {cv_common.min():.2f} to {cv_common.max():.2f} V)")
+    
+    # Slice each temperature's data to keep only the common voltages
+    control_voltage_f = filter_to_common(control_voltage,    control_voltage, cv_common)
+    diode_output    = filter_to_common(diode_output,    control_voltage, cv_common)
+    err_diode_output = filter_to_common(err_diode_output, control_voltage, cv_common)
+    diode_input_pwr = filter_to_common(diode_input_pwr,control_voltage,cv_common)
+    err_diode_input = filter_to_common(err_diode_input,control_voltage,cv_common)
+
+    
+    if np.all(np.all(control_voltage_f==cv_common,axis=1)): # check if the control voltage array is the same for each temperature:
+
+        # sort by the temperature
+        sort_temp = np.argsort(c_temperature)
+        diode_output = np.asarray(diode_output)[sort_temp]
+        err_diode_output = np.asarray(err_diode_output)[sort_temp]
+        diode_input_pwr = np.asarray(diode_input_pwr)[sort_temp]
+        err_diode_input = np.asarray(err_diode_input)[sort_temp]
+        c_temperature = np.sort(c_temperature)
+    
+        diode_interp = RegularGridInterpolator(
+                            (c_temperature,cv_common),
+                            np.asarray(diode_output),
+                            method="linear",
+                            bounds_error=True
+                        )
+    
+        err_diode_interp = RegularGridInterpolator(
+                            (c_temperature,cv_common),
+                            np.asarray(err_diode_output),
+                            method="linear",
+                            bounds_error=True
+                        )
+
+        input_interp = RegularGridInterpolator(
+                            (c_temperature,cv_common),
+                            np.asarray(diode_input_pwr),
+                            method="linear",
+                            bounds_error=True
+                        )
+    
+        err_input_interp = RegularGridInterpolator(
+                            (c_temperature,cv_common),
+                            np.asarray(err_diode_input),
+                            method="linear",
+                            bounds_error=True
+                        )
+        
+    else:
+        raise ValueError("Unequal sampled control voltage, stopping")
+
+    
+
+    """
+
     temp_vals = np.asarray([float(t.split(" C")[0]) for t in diode_charact[freq_key].keys()])
     temp_key = np.asarray(list(diode_charact[freq_key].keys()))[np.where(abs(temp_vals-avg_flight_temp) == min(abs(temp_vals-avg_flight_temp)))[0][0]]
 
@@ -573,6 +662,8 @@ def compute_power_on_det(flight,campaign,payload,tele,ws,solid_angle="gab",bandp
     err_diode_resp = diode_charact[freq_key][temp_key]["err diode output [mV]"][good_det_mask]
     diode_input_pwr = diode_charact[freq_key][temp_key]["Diode input pwr [mW]"][good_det_mask]
     err_diode_in_pwr = diode_charact[freq_key][temp_key]["err diode input [mW]"][good_det_mask]
+
+    """
 
     # load other components characterization
     coupler = get_item_from_payload(payload,item_category="coupler")
@@ -707,16 +798,36 @@ def compute_power_on_det(flight,campaign,payload,tele,ws,solid_angle="gab",bandp
     envlp_ds = envlp_downsampler.mean(axis=1)
     err_envlp_ds = envlp_downsampler.std(axis=1,ddof=1)/np.sqrt(ds_factor)
 
-    print("\nExtracted diode output voltage envelope:",envlp_ds,"\n")
+    # align to pils timestream
+    t_start = max(time_ds[0], common_timestamps[scan_mask][0])
+    t_end = min(time_ds[-1], common_timestamps[scan_mask][-1])
+
+    t_common = np.arange(t_start, t_end, 1/fs_new)
+
+    envlp_ds_aligned = np.interp(t_common, time_ds, envlp_ds)
+    err_envlp_ds_aligned = np.interp(t_common, time_ds, err_envlp_ds)
+    dist_aligned = np.interp(t_common, common_timestamps[scan_mask], dist)
+    point_loss_aligned = np.interp(t_common,common_timestamps[scan_mask],gain_losses)
+    temperature_aligned = np.interp(t_common,common_timestamps[scan_mask],np.asarray(sync_data["lm76"]["temperature_c"]))
+
+    print("\nExtracted diode output voltage envelope:",envlp_ds_aligned,"\n")
 
     # compute the emitted power
-    source_out_pwr_dBm = np.zeros(len(envlp_ds))     #np.zeros(len(adc_envl[::computation_range]))
-    source_out_pwr_err_mW = np.zeros(len(envlp_ds))  #np.zeros(len(adc_envl[::computation_range]))
+    source_out_pwr_dBm = np.zeros(len(envlp_ds_aligned))     #np.zeros(len(adc_envl[::computation_range]))
+    source_out_pwr_err_mW = np.zeros(len(envlp_ds_aligned))  #np.zeros(len(adc_envl[::computation_range]))
     
-    for i in tqdm(range(len(envlp_ds))):
-        y_nd,sigma_y_nd = interp_error_prop.interpolate_with_errors(x_cal=diode_resp, y_cal=diode_input_pwr, 
-                                                                    delta_x_cal=err_diode_resp, delta_y_cal=err_diode_in_pwr,
-                                                                    x_new=envlp_ds[i], delta_x_new=err_envlp_ds[i], 
+    for i in tqdm(range(len(envlp_ds_aligned))):
+
+        if temperature_aligned[i]>10:
+            temp_interp = 10
+        elif temperature_aligned[i]<-10:
+            temp_interp = -10
+        else: 
+            temp_interp = temperature_aligned[i]
+        
+        y_nd,sigma_y_nd = interp_error_prop.interpolate_with_errors(x_cal=diode_interp((temp_interp,cv_common)), y_cal=input_interp((temp_interp,cv_common)), 
+                                                                    delta_x_cal=err_diode_interp((temp_interp,cv_common)), delta_y_cal=err_input_interp((temp_interp,cv_common)),
+                                                                    x_new=envlp_ds_aligned[i], delta_x_new=err_envlp_ds_aligned[i], 
                                                                     method='linear')
         
         out_pwr, out_pwr_std = get_output_pwr_Interp1d(y_nd,
@@ -731,8 +842,8 @@ def compute_power_on_det(flight,campaign,payload,tele,ws,solid_angle="gab",bandp
 
     if plot:
         fig = plt.figure()
-        plt.plot(time_ds,dBm_to_mW(source_out_pwr_dBm),color="black")
-        plt.fill_between(time_ds, dBm_to_mW(source_out_pwr_dBm)-source_out_pwr_err_mW,
+        plt.plot(t_common,dBm_to_mW(source_out_pwr_dBm),color="black")
+        plt.fill_between(t_common, dBm_to_mW(source_out_pwr_dBm)-source_out_pwr_err_mW,
                          dBm_to_mW(source_out_pwr_dBm)+source_out_pwr_err_mW,alpha=0.5,color="yellow")
         plt.xlabel("Time [s]",size=14)
         plt.ylabel("Power [mW]",size=14)
@@ -745,26 +856,15 @@ def compute_power_on_det(flight,campaign,payload,tele,ws,solid_angle="gab",bandp
         
         plt.show()
 
-    # align pils timestream to compute the fspl and pointing correction
-    t_start = max(time_ds[0], common_timestamps[scan_mask][0])
-    t_end = min(time_ds[-1], common_timestamps[scan_mask][-1])
-
-    t_common = np.arange(t_start, t_end, 1/fs_new)
-
-    outpwr_dBm_aligned = np.interp(t_common, time_ds, source_out_pwr_dBm)
-    err_outpwr_mW_aligned = np.interp(t_common, time_ds, source_out_pwr_err_mW)
-    dist_aligned = np.interp(t_common, common_timestamps[scan_mask], dist)
-    point_loss_aligned = np.interp(t_common,common_timestamps[scan_mask],gain_losses)
-
     # correct the power for pointing losses:
-    outpwr_point_correct = outpwr_dBm_aligned - point_loss_aligned
+    outpwr_point_correct = source_out_pwr_dBm - point_loss_aligned
     # propagate the uncertainty
-    err_outpwr_mW_point = err_outpwr_mW_aligned * 10**(point_loss_aligned/10)
+    err_outpwr_mW_point = source_out_pwr_err_mW * 10**(point_loss_aligned/10)
 
     # compute expected power on detectors
-    expctd_det_pwr = np.zeros(len(outpwr_dBm_aligned))
-    err_expctd_det_pwr = np.zeros(len(outpwr_dBm_aligned))
-    drone_pwr = np.zeros(len(outpwr_dBm_aligned))
+    expctd_det_pwr = np.zeros(len(source_out_pwr_dBm))
+    err_expctd_det_pwr = np.zeros(len(source_out_pwr_dBm))
+    drone_pwr = np.zeros(len(source_out_pwr_dBm))
     
     # define the bandpass:
     if(bandpass_str=="gab"):
@@ -774,7 +874,7 @@ def compute_power_on_det(flight,campaign,payload,tele,ws,solid_angle="gab",bandp
     else:
         print("Invalid bandpass string: setting the default: 30GHz")
     
-    for i in range(len(outpwr_dBm_aligned)):
+    for i in range(len(source_out_pwr_dBm)):
         # source power
         det_power,std_det_pwr = get_detector_power(outpwr_point_correct[i]*u.dB, err_outpwr_mW_point[i], detector_gain, freq=freqs[band], 
                                                    optical_efficiency=1,distance=dist_aligned[i])
@@ -810,7 +910,7 @@ def compute_power_on_det(flight,campaign,payload,tele,ws,solid_angle="gab",bandp
                                "expected_det_power [pW]": expctd_det_pwr,
                                "err_expected_det_power [pW]": err_expctd_det_pwr,
                                "drone_power [pW]": drone_pwr,
-                               "source_output_power [dBm]": outpwr_dBm_aligned,
+                               "source_output_power [dBm]": outpwr_point_correct,
                                "err_output_power [mW]": err_outpwr_mW_point,
                                "distance [m]": dist_aligned,
                               })
