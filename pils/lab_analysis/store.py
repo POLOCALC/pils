@@ -181,10 +181,12 @@ class LabStore:
         )
 
     def insertion_loss(self, item: Item, frequency_ghz: float) -> tuple[float, float]:
-        """Antenna insertion loss (dB, 1σ) at one frequency."""
+        """Antenna insertion loss (dB, 1σ) at one frequency.
+
+        Read from the processed CSV: it is not the raw S21 of the .s2p file,
+        so a VNA run of this test type is not used.
+        """
         folder = self.test_folder(item, "insertion_loss")
-        if self._latest_run(folder, "vna") is not None:
-            return self.transmission(item, "insertion_loss", frequency_ghz)
         table = _read_csv(
             self._legacy_file(folder, "*.csv"),
             {
