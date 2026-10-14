@@ -24,3 +24,4 @@ dependencies:
     - pyubx2>=1.2.0
     - pymap3d>=2.9.0
     - telemetry-parser>=0.1.0
+    - numdifftools>=0.9.41
