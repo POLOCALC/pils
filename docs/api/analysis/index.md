@@ -1,12 +1,13 @@
 # Analysis
 
-Positioning analysis modules.
+Flight analysis modules. Lab measurements have their own [lab analysis](../lab/index.md) modules.
 
 ## Overview
 
 | Module | Description |
 |--------|-------------|
 | [PPK](ppk.md) | Post-Processed Kinematic analysis |
+| [Power](power.md) | Expected source power on telescope detectors |
 
 ## Import
 

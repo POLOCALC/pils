@@ -73,6 +73,13 @@ nav:
     - Analysis:
       - api/analysis/index.md
       - PPK: api/analysis/ppk.md
+      - Power: api/analysis/power.md
+    - Lab Analysis:
+      - api/lab/index.md
+      - VNA: api/lab/vna.md
+      - Beam: api/lab/beam.md
+      - Multiplier / diode: api/lab/multiplier-diode.md
+      - Store: api/lab/store.md
     - Utilities:
       - api/utilities/index.md
       - Tools: api/utilities/tools.md
