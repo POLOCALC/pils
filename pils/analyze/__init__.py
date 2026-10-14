@@ -6,6 +6,7 @@ Standalone analysis modules for flight data processing.
 
 from pils.analyze.azel import AZELAnalysis, AZELVersion
 from pils.analyze.ekf import EKFAnalysis, EKFVersion
+from pils.analyze.power import PowerAnalysis, PowerVersion
 from pils.analyze.ppk import PPKAnalysis, PPKVersion
 
 __all__ = [
@@ -15,4 +16,6 @@ __all__ = [
     "EKFVersion",
     "PPKAnalysis",
     "PPKVersion",
+    "PowerAnalysis",
+    "PowerVersion",
 ]
