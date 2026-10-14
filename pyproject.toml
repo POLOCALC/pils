@@ -57,6 +57,9 @@ dev = [
     "pyright>1.1",
 ]
 
+[project.scripts]
+pils = "pils.cli:main"
+
 [project.urls]
 Repository = "https://github.com/POLOCALC/data-loader"
 Documentation = "https://github.com/POLOCALC/data-loader/wiki"
