@@ -52,16 +52,17 @@ def default_lab_root() -> Path:
 
 def _stout_item(item_id: str) -> Item:
     try:
+        from stout.exceptions import NotFoundError  # type: ignore
         from stout.services.inventory.service import InventoryService  # type: ignore
     except ImportError as e:
         raise ImportError(
             "Looking up items by id needs STOUT (pip install pils[stout]); "
             "or pass the item dicts directly."
         ) from e
-    item = InventoryService().get_item_by_id(item_id)
-    if item is None:
-        raise LabDataNotFound(f"No inventory item {item_id}")
-    return item
+    try:
+        return InventoryService().get_item_by_id(item_id)
+    except NotFoundError as e:
+        raise LabDataNotFound(f"No inventory item {item_id}") from e
 
 
 def value_at(
