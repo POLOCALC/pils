@@ -1,5 +1,7 @@
 """Tests for StoutLoader."""
 
+import sys
+import types
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
@@ -8,26 +10,34 @@ import pytest
 from pils.loader.stout import StoutLoader
 
 
+def stout_unavailable():
+    """Make every ``stout`` import fail, as when STOUT is not installed."""
+    return patch.dict(
+        sys.modules,
+        {
+            "stout": None,
+            "stout.config": None,
+            "stout.services": None,
+            "stout.services.campaigns": None,
+        },
+    )
+
+
 @pytest.fixture
-def mock_stout_available():
-    """Mock STOUT availability."""
-    with patch("pils.loader.stout.importlib") as mock_importlib:
-        # Simulate successful import
-        mock_config = MagicMock()
-        mock_config.MAIN_DATA_PATH = "/data"
-        mock_campaign_service = MagicMock()
-
-        def mock_import(name):
-            if name == "stout.config":
-                return type("Module", (), {"Config": mock_config})()
-            elif name == "stout.services.campaigns":
-                return type(
-                    "Module", (), {"CampaignService": lambda: mock_campaign_service}
-                )()
-            raise ImportError(f"Module {name} not found")
-
-        mock_importlib.import_module.side_effect = mock_import
-        yield mock_campaign_service
+def stout_available():
+    """Install a stand-in ``stout`` package; yields its CampaignService."""
+    service = MagicMock()
+    config = types.SimpleNamespace(MAIN_DATA_PATH="/data")
+    modules = {
+        "stout": types.ModuleType("stout"),
+        "stout.config": types.SimpleNamespace(Config=config),
+        "stout.services": types.ModuleType("stout.services"),
+        "stout.services.campaigns": types.SimpleNamespace(
+            CampaignService=lambda: service
+        ),
+    }
+    with patch.dict(sys.modules, modules):
+        yield service
 
 
 @pytest.fixture
@@ -65,14 +75,29 @@ class TestStoutLoaderInitialization:
 
     def test_init_attempts_stout_import(self):
         """Test initialization attempts to import STOUT."""
-        with patch("pils.loader.stout.importlib.import_module") as mock_import:
-            # Simulate STOUT not available
-            mock_import.side_effect = ImportError("No module named 'stout'")
-
+        with stout_unavailable():
             loader = StoutLoader()
 
             # Should fall back to filesystem mode
             assert loader.campaign_service is None
+            assert loader.use_stout is False
+            assert loader.base_data_path is None
+
+    def test_init_with_stout(self, stout_available):
+        """Test the loader uses the STOUT database when it is installed."""
+        loader = StoutLoader()
+
+        assert loader.use_stout is True
+        assert loader.campaign_service is stout_available
+        assert loader.base_data_path == "/data"
+
+    def test_get_campaign_list_with_stout(self, stout_available):
+        """Test campaigns come from the STOUT database when it is installed."""
+        stout_available.get_all_campaigns.return_value = [{"name": "202511"}]
+
+        campaigns = StoutLoader().get_campaign_list()
+
+        assert campaigns == [{"name": "202511"}]
 
 
 class TestLoadAllFlightsFromFilesystem:
@@ -80,9 +105,7 @@ class TestLoadAllFlightsFromFilesystem:
 
     def test_load_all_flights_returns_list(self, mock_campaign_structure):
         """Test loading all flights from filesystem returns list."""
-        with patch("pils.loader.stout.importlib.import_module") as mock_import:
-            mock_import.side_effect = ImportError("No module")
-
+        with stout_unavailable():
             loader = StoutLoader()
             loader.base_data_path = mock_campaign_structure
 
@@ -93,9 +116,7 @@ class TestLoadAllFlightsFromFilesystem:
 
     def test_load_all_flights_contains_required_fields(self, mock_campaign_structure):
         """Test loaded flights contain required fields."""
-        with patch("pils.loader.stout.importlib.import_module") as mock_import:
-            mock_import.side_effect = ImportError("No module")
-
+        with stout_unavailable():
             loader = StoutLoader()
             loader.base_data_path = mock_campaign_structure
 
@@ -112,9 +133,7 @@ class TestLoadAllFlightsFromFilesystem:
 
     def test_load_all_flights_returns_empty_when_no_campaigns_dir(self, tmp_path):
         """Test returns empty list when campaigns directory missing."""
-        with patch("pils.loader.stout.importlib.import_module") as mock_import:
-            mock_import.side_effect = ImportError("No module")
-
+        with stout_unavailable():
             loader = StoutLoader()
             loader.base_data_path = tmp_path  # No campaigns directory
 
@@ -126,9 +145,7 @@ class TestLoadAllFlightsFromFilesystem:
         self, mock_campaign_structure
     ):
         """Test that non-directory entries are skipped."""
-        with patch("pils.loader.stout.importlib.import_module") as mock_import:
-            mock_import.side_effect = ImportError("No module")
-
+        with stout_unavailable():
             # Create a file in campaigns directory (should be skipped)
             campaigns_dir = mock_campaign_structure / "campaigns"
             (campaigns_dir / "readme.txt").write_text("This is a file")
@@ -147,9 +164,7 @@ class TestLoadSingleFlightFromFilesystem:
 
     def test_load_single_flight_by_name(self, mock_campaign_structure):
         """Test loading single flight by flight_name."""
-        with patch("pils.loader.stout.importlib.import_module") as mock_import:
-            mock_import.side_effect = ImportError("No module")
-
+        with stout_unavailable():
             loader = StoutLoader()
             loader.base_data_path = mock_campaign_structure
 
@@ -164,9 +179,7 @@ class TestLoadSingleFlightFromFilesystem:
         self, mock_campaign_structure
     ):
         """Test returns None when flight not found."""
-        with patch("pils.loader.stout.importlib.import_module") as mock_import:
-            mock_import.side_effect = ImportError("No module")
-
+        with stout_unavailable():
             loader = StoutLoader()
             loader.base_data_path = mock_campaign_structure
 
@@ -182,9 +195,7 @@ class TestBuildFlightDictFromFilesystem:
 
     def test_build_flight_dict_creates_correct_structure(self):
         """Test building flight dict creates correct structure."""
-        with patch("pils.loader.stout.importlib.import_module") as mock_import:
-            mock_import.side_effect = ImportError("No module")
-
+        with stout_unavailable():
             loader = StoutLoader()
 
             flight_dict = loader._build_flight_dict_from_filesystem(
@@ -204,9 +215,7 @@ class TestBuildFlightDictFromFilesystem:
 
     def test_build_flight_dict_handles_invalid_date_format(self):
         """Test handles invalid date format gracefully."""
-        with patch("pils.loader.stout.importlib.import_module") as mock_import:
-            mock_import.side_effect = ImportError("No module")
-
+        with stout_unavailable():
             loader = StoutLoader()
 
             flight_dict = loader._build_flight_dict_from_filesystem(
@@ -225,9 +234,7 @@ class TestListFilesRecursive:
 
     def test_list_files_recursive_finds_all_files(self, mock_campaign_structure):
         """Test recursive file listing finds all files."""
-        with patch("pils.loader.stout.importlib.import_module") as mock_import:
-            mock_import.side_effect = ImportError("No module")
-
+        with stout_unavailable():
             loader = StoutLoader()
 
             gps_dir = (
@@ -247,9 +254,7 @@ class TestListFilesRecursive:
 
     def test_list_files_recursive_returns_empty_for_nonexistent_dir(self):
         """Test returns empty list for nonexistent directory."""
-        with patch("pils.loader.stout.importlib.import_module") as mock_import:
-            mock_import.side_effect = ImportError("No module")
-
+        with stout_unavailable():
             loader = StoutLoader()
 
             files = loader._list_files_recursive("/nonexistent/directory")
@@ -262,9 +267,7 @@ class TestGetCampaignListFromFilesystem:
 
     def test_get_campaign_list_returns_campaigns(self, mock_campaign_structure):
         """Test getting campaign list from filesystem."""
-        with patch("pils.loader.stout.importlib.import_module") as mock_import:
-            mock_import.side_effect = ImportError("No module")
-
+        with stout_unavailable():
             loader = StoutLoader()
             loader.base_data_path = mock_campaign_structure
 
@@ -275,9 +278,7 @@ class TestGetCampaignListFromFilesystem:
 
     def test_get_campaign_list_returns_empty_when_no_base_path(self):
         """Test returns empty list when base_data_path is None."""
-        with patch("pils.loader.stout.importlib.import_module") as mock_import:
-            mock_import.side_effect = ImportError("No module")
-
+        with stout_unavailable():
             loader = StoutLoader()
             loader.base_data_path = None
 
@@ -291,9 +292,7 @@ class TestPathlibUsage:
 
     def test_drone_data_folder_path_uses_pathlib(self, mock_campaign_structure):
         """Test that drone_data_folder_path is constructed with pathlib."""
-        with patch("pils.loader.stout.importlib.import_module") as mock_import:
-            mock_import.side_effect = ImportError("No module")
-
+        with stout_unavailable():
             loader = StoutLoader()
             loader.base_data_path = mock_campaign_structure
 
@@ -308,9 +307,7 @@ class TestPathlibUsage:
 
     def test_campaigns_dir_constructed_with_pathlib(self, mock_campaign_structure):
         """Test campaigns directory constructed with pathlib."""
-        with patch("pils.loader.stout.importlib.import_module") as mock_import:
-            mock_import.side_effect = ImportError("No module")
-
+        with stout_unavailable():
             loader = StoutLoader()
             loader.base_data_path = mock_campaign_structure
 
@@ -325,9 +322,7 @@ class TestLoadFlightsByDateFromFilesystem:
 
     def test_load_flights_by_date_filters_correctly(self, mock_campaign_structure):
         """Test loading flights by date range filters correctly."""
-        with patch("pils.loader.stout.importlib.import_module") as mock_import:
-            mock_import.side_effect = ImportError("No module")
-
+        with stout_unavailable():
             loader = StoutLoader()
             loader.base_data_path = mock_campaign_structure
 
@@ -340,9 +335,7 @@ class TestLoadFlightsByDateFromFilesystem:
 
     def test_load_flights_by_date_excludes_outside_range(self, mock_campaign_structure):
         """Test flights outside date range are excluded."""
-        with patch("pils.loader.stout.importlib.import_module") as mock_import:
-            mock_import.side_effect = ImportError("No module")
-
+        with stout_unavailable():
             loader = StoutLoader()
             loader.base_data_path = mock_campaign_structure
 
@@ -359,9 +352,7 @@ class TestCollectSpecificData:
 
     def test_collect_specific_data_returns_dict(self, mock_campaign_structure):
         """Test collecting specific data returns dictionary."""
-        with patch("pils.loader.stout.importlib.import_module") as mock_import:
-            mock_import.side_effect = ImportError("No module")
-
+        with stout_unavailable():
             loader = StoutLoader()
 
             flight = {

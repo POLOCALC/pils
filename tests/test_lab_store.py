@@ -1,5 +1,9 @@
 """Tests for lab measurement notes and the lab results store."""
 
+import sys
+import types
+from unittest.mock import patch
+
 import h5py
 import numpy as np
 import polars as pl
@@ -11,7 +15,7 @@ from pils.lab_analysis.notes import (
     list_measurements,
     load_notes,
 )
-from pils.lab_analysis.store import LabDataNotFound, LabStore, value_at
+from pils.lab_analysis.store import LabDataNotFound, LabStore, _stout_item, value_at
 from pils.utils.hdf5 import save_version
 
 NOTES = """---
@@ -190,3 +194,44 @@ class TestStore:
     def test_value_at(self):
         table = pl.DataFrame({"frequency_ghz": [84.0, 93.0], "v": [1, 2], "e": [3, 4]})
         assert value_at(table, 93, "v", "e") == (2.0, 4.0)
+
+
+class TestStoutItem:
+    """Items looked up by id in the STOUT inventory."""
+
+    @pytest.fixture
+    def inventory(self):
+        class NotFoundError(Exception):
+            pass
+
+        items = {"det-1": {"item_id": "det-1", "name": "detector"}}
+
+        class InventoryService:
+            def get_item_by_id(self, item_id):
+                if item_id not in items:
+                    raise NotFoundError(item_id)
+                return items[item_id]
+
+        modules = {
+            "stout": types.ModuleType("stout"),
+            "stout.exceptions": types.SimpleNamespace(NotFoundError=NotFoundError),
+            "stout.services": types.ModuleType("stout.services"),
+            "stout.services.inventory": types.ModuleType("stout.services.inventory"),
+            "stout.services.inventory.service": types.SimpleNamespace(
+                InventoryService=InventoryService
+            ),
+        }
+        with patch.dict(sys.modules, modules):
+            yield
+
+    def test_found(self, inventory):
+        assert _stout_item("det-1")["name"] == "detector"
+
+    def test_missing_item_is_lab_data_not_found(self, inventory):
+        with pytest.raises(LabDataNotFound, match="missing"):
+            _stout_item("missing")
+
+    def test_without_stout(self):
+        with patch.dict(sys.modules, {"stout": None}):
+            with pytest.raises(ImportError, match="pils\\[stout\\]"):
+                _stout_item("det-1")

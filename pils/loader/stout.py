@@ -59,6 +59,8 @@ class StoutLoader:
         """
 
         self.campaign_service = None
+        self.base_data_path = None
+        self.use_stout = True
 
         try:
             from stout.config import Config  # type: ignore
