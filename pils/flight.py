@@ -1,11 +1,13 @@
 import glob
 import json
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional, Union, overload
 
 import h5py
+import numpy as np
 import polars as pl
 
 from pils.drones.BlackSquareDrone import BlackSquareDrone
@@ -46,6 +48,20 @@ def _get_package_version() -> str:
         return getattr(pils, "__version__", "unknown")
     except Exception:
         return "unknown"
+
+
+def _parse_temporal_dtype(dtype: str) -> pl.DataType:
+    """Polars temporal dtype from its string form, e.g. ``Datetime(time_unit='us', time_zone='UTC')``."""
+    unit_match = re.search(r"time_unit='(\w+)'", dtype)
+    unit = unit_match.group(1) if unit_match else "us"
+    if dtype.startswith("Datetime"):
+        zone_match = re.search(r"time_zone='([^']+)'", dtype)
+        return pl.Datetime(unit, zone_match.group(1) if zone_match else None)  # type: ignore[arg-type]
+    if dtype.startswith("Duration"):
+        return pl.Duration(unit)  # type: ignore[arg-type]
+    if dtype.startswith("Date"):
+        return pl.Date()
+    return pl.Time()
 
 
 def _serialize_for_hdf5(obj: Any) -> Any:
@@ -385,6 +401,16 @@ class Flight:
                 sensor_df = Flight._load_dataframe_from_hdf5(sensor_data)
                 if sensor_df is not None:
                     setattr(flight.raw_data.payload_data, sensor_name, sensor_df)
+                    continue
+                # A group of tables (e.g. the inclinometer message types)
+                tables = {
+                    name: Flight._load_dataframe_from_hdf5(item)
+                    for name, item in sensor_data.items()
+                    if isinstance(item, h5py.Group)
+                }
+                tables = {k: v for k, v in tables.items() if v is not None}
+                if tables:
+                    setattr(flight.raw_data.payload_data, sensor_name, tables)
 
     @staticmethod
     def _load_dataframe_from_hdf5(
@@ -414,18 +440,35 @@ class Flight:
         else:
             columns = json.loads(str(columns_attr))
 
+        dtypes_attr = dataset_group.attrs.get("dtypes")
+        dtypes = json.loads(dtypes_attr) if dtypes_attr is not None else []
+        temporal = {
+            col: dtype
+            for col, dtype in zip(columns, dtypes, strict=False)
+            if dtype.startswith(("Datetime", "Date", "Duration", "Time"))
+        }
+
         data_dict = {}
 
         for col_name in columns:
             if col_name in dataset_group:
                 col_dataset = dataset_group[col_name]
                 assert isinstance(col_dataset, h5py.Dataset)
-                data_dict[col_name] = col_dataset[:]
+                if h5py.check_string_dtype(col_dataset.dtype):
+                    data_dict[col_name] = list(col_dataset.asstr()[()])
+                else:
+                    data_dict[col_name] = col_dataset[:]
 
         if not data_dict:
             return None
 
-        return pl.DataFrame(data_dict)
+        df = pl.DataFrame(data_dict)
+        casts = [
+            pl.col(col).cast(_parse_temporal_dtype(dtype))
+            for col, dtype in temporal.items()
+            if col in df.columns
+        ]
+        return df.with_columns(casts) if casts else df
 
     def set_metadata(self, metadata: dict[str, Any] | None = None) -> None:
         """
@@ -1158,7 +1201,17 @@ class Flight:
 
             for sensor_name in self.raw_data.payload_data.list_loaded_sensors():
                 sensor_data = getattr(self.raw_data.payload_data, sensor_name)
-                if sensor_data is not None:
+                if isinstance(sensor_data, dict):
+                    # e.g. the inclinometer: one table per message type
+                    if sensor_name in payload_group:
+                        del payload_group[sensor_name]
+                    sensor_group = payload_group.create_group(sensor_name)
+                    for table_name, table in sensor_data.items():
+                        if isinstance(table, pl.DataFrame):
+                            self._save_dataframe_to_hdf5(
+                                sensor_group, table_name, table
+                            )
+                elif sensor_data is not None:
                     self._save_dataframe_to_hdf5(
                         payload_group, sensor_name, sensor_data
                     )
@@ -1234,10 +1287,21 @@ class Flight:
         column_group = parent_group.create_group(name)
 
         for col_name in df.columns:
-            col_data = df[col_name].to_numpy()
+            series = df[col_name]
+            if series.dtype == pl.Utf8:
+                col_data = np.array(
+                    series.fill_null("").to_list(), dtype=h5py.string_dtype()
+                )
+            elif series.dtype.is_temporal():
+                # Stored as integers; the dtypes attr restores the type on load
+                col_data = series.to_physical().to_numpy()
+            else:
+                col_data = series.to_numpy()
             if col_name in column_group:
                 del column_group[col_name]
-            column_group.create_dataset(col_name, data=col_data)
+            # Compress (transparent to readers); empty arrays cannot be chunked
+            compression = {"compression": "gzip"} if len(col_data) else {}
+            column_group.create_dataset(col_name, data=col_data, **compression)
 
         # Save column order and dtypes as attrs
         column_group.attrs["columns"] = json.dumps(df.columns)

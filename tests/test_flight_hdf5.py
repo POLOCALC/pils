@@ -281,3 +281,63 @@ class TestEdgeCases:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])
+
+
+class TestColumnTypesRoundTrip:
+    """Column types found in real flights survive to_hdf5/from_hdf5."""
+
+    def test_strings_datetimes_and_table_groups(self, temp_h5_file):
+        flight = Flight({"drone_data_folder_path": "/tmp/test_flight/drone"})
+        drone = pl.DataFrame(
+            {
+                "timestamp": [0.0, 1.0, 2.0],
+                "datetime": ["2025-12-08 19:27:00", None, "2025-12-08 19:27:02"],
+            }
+        )
+        flight.raw_data.drone_data = DroneData(drone_df=drone, litchi_df=None)
+        times = pl.Series(
+            [datetime(2025, 12, 8, 19, 27), datetime(2025, 12, 8, 19, 28)]
+        )
+        flight.raw_data.payload_data.gps = pl.DataFrame(
+            {
+                "timestamp": [0.0, 1.0],
+                "utc": times,
+                "utc_tz": times.dt.replace_time_zone("UTC").dt.cast_time_unit("ns"),
+            }
+        )
+        # e.g. the inclinometer: one table per message type
+        flight.raw_data.payload_data.inclinometer = {
+            "INS": pl.DataFrame({"timestamp": [0.0], "roll": [1.0]}),
+            "IMU": pl.DataFrame({"timestamp": [0.0, 0.5], "acc_x": [0.1, 0.2]}),
+        }
+
+        flight.to_hdf5(temp_h5_file)
+        loaded = Flight.from_hdf5(temp_h5_file)
+
+        loaded_drone = loaded.raw_data.drone_data.drone
+        assert loaded_drone["datetime"].to_list() == [
+            "2025-12-08 19:27:00",
+            "",  # HDF5 strings have no null
+            "2025-12-08 19:27:02",
+        ]
+        gps = loaded.raw_data.payload_data.gps
+        assert gps.equals(flight.raw_data.payload_data.gps)
+        assert gps.schema == flight.raw_data.payload_data.gps.schema
+        inclinometer = loaded.raw_data.payload_data.inclinometer
+        assert set(inclinometer) == {"INS", "IMU"}
+        for name, table in flight.raw_data.payload_data.inclinometer.items():
+            assert inclinometer[name].equals(table)
+
+    def test_columns_are_compressed(self, temp_h5_file):
+        flight = Flight({"drone_data_folder_path": "/tmp/test_flight/drone"})
+        flight.raw_data.payload_data.gps = pl.DataFrame(
+            {"timestamp": np.arange(1000.0)}
+        )
+        # Empty arrays cannot be chunked, so they are stored uncompressed
+        flight.raw_data.payload_data.lm76 = pl.DataFrame(
+            {"timestamp": pl.Series([], dtype=pl.Float64)}
+        )
+        flight.to_hdf5(temp_h5_file)
+        with h5py.File(temp_h5_file, "r") as f:
+            assert f["raw_data/payload_data/gps/timestamp"].compression == "gzip"
+            assert f["raw_data/payload_data/lm76/timestamp"].shape == (0,)
