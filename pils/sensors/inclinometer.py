@@ -168,8 +168,8 @@ def detect_inclinometer_type_from_files(dirpath: Path) -> str:
     if imx5_ins_files:
         return "imx5"
 
-    # Check for Kernel files (binary INC.bin format)
-    kernel_files = list(dirpath.glob("*_INC.bin"))
+    # Check for Kernel files (binary INC.bin format, or INC_<time>.bin)
+    kernel_files = list(dirpath.glob("*_INC.bin")) + list(dirpath.glob("*_INC_*.bin"))
     if kernel_files:
         return "kernel"
 
@@ -340,10 +340,18 @@ class KernelInclinometer:
         Parameters
         ----------
         path : Path
-            Path to the Kernel binary file (*_INC.bin).
+            Path to the Kernel binary file (``*_INC.bin``, ``*_INC_<time>.bin``)
+            or to the sensors folder that contains it.
         logpath : Optional[str], optional
             Path to log file for timing information (optional).
+
+        A folder without a Kernel file raises FileNotFoundError on
+        :meth:`load_data`.
         """
+        path = Path(path)
+        if path.is_dir():
+            files = sorted(path.glob("*_INC.bin")) or sorted(path.glob("*_INC_*.bin"))
+            path = files[0] if files else path
         self.path = path
         if logpath is not None:
             self.logpath = logpath
@@ -393,6 +401,10 @@ class KernelInclinometer:
         to keep only valid measurements. Euler angles are renamed to match
         drone convention (roll/pitch/yaw).
         """
+        if Path(self.path).is_dir():
+            raise FileNotFoundError(
+                f"No Kernel inclinometer file (*_INC*.bin) in {self.path}"
+            )
         # Load data from binary decoder
         decoded = decode_inclino(self.path)
         inclino_data = pl.DataFrame(decoded)

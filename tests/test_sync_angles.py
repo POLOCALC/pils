@@ -214,3 +214,73 @@ def test_raw_and_sync_provenance(tmp_path):
         saved_at = f["raw_data"].attrs["saved_at"]
         revision = f["sync_data"][sorted(f["sync_data"])[-1]]
         assert revision.attrs["raw_data_saved_at"] == saved_at
+
+
+class TestPayloadClock:
+    """Payload sensors take the payload computer's clock offset."""
+
+    @staticmethod
+    def build(clock, with_imu=True):
+        t = np.linspace(0, 200, 4001)
+        pitch = 20 * np.sin(0.2 * t) + 8 * np.sin(0.53 * t)
+        sync = Synchronizer()
+        sync.add_gps_reference(
+            pl.DataFrame(
+                {
+                    "timestamp": t,
+                    "lat_deg": 45 + 1e-3 * np.sin(0.05 * t),
+                    "lon_deg": 10 + 1e-3 * np.cos(0.07 * t),
+                    "h_ell_m": 100 + 10 * np.sin(0.03 * t),
+                }
+            )
+        )
+        sync.add_litchi_gps(
+            pl.DataFrame(
+                {
+                    "timestamp": t,
+                    "lat_deg": 45 + 1e-3 * np.sin(0.05 * t),
+                    "lon_deg": 10 + 1e-3 * np.cos(0.07 * t),
+                    "h_rel_m": 10 * np.sin(0.03 * t),
+                    "gimbal_pitch_deg": pitch,
+                }
+            )
+        )
+        rate = np.gradient(pitch, t)
+        # Inclinometer clock 1.3 s ahead of the reference
+        sync.add_inclinometer(
+            pl.DataFrame(
+                {"timestamp": t + 1.3, "pitch_deg": pitch, "gyro_y_deg_s": rate}
+            ),
+            "kernel",
+            clock=clock,
+        )
+        if with_imu:
+            # Payload computer clock 0.2 s behind the reference
+            sync.add_payload_sensor(
+                "imu_gyroscope",
+                pl.DataFrame({"timestamp": t - 0.2, "gyro_y_rad_s": np.radians(rate)}),
+            )
+        sync.add_payload_sensor("adc", pl.DataFrame({"timestamp": t - 0.2, "a": t}))
+        return sync
+
+    def test_own_clock_tied_through_imu_gyro(self):
+        sync = self.build("own")
+        sync.synchronize(target_rate={"drone": 10.0, "payload": 10.0})
+        clock = sync.offsets["payload_clock"]
+        assert clock["method"] == "imu_gyro"
+        assert clock["time_offset"] == pytest.approx(0.2, abs=0.01)
+        assert sync.offsets["inclinometer"]["time_offset"] == pytest.approx(
+            -1.3, abs=0.01
+        )
+
+    def test_payload_clock_inclinometer(self):
+        sync = self.build("payload")
+        sync.synchronize(target_rate={"drone": 10.0, "payload": 10.0})
+        clock = sync.offsets["payload_clock"]
+        assert clock["method"] == "inclinometer"
+        assert clock["time_offset"] == pytest.approx(-1.3, abs=0.01)
+
+    def test_own_clock_without_imu(self):
+        sync = self.build("own", with_imu=False)
+        sync.synchronize(target_rate={"drone": 10.0, "payload": 10.0})
+        assert sync.offsets["payload_clock"] == {"time_offset": 0.0, "method": "none"}

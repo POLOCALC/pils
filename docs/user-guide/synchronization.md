@@ -173,6 +173,32 @@ $$
 
 This two-stage approach allows synchronization even when Inclinometer and GPS don't share overlapping spatial trajectories, using Litchi gimbal as an intermediate reference.
 
+#### Step 4: Payload Clock
+
+The other payload sensors (ADC, LM76, IMU) are stamped with the payload
+computer's clock. Their offset (`offsets["payload_clock"]`, with the method
+used) depends on the inclinometer:
+
+- **IMX-5**: its timestamps come from the payload computer, so the
+  inclinometer offset applies (`method: "inclinometer"`).
+- **Kernel-100**: its time is the log start time plus a sample counter, a
+  clock of its own. On flight_20250428_1625 it is 1.05 s from the payload
+  clock. The payload IMU gyroscope is aligned to the inclinometer's, axis by
+  axis, and the best-correlated axis ties the two clocks
+  (`method: "imu_gyro"`).
+- **Kernel-100 without a payload IMU**: no offset is applied
+  (`method: "none"`, with a warning); in both campaigns with a payload IMU
+  the payload clock is within 0.2 s of GPS time.
+
+!!! warning "Litchi's attitude lags"
+    The inclinometer offset comes from Litchi's gimbal pitch. Litchi's
+    aircraft yaw lags the drone's flight controller by about 0.19 s
+    (flight_20251208_1927), while its position, used for the Litchi offset,
+    does not; if the gimbal pitch lags in the same way, the payload timing
+    inherits it. On flight_20250428_1625 the payload gyroscope aligned to the
+    drone's gives a payload clock 0.5 s from the inclinometer route, but only
+    through the gimbal's yaw following (correlation 0.74), so it is not used.
+
 #### Physical Interpretation
 
 - **Time Offset** ($\tau$): Seconds to add to target timestamp to align with reference

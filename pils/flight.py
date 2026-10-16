@@ -1078,7 +1078,13 @@ class Flight:
             )
             if isinstance(incl_data, dict):  # IMX-5: the INS table
                 incl_data = incl_data["ins"]
-            sync.add_inclinometer(incl_data, self.__inclinometer)
+            # The Kernel-100 has its own clock (log start + counter); the
+            # IMX-5 is stamped with the payload computer's clock
+            sync.add_inclinometer(
+                incl_data,
+                self.__inclinometer,
+                clock="own" if self.__inclinometer == "kernel" else "payload",
+            )
 
         # Add Camera data if available
 

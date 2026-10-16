@@ -89,11 +89,10 @@ class LM76:
         Raises
         ------
         FileNotFoundError
-            If the CSV file at ``self.data_path`` does not exist.
-        AttributeError
-            If ``self.data_path`` is None (no matching CSV file was found
-            during initialization).
+            If no LM76 file (``*TMP*.csv``) was found, or it does not exist.
         """
+        if self.data_path is None:
+            raise FileNotFoundError(f"No LM76 file (*TMP*.csv) in {self.path}")
         if not self.data_path.exists():
             raise FileNotFoundError(f"Sensor file not found: {self.data_path}")
 

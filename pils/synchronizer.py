@@ -316,6 +316,7 @@ class Synchronizer:
         self.camera: pl.DataFrame | None = None
         self.other_payload: dict[str, pl.DataFrame] = {}
         self.drone_records: dict[str, pl.DataFrame] = {}
+        self.inclinometer_clock = "payload"
 
         self.offsets: dict[str, dict[str, Any]] = {}
         self.synchronized_data: dict[str, Any] | None = None
@@ -1040,6 +1041,7 @@ class Synchronizer:
         inclinometer_type: str | None,
         timestamp_col: str = "timestamp",
         pitch_col: str = "pitch_deg",
+        clock: str = "payload",
     ) -> None:
         """
         Add inclinometer data for pitch-based correlation.
@@ -1054,6 +1056,12 @@ class Synchronizer:
             Name of timestamp column
         pitch_col : str, default='pitch_deg'
             Name of pitch column
+        clock : {"payload", "own"}, default="payload"
+            ``"payload"`` if its timestamps come from the payload computer's
+            clock, as the other payload sensors (IMX-5), so that its offset
+            applies to them too; ``"own"`` if it has its own clock (Kernel-100:
+            log start time plus a sample counter). Then the payload clock is
+            tied to it through the payload IMU gyroscope, if loaded.
 
         Raises
         ------
@@ -1073,6 +1081,7 @@ class Synchronizer:
 
         self.inclinometer = inclinometer_data
         self.__inclinometer_names = {"timestamp": timestamp_col, "pitch": pitch_col}
+        self.inclinometer_clock = clock
 
         logger.info(f"Added inclinometer with {len(inclinometer_data)} samples")
 
@@ -1412,13 +1421,14 @@ class Synchronizer:
                 self.camera, self.__camera_names["timestamp"], total_offset, camera_rate
             )
 
-        # Other payload sensors share the inclinometer clock correction
+        # Other payload sensors: the payload computer's clock
+        payload_offset = self._payload_clock_offset(incl_offset + litchi_offset)
         for sensor_name, sensor_df in self.other_payload.items():
             if "timestamp" not in sensor_df.columns:
                 logger.warning(f"Payload sensor '{sensor_name}' has no timestamp")
                 continue
             synced[sensor_name] = align(
-                sensor_df, "timestamp", incl_offset + litchi_offset, rates["payload"]
+                sensor_df, "timestamp", payload_offset, rates["payload"]
             )
 
         if self.drone_records and "drone_gps" in self.offsets:
@@ -1453,6 +1463,60 @@ class Synchronizer:
 
         return self.synchronized_data
 
+    def _payload_clock_offset(self, inclinometer_offset: float) -> float:
+        """Offset of the payload computer's clock (ADC, LM76, IMU, ...).
+
+        Recorded in ``offsets["payload_clock"]`` with the method used:
+
+        - ``"inclinometer"``: the inclinometer uses the payload clock, its
+          offset (to the reference GPS, through Litchi) applies;
+        - ``"imu_gyro"``: the inclinometer has its own clock; the payload
+          IMU gyroscope is aligned to the inclinometer's, axis by axis, and
+          the best-correlated axis gives the payload clock;
+        - ``"none"``: no way to tie the payload clock (taken as the
+          reference GPS time).
+        """
+        has_incl = self.inclinometer is not None and "inclinometer" in self.offsets
+        if has_incl and self.inclinometer_clock == "payload":
+            result = {"time_offset": inclinometer_offset, "method": "inclinometer"}
+        elif has_incl and "imu_gyroscope" in self.other_payload:
+            assert self.inclinometer is not None
+            gyro = self.other_payload["imu_gyroscope"]
+            time_col = self.__inclinometer_names["timestamp"]
+            best = None
+            for axis in "xyz":
+                incl_col, imu_col = f"gyro_{axis}_deg_s", f"gyro_{axis}_rad_s"
+                if incl_col not in self.inclinometer.columns or imu_col not in gyro:
+                    continue
+                estimate = self._estimate_time_offset(
+                    self.inclinometer[time_col].to_numpy(),
+                    self.inclinometer[incl_col].to_numpy(),
+                    gyro["timestamp"].to_numpy(),
+                    np.degrees(gyro[imu_col].to_numpy()),
+                )
+                if estimate is not None and (best is None or estimate[3] > best[3]):
+                    best = (*estimate, axis)
+            if best is not None and best[3] > 0.5:
+                result = {
+                    "time_offset": inclinometer_offset + best[0],
+                    "method": "imu_gyro",
+                    "axis": best[4],
+                    "correlation": float(best[3]),
+                }
+            else:
+                logger.warning("Payload IMU and inclinometer gyros do not match")
+                result = {"time_offset": 0.0, "method": "none"}
+        else:
+            if self.other_payload:
+                logger.warning(
+                    "No offset for the payload clock: the inclinometer has its "
+                    "own clock and there is no payload IMU gyroscope"
+                )
+            result = {"time_offset": 0.0, "method": "none"}
+        self.offsets["payload_clock"] = result
+        logger.info(f"Payload clock offset: {result}")
+        return float(result["time_offset"])
+
     def get_offset_summary(self) -> str:
         """
         Get summary of detected time offsets.
@@ -1484,7 +1548,10 @@ class Synchronizer:
             else:
                 lines.append(f"  Time Offset: {offset_data['time_offset']:.3f} s")
 
-            lines.append(f"  Correlation: {offset_data['correlation']:.3f}")
+            if "method" in offset_data:
+                lines.append(f"  Method: {offset_data['method']}")
+            if "correlation" in offset_data:
+                lines.append(f"  Correlation: {offset_data['correlation']:.3f}")
 
             if "spatial_offset_m" in offset_data:
                 lines.append(
