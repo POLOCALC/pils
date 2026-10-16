@@ -18,18 +18,18 @@ from pils.analyze.package import (
 from pils.cli import main
 from pils.flight import DroneData, Flight
 
-GPS = pl.DataFrame({"timestamp": [0.0, 1.0], "latitude": [1.0, 1.0]})
-DRONE = pl.DataFrame({"timestamp": [0.0, 1.0], "latitude": [1.0, 1.0]})
-SYNCED = pl.DataFrame({"timestamp": [0.0, 0.01], "latitude": [1.0, 1.0]})
+GPS = pl.DataFrame({"timestamp": [0.0, 1.0], "lat_deg": [1.0, 1.0]})
+DRONE = pl.DataFrame({"timestamp": [0.0, 1.0], "lat_deg": [1.0, 1.0]})
+SYNCED = pl.DataFrame({"timestamp": [0.0, 0.01], "lat_deg": [1.0, 1.0]})
 AZEL = pl.DataFrame(
     {
         "timestamp": [0.0, 0.01],
-        "az": [10.0, 11.0],
-        "el": [40.0, 41.0],
-        "srange": [100.0, 101.0],
-        "E": [1.0, 2.0],
-        "N": [1.0, 2.0],
-        "U": [1.0, 2.0],
+        "az_deg": [10.0, 11.0],
+        "el_deg": [40.0, 41.0],
+        "srange_m": [100.0, 101.0],
+        "e_m": [1.0, 2.0],
+        "n_m": [1.0, 2.0],
+        "u_m": [1.0, 2.0],
     }
 )
 

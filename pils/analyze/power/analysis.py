@@ -172,10 +172,10 @@ class PowerAnalysis:
         sync = self.flight.sync_data
         drone = sync["drone"]
         valid = (
-            drone["latitude"].is_not_null()
-            & drone["latitude"].is_not_nan()
-            & (drone["latitude"] != 0)
-            & drone["longitude"].is_not_null()
+            drone["lat_deg"].is_not_null()
+            & drone["lat_deg"].is_not_nan()
+            & (drone["lat_deg"] != 0)
+            & drone["lon_deg"].is_not_null()
         )
         return {
             k: (
@@ -218,11 +218,7 @@ class PowerAnalysis:
             return sync["lm76"]["temperature_c"].to_numpy(), "lm76"
         if source in ("auto", "inclinometer") and "inclinometer" in sync:
             column = next(
-                (
-                    c
-                    for c in ("Temper", "temperature", "temperature_c")
-                    if c in sync["inclinometer"].columns
-                ),
+                (c for c in ("temperature_c",) if c in sync["inclinometer"].columns),
                 None,
             )
             if column is not None:
@@ -319,7 +315,7 @@ class PowerAnalysis:
         sync = self._synced()
         times = sync["drone"]["timestamp"].to_numpy()
         scan_start, scan_end = scanning_range(
-            times, sync["drone"]["altitude"].to_numpy(), config["scan_min_altitude_m"]
+            times, sync["drone"]["h_ell_m"].to_numpy(), config["scan_min_altitude_m"]
         )
         in_scan = (times > scan_start) & (times < scan_end)
         t_scan = times[in_scan]
@@ -334,15 +330,15 @@ class PowerAnalysis:
         enu = np.array(
             [
                 np.interp(t_scan, azel_t, azel_data[c].to_numpy())
-                for c in ("E", "N", "U")
+                for c in ("e_m", "n_m", "u_m")
             ]
         )
         distance = np.linalg.norm(enu, axis=0)
 
         litchi = sync["litchi"].filter(pl.Series(in_scan))
-        roll = sync["inclinometer"].filter(pl.Series(in_scan))["roll"].to_numpy()
-        yaw = (litchi["yaw(deg)"] + litchi["gimbalYawRaw"] / 10).to_numpy()
-        pitch = (litchi["gimbalPitchRaw"] / 10).to_numpy()
+        roll = sync["inclinometer"].filter(pl.Series(in_scan))["roll_deg"].to_numpy()
+        yaw = (litchi["yaw_deg"] + litchi["gimbal_yaw_deg"]).to_numpy()
+        pitch = litchi["gimbal_pitch_deg"].to_numpy()
         pointing_loss, rel_yaw, rel_pitch, poi = self._pointing_loss(
             enu, yaw, pitch, roll, store, payload_item(payload, "antenna"), frequency
         )
@@ -371,10 +367,10 @@ class PowerAnalysis:
             (pl.col("timestamp") > scan_start) & (pl.col("timestamp") < scan_end)
         )
         if adc_clip_sigma is not None:
-            amp = adc["amplitude"]
+            amp = adc["amplitude_mv"]
             adc = adc.filter(amp < adc_clip_sigma * amp.std())
         filtered, envelope, zero = adc_envelope(
-            adc["amplitude"].to_numpy(), ENVELOPE_WINDOW[band]
+            adc["amplitude_mv"].to_numpy(), ENVELOPE_WINDOW[band]
         )
         keep = ~np.isnan(envelope)
         adc_time = adc["timestamp"].to_numpy()[keep]
@@ -484,7 +480,7 @@ class PowerAnalysis:
                     "rel_pitch": rel_pitch,
                     "pointing_loss": pointing_loss,
                     "adc_time": adc["timestamp"].to_numpy(),
-                    "adc_amplitude": adc["amplitude"].to_numpy(),
+                    "adc_amplitude": adc["amplitude_mv"].to_numpy(),
                     "adc_filtered": filtered,
                     "adc_envelope": envelope,
                     "adc_zero": zero,

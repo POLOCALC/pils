@@ -44,9 +44,9 @@ dji rtk base (antenna base),-105.0005,40.0005,1001.000"""
             "drone": pl.DataFrame(
                 {
                     "timestamp": [1000.0, 2000.0, 3000.0],
-                    "latitude": [40.0001, 40.0002, 40.0003],
-                    "longitude": [-105.0001, -105.0002, -105.0003],
-                    "altitude": [1000.0, 1001.0, 1002.0],
+                    "lat_deg": [40.0001, 40.0002, 40.0003],
+                    "lon_deg": [-105.0001, -105.0002, -105.0003],
+                    "h_ell_m": [1000.0, 1001.0, 1002.0],
                     "battery_percent": [85.0, 84.0, 83.0],
                 }
             )
@@ -56,7 +56,7 @@ dji rtk base (antenna base),-105.0005,40.0005,1001.000"""
         return flight
 
     def test_sync_data_uses_standard_latitude(self, mock_flight_standard_sync):
-        """Test that AZEL analysis uses standard 'latitude' column."""
+        """Test that AZEL analysis uses standard 'lat_deg' column."""
         from pils.analyze.azel import AZELAnalysis
 
         azel = AZELAnalysis(mock_flight_standard_sync)
@@ -64,10 +64,10 @@ dji rtk base (antenna base),-105.0005,40.0005,1001.000"""
         # Verify flight has sync_data with standard columns
         assert "drone" in azel.flight.sync_data
         drone_df = azel.flight.sync_data["drone"]
-        assert "latitude" in drone_df.columns
-        assert "RTK:lat_p" not in drone_df.columns
+        assert "lat_deg" in drone_df.columns
+        assert "rtk_lat_deg" not in drone_df.columns
 
-        # Run analysis - should use 'latitude' without conditional mapping
+        # Run analysis - should use 'lat_deg' without conditional mapping
         dji_broadcast = {"lat": -22.9597732, "lon": -67.7866847, "alt": 5173.020}
         version = azel.run_analysis(
             telescope_name="SATP1",
@@ -81,17 +81,17 @@ dji rtk base (antenna base),-105.0005,40.0005,1001.000"""
         assert version.azel_data.height > 0
 
     def test_sync_data_uses_standard_longitude(self, mock_flight_standard_sync):
-        """Test that AZEL analysis uses standard 'longitude' column."""
+        """Test that AZEL analysis uses standard 'lon_deg' column."""
         from pils.analyze.azel import AZELAnalysis
 
         azel = AZELAnalysis(mock_flight_standard_sync)
 
         # Verify flight has sync_data with standard columns
         drone_df = azel.flight.sync_data["drone"]
-        assert "longitude" in drone_df.columns
-        assert "RTK:lon_p" not in drone_df.columns
+        assert "lon_deg" in drone_df.columns
+        assert "rtk_lon_deg" not in drone_df.columns
 
-        # Run analysis - should use 'longitude' without conditional mapping
+        # Run analysis - should use 'lon_deg' without conditional mapping
         dji_broadcast = {"lat": -22.9597732, "lon": -67.7866847, "alt": 5173.020}
         version = azel.run_analysis(
             telescope_name="SATP1",
@@ -102,17 +102,17 @@ dji rtk base (antenna base),-105.0005,40.0005,1001.000"""
         assert version is not None
 
     def test_sync_data_uses_standard_altitude(self, mock_flight_standard_sync):
-        """Test that AZEL analysis uses standard 'altitude' column."""
+        """Test that AZEL analysis uses standard 'h_ell_m' column."""
         from pils.analyze.azel import AZELAnalysis
 
         azel = AZELAnalysis(mock_flight_standard_sync)
 
         # Verify flight has sync_data with standard columns
         drone_df = azel.flight.sync_data["drone"]
-        assert "altitude" in drone_df.columns
-        assert "RTK:hmsl_p" not in drone_df.columns
+        assert "h_ell_m" in drone_df.columns
+        assert "rtk_h_ell_m" not in drone_df.columns
 
-        # Run analysis - should use 'altitude' without conditional mapping
+        # Run analysis - should use 'h_ell_m' without conditional mapping
         dji_broadcast = {"lat": -22.9597732, "lon": -67.7866847, "alt": 5173.020}
         version = azel.run_analysis(
             telescope_name="SATP1",
@@ -155,13 +155,11 @@ dji rtk base (antenna base),-105.0005,40.0005,1001.000"""
 
         # Verify NO old column names exist
         old_column_names = [
-            "RTK:lat_p",
-            "RTK:lon_p",
-            "RTK:hmsl_p",
+            "rtk_lat_deg",
+            "rtk_lon_deg",
+            "rtk_h_ell_m",
             "timestamp_old",  # old raw timestamp from GPS:dateTimeStamp
-            "Latitude",
-            "Longitude",
-            "heightMSL",
+            "h_msl_m",
         ]
         for old_name in old_column_names:
             assert old_name not in drone_df.columns, (

@@ -376,7 +376,7 @@ class TestTableFormat:
         frame = pl.DataFrame(
             {
                 "timestamp": [0.0, 1.0, 2.0],
-                "RTK:lat_p": [1.0, None, float("nan")],
+                "rtk_lat_deg": [1.0, None, float("nan")],
                 "numSV": pl.Series([3, None, 5], dtype=pl.Int64),
                 "flag": [True, None, False],
                 "name": ["a", None, "c"],
@@ -390,12 +390,12 @@ class TestTableFormat:
             loaded = read_table(f["t"])
             units = read_units(f["t"])
         assert loaded.schema == frame.schema
-        assert loaded["RTK:lat_p"].is_null().to_list() == [False, True, False]
-        assert np.isnan(loaded["RTK:lat_p"][2])  # a NaN stays a NaN
-        assert loaded.select(pl.all().exclude("RTK:lat_p")).equals(
-            frame.select(pl.all().exclude("RTK:lat_p"))
+        assert loaded["rtk_lat_deg"].is_null().to_list() == [False, True, False]
+        assert np.isnan(loaded["rtk_lat_deg"][2])  # a NaN stays a NaN
+        assert loaded.select(pl.all().exclude("rtk_lat_deg")).equals(
+            frame.select(pl.all().exclude("rtk_lat_deg"))
         )
-        assert units == {"timestamp": "s", "RTK:lat_p": "deg"}
+        assert units == {"timestamp": "s", "rtk_lat_deg": "deg"}
 
     def test_legacy_ppk_microseconds(self, temp_h5_file):
         import json

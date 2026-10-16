@@ -30,9 +30,12 @@ logger = logging.getLogger(__name__)
 # Angle columns, by name (the part after the last ":"), and their period.
 # Pitch is included: it does not wrap, so unwrapping leaves it unchanged.
 _ANGLE_PATTERNS: tuple[tuple[re.Pattern[str], float], ...] = (
+    # Schema names: yaw_deg, gimbal_heading_deg, rtk_yaw_deg, roll_rad, ...
+    (re.compile(r"(^|_)(yaw|roll|pitch|heading)_deg$"), 360.0),
+    (re.compile(r"(^|_)(yaw|roll|pitch|heading)_rad$"), 2 * np.pi),
+    # Source names: yaw, yaw(deg), gimbalYawAbs, yawRaw (0.1 deg)
     (re.compile(r"^(gimbal)?(yaw|roll|pitch|heading)(abs)?(\(deg\))?$"), 360.0),
-    (re.compile(r"^(gimbal)?(yaw|roll|pitch|heading)_rad$"), 2 * np.pi),
-    (re.compile(r"^(gimbal)?(yaw|roll|pitch)raw$"), 3600.0),  # 0.1 deg
+    (re.compile(r"^(gimbal)?(yaw|roll|pitch)raw$"), 3600.0),
 )
 
 
@@ -42,8 +45,9 @@ def angle_period(column: str) -> float | None:
     Parameters
     ----------
     column : str
-        Column name, e.g. ``"yaw(deg)"``, ``"RTK:yaw"``, ``"gimbalYawAbs"``,
-        ``"yaw_rad"`` or ``"gimbalYawRaw"`` (0.1 deg).
+        Column name: schema names such as ``"yaw_deg"``, ``"rtk_yaw_deg"``,
+        ``"gimbal_heading_deg"`` or ``"roll_rad"``, or source names such as
+        ``"yaw(deg)"``, ``"RTK:yaw"`` or ``"gimbalYawRaw"`` (0.1 deg).
 
     Returns
     -------
@@ -123,7 +127,8 @@ REDUNDANT_TIME_COLUMNS = frozenset(
 # Columns that hold their last value instead of being interpolated: states,
 # flags and counts (matched on any ":"-separated part of the name, any case)
 _HELD_COLUMNS = re.compile(
-    r"(status|flag|flg|state|mode|^num|sats|^svn|isflying|^week$)", re.IGNORECASE
+    r"(status|flag|flg|state|mode|(^|_)num|sats|(^|_)svn|is_?flying|(^|_)week$)",
+    re.IGNORECASE,
 )
 
 
@@ -132,9 +137,11 @@ def is_held_column(column: str) -> bool:
 
     Examples
     --------
-    >>> is_held_column("RTK:pos_flg_0"), is_held_column("Motor:Status:RFront")
+    >>> is_held_column("rtk_pos_flag_0"), is_held_column("status_rfront")
     (True, True)
-    >>> is_held_column("posllh_hMSL"), is_held_column("mag_x")
+    >>> is_held_column("gps_num_sv"), is_held_column("ins_status")
+    (True, True)
+    >>> is_held_column("h_msl_m"), is_held_column("mag_x")
     (False, False)
     """
     return any(_HELD_COLUMNS.search(part) for part in column.split(":"))
@@ -827,54 +834,29 @@ class Synchronizer:
         -------
         pl.DataFrame
             DataFrame with standardized coordinate column names:
-            - latitude
-            - longitude
-            - altitude
+            - lat_deg, lon_deg (WGS84)
+            - h_ell_m (height above the WGS84 ellipsoid)
             - timestamp
 
         Notes
         -----
-        Non-coordinate columns (battery_percent, gimbalPitch, etc.) are preserved
-        with their original names.
+        The other columns keep their names.
         """
         rename_map = {}
-
-        # Map source-specific names to standard names (only if different and target doesn't exist)
-        if "lat_col" in column_mapping:
-            lat_name = column_mapping["lat_col"]
+        for key, standard in (
+            ("lat_col", "lat_deg"),
+            ("lon_col", "lon_deg"),
+            ("alt_col", "h_ell_m"),
+            ("timestamp", "timestamp"),
+        ):
+            name = column_mapping.get(key)
             if (
-                lat_name in df.columns
-                and lat_name != "latitude"
-                and "latitude" not in df.columns
+                name is not None
+                and name in df.columns
+                and name != standard
+                and standard not in df.columns
             ):
-                rename_map[lat_name] = "latitude"
-
-        if "lon_col" in column_mapping:
-            lon_name = column_mapping["lon_col"]
-            if (
-                lon_name in df.columns
-                and lon_name != "longitude"
-                and "longitude" not in df.columns
-            ):
-                rename_map[lon_name] = "longitude"
-
-        if "alt_col" in column_mapping:
-            alt_name = column_mapping["alt_col"]
-            if (
-                alt_name in df.columns
-                and alt_name != "altitude"
-                and "altitude" not in df.columns
-            ):
-                rename_map[alt_name] = "altitude"
-
-        if "timestamp" in column_mapping:
-            ts_name = column_mapping["timestamp"]
-            if (
-                ts_name in df.columns
-                and ts_name != "timestamp"
-                and "timestamp" not in df.columns
-            ):
-                rename_map[ts_name] = "timestamp"
+                rename_map[name] = standard
 
         if rename_map:
             return df.rename(rename_map)
@@ -884,9 +866,9 @@ class Synchronizer:
         self,
         gps_data: pl.DataFrame,
         timestamp_col: str = "timestamp",
-        lat_col: str = "posllh_lat",
-        lon_col: str = "posllh_lon",
-        alt_col: str = "posllh_height",
+        lat_col: str = "lat_deg",
+        lon_col: str = "lon_deg",
+        alt_col: str = "h_ell_m",
     ) -> None:
         """
         Set GPS payload as reference timebase (mandatory).
@@ -897,12 +879,12 @@ class Synchronizer:
             Polars DataFrame with GPS data
         timestamp_col : str, default='timestamp'
             Name of timestamp column
-        lat_col : str, default='posllh_lat'
+        lat_col : str, default='lat_deg'
             Name of latitude column
-        lon_col : str, default='posllh_lon'
+        lon_col : str, default='lon_deg'
             Name of longitude column
-        alt_col : str, default='posllh_height'
-            Name of altitude column
+        alt_col : str, default='h_ell_m'
+            Name of the ellipsoidal height column
 
         Raises
         ------
@@ -933,9 +915,9 @@ class Synchronizer:
         self,
         gps_data: pl.DataFrame | dict[str, pl.DataFrame],
         timestamp_col: str = "timestamp",
-        lat_col: str = "latitude",
-        lon_col: str = "longitude",
-        alt_col: str = "altitude",
+        lat_col: str = "lat_deg",
+        lon_col: str = "lon_deg",
+        alt_col: str = "h_ell_m",
     ) -> None:
         """
         Add drone GPS data for correlation.
@@ -946,12 +928,12 @@ class Synchronizer:
             Polars DataFrame with GPS data, or dict containing GPS data
                 timestamp_col : str, default='timestamp'
             Name of timestamp column
-        lat_col : str, default='latitude'
+        lat_col : str, default='lat_deg'
             Name of latitude column
-        lon_col : str, default='longitude'
+        lon_col : str, default='lon_deg'
             Name of longitude column
-        alt_col : str, default='altitude'
-            Name of altitude column
+        alt_col : str, default='h_ell_m'
+            Name of the ellipsoidal height column
 
         Raises
         ------
@@ -993,9 +975,10 @@ class Synchronizer:
         self,
         gps_data: pl.DataFrame,
         timestamp_col: str = "timestamp",
-        lat_col: str = "latitude",
-        lon_col: str = "longitude",
-        alt_col: str = "altitude(m)",
+        lat_col: str = "lat_deg",
+        lon_col: str = "lon_deg",
+        alt_col: str = "h_rel_m",
+        pitch_col: str = "gimbal_pitch_deg",
     ) -> None:
         """
         Add Litchi GPS data for correlation.
@@ -1006,12 +989,15 @@ class Synchronizer:
             Polars DataFrame with GPS data
         timestamp_col : str, default='timestamp'
             Name of timestamp column
-        lat_col : str, default='latitude'
+        lat_col : str, default='lat_deg'
             Name of latitude column
-        lon_col : str, default='longitude'
+        lon_col : str, default='lon_deg'
             Name of longitude column
-        alt_col : str, default='altitude'
-            Name of altitude column
+        alt_col : str, default='h_rel_m'
+            Name of the height above take-off. ``h_ell_m`` is added as this
+            height plus the first ellipsoidal height of the reference GPS.
+        pitch_col : str, default='gimbal_pitch_deg'
+            Gimbal pitch, for the inclinometer and camera offsets
 
         Raises
         ------
@@ -1027,17 +1013,17 @@ class Synchronizer:
         if len(gps_data) == 0:
             raise ValueError("Litchi GPS data is empty")
 
-        self.litchi_gps = gps_data
-        self.litchi_gps = self.litchi_gps.with_columns(
-            pl.col(alt_col) + self.__ref_height
+        # Take-off at the height of the reference GPS when it starts
+        self.litchi_gps = gps_data.with_columns(
+            (pl.col(alt_col) + self.__ref_height).alias("h_ell_m")
         )
 
         self.__litchi_names = {
             "timestamp": timestamp_col,
             "lat_col": lat_col,
             "lon_col": lon_col,
-            "alt_col": alt_col,
-            "pitch": "gimbalPitch",
+            "alt_col": "h_ell_m",
+            "pitch": pitch_col,
         }
 
         logger.info(f"Added litchi GPS with {len(gps_data)} samples")
@@ -1047,7 +1033,7 @@ class Synchronizer:
         inclinometer_data: pl.DataFrame,
         inclinometer_type: str,
         timestamp_col: str = "timestamp",
-        pitch_col: str = "pitch",
+        pitch_col: str = "pitch_deg",
     ) -> None:
         """
         Add inclinometer data for pitch-based correlation.
@@ -1060,7 +1046,7 @@ class Synchronizer:
             Type of inclinometer sensor (e.g., 'imx5')
         timestamp_col : str, default='timestamp'
             Name of timestamp column
-        pitch_col : str, default='pitch'
+        pitch_col : str, default='pitch_deg'
             Name of pitch column
 
         Raises
@@ -1080,9 +1066,7 @@ class Synchronizer:
             raise ValueError("Inclinometer data is empty")
 
         self.inclinometer = inclinometer_data
-
-        if inclinometer_type == "imx5":
-            self.__inclinometer_names = {"timestamp": "timestamp", "pitch": "pitch"}
+        self.__inclinometer_names = {"timestamp": timestamp_col, "pitch": pitch_col}
 
         logger.info(f"Added inclinometer with {len(inclinometer_data)} samples")
 
@@ -1091,7 +1075,7 @@ class Synchronizer:
         camera_data: pl.DataFrame,
         use_photogrammetry: bool = True,
         timestamp_col: str = "timestamp",
-        pitch_col: str = "pitch",
+        pitch_col: str = "pitch_deg",
         camera_model: str | None = None,
     ):
 
@@ -1114,7 +1098,7 @@ class Synchronizer:
             self.__camera_model = camera_model
 
             if camera_model and camera_model.lower() == "sony":
-                self.__camera_names = {"timestamp": "timestamp", "pitch": "pitch"}
+                self.__camera_names = {"timestamp": timestamp_col, "pitch": pitch_col}
 
         self.camera = camera_data
 
@@ -1274,7 +1258,7 @@ class Synchronizer:
         # Inclinometer offset detection (using litchi gimbal pitch if available)
         if self.inclinometer is not None and self.litchi_gps is not None:
             # Check if litchi has pitch data
-            if "gimbalPitch" in self.litchi_gps.columns:
+            if self.__litchi_names["pitch"] in self.litchi_gps.columns:
                 logger.info("Detecting inclinometer offset via pitch correlation...")
                 result = self._find_pitch_offset(
                     time1=self.litchi_gps[self.__litchi_names["timestamp"]].to_numpy(),

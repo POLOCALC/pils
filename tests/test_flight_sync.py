@@ -22,9 +22,9 @@ def sample_flight_with_gps():
     gps_data = pl.DataFrame(
         {
             "timestamp": [0.0, 1.0, 2.0, 3.0, 4.0],
-            "posllh_lat": [45.0, 45.001, 45.002, 45.003, 45.004],
-            "posllh_lon": [10.0, 10.001, 10.002, 10.003, 10.004],
-            "posllh_height": [100.0, 101.0, 102.0, 103.0, 104.0],
+            "lat_deg": [45.0, 45.001, 45.002, 45.003, 45.004],
+            "lon_deg": [10.0, 10.001, 10.002, 10.003, 10.004],
+            "h_ell_m": [100.0, 101.0, 102.0, 103.0, 104.0],
         }
     )
 
@@ -138,37 +138,37 @@ def test_sync_drone_records(tmp_path):
     flight.raw_data.payload_data.gps = pl.DataFrame(
         {
             "timestamp": t,
-            "posllh_lat": position["lat"],
-            "posllh_lon": position["lon"],
-            "posllh_height": position["h"],
+            "lat_deg": position["lat"],
+            "lon_deg": position["lon"],
+            "h_ell_m": position["h"],
         }
     )
     drone = pl.DataFrame(
         {
             "timestamp": t + 0.3,
-            "RTK:lat_p": position["lat"],
-            "RTK:lon_p": position["lon"],
-            "RTK:hmsl_p": position["h"],
+            "rtk_lat_deg": position["lat"],
+            "rtk_lon_deg": position["lon"],
+            "rtk_h_ell_m": position["h"],
         }
     )
-    imu = pl.DataFrame({"IMU_ATTI(0):yaw": t % 360 - 180, "timestamp": t + 0.3})
-    motor = pl.DataFrame({"Motor:Speed:RFront": t, "timestamp": t + 0.3})
+    imu = pl.DataFrame({"yaw_deg": t % 360 - 180, "timestamp": t + 0.3})
+    motor = pl.DataFrame({"speed_rfront_rpm": t, "timestamp": t + 0.3})
     flight.raw_data.drone_data = DroneData(
-        drone, pl.DataFrame(), {"IMU_ATTI(0)": imu, "Motor": motor}
+        drone, pl.DataFrame(), {"imu_atti_0": imu, "motor": motor}
     )
     flight._Flight__drone_model = "dji"
 
     synced = flight.sync(target_rate={"drone": 10.0})
-    assert "drone_IMU_ATTI(0)" in synced
-    assert "drone_Motor" not in synced
+    assert "drone_imu_atti_0" in synced
+    assert "drone_motor" not in synced
     assert flight.sync_offsets["drone_gps"] == pytest.approx(-0.3, abs=0.05)
 
     synced = flight.sync(target_rate={"drone": 10.0}, drone_records="all")
-    assert {"drone_IMU_ATTI(0)", "drone_Motor"} <= set(synced)
+    assert {"drone_imu_atti_0", "drone_motor"} <= set(synced)
 
     path = tmp_path / "flight.h5"
     flight.to_hdf5(path)
     loaded = Flight.from_hdf5(path)
     assert (
-        loaded.sync_data["drone_IMU_ATTI(0)"].shape == synced["drone_IMU_ATTI(0)"].shape
+        loaded.sync_data["drone_imu_atti_0"].shape == synced["drone_imu_atti_0"].shape
     )
