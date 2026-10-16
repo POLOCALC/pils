@@ -386,8 +386,15 @@ class Flight:
                 assert isinstance(litchi_data, h5py.Group)
                 litchi_df = Flight._load_dataframe_from_hdf5(litchi_data)
 
+            records = {}
+            if "dat_records" in drone_group:
+                for record_name, item in drone_group["dat_records"].items():
+                    table = Flight._load_dataframe_from_hdf5(item)
+                    if table is not None:
+                        records[record_name] = table
+
             if drone_df is not None or litchi_df is not None:
-                flight.raw_data.drone_data = DroneData(drone_df, litchi_df)
+                flight.raw_data.drone_data = DroneData(drone_df, litchi_df, records)
 
         # Load payload data
         if "payload_data" in raw_group:
@@ -655,6 +662,7 @@ class Flight:
 
         # Find candidate files
         available_files = glob.glob(str(drone_folder) + "/*")
+        records: dict[str, pl.DataFrame] = {}  # other .dat records (DJI)
 
         if isinstance(self.__drone_model, str) and "dji" in self.__drone_model.lower():
             drone_data_path = None
@@ -677,6 +685,7 @@ class Flight:
             drone = DJIDrone(drone_data_path)
             drone.load_data(use_dat=dji_dat_loader)
             drone_data = drone.data
+            records = drone.records
 
             litchi_data = None
 
@@ -708,7 +717,7 @@ class Flight:
                 drone_data = drone.data
                 litchi_data = None
 
-        self.raw_data.drone_data = DroneData(drone_data, litchi_data)
+        self.raw_data.drone_data = DroneData(drone_data, litchi_data, records)
 
     def _read_sensor_data(self, sensor_name: str, sensor_folder: Path) -> Any | None:
         """
@@ -1191,6 +1200,14 @@ class Flight:
                     drone_group, "litchi", self.raw_data.drone_data.litchi
                 )
 
+            records = getattr(self.raw_data.drone_data, "records", None) or {}
+            if records:
+                if "dat_records" in drone_group:
+                    del drone_group["dat_records"]
+                records_group = drone_group.create_group("dat_records")
+                for record_name, table in records.items():
+                    self._save_dataframe_to_hdf5(records_group, record_name, table)
+
         # Save payload data
         if len(self.raw_data.payload_data.list_loaded_sensors()) > 0:
             if "payload_data" not in raw_data_group:
@@ -1444,6 +1461,7 @@ class DroneData:
         self,
         drone_df: Union[dict[str, "pl.DataFrame"], "pl.DataFrame", None] = None,
         litchi_df: Optional["pl.DataFrame"] = None,
+        records: dict[str, "pl.DataFrame"] | None = None,
     ) -> None:
         """
         Initialize DroneData container.
@@ -1455,6 +1473,9 @@ class DroneData:
             Can be a single DataFrame or a dict of DataFrames keyed by sensor name.
         litchi_df : Optional[pl.DataFrame], default=None
             Litchi flight log DataFrame
+        records : dict[str, pl.DataFrame], optional
+            Other DJI .dat records (IMU attitude, motors, battery, ...), one
+            table per record, with ``tick`` and drone-clock UTC ``timestamp``
         """
         # Initialize with empty DataFrames to avoid Optional types
         self.drone: dict[str, pl.DataFrame] | pl.DataFrame = (
@@ -1463,6 +1484,7 @@ class DroneData:
         self.litchi: pl.DataFrame = (
             litchi_df if litchi_df is not None else pl.DataFrame()
         )
+        self.records: dict[str, pl.DataFrame] = records or {}
 
     def __getitem__(self, key: str) -> Union["pl.DataFrame", dict[str, "pl.DataFrame"]]:
         """

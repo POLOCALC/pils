@@ -341,3 +341,25 @@ class TestColumnTypesRoundTrip:
         with h5py.File(temp_h5_file, "r") as f:
             assert f["raw_data/payload_data/gps/timestamp"].compression == "gzip"
             assert f["raw_data/payload_data/lm76/timestamp"].shape == (0,)
+
+    def test_dat_records_round_trip(self, temp_h5_file):
+        flight = Flight({"drone_data_folder_path": "/tmp/test_flight/drone"})
+        records = {
+            "IMU_ATTI(0)": pl.DataFrame(
+                {
+                    "IMU_ATTI(0):roll": [1.0, 2.0],
+                    "tick": [10, 20],
+                    "timestamp": [0.0, 1.0],
+                }
+            ),
+            "Motor": pl.DataFrame({"Motor:Speed:RFront": [3800], "tick": [15]}),
+        }
+        flight.raw_data.drone_data = DroneData(
+            drone_df=pl.DataFrame({"timestamp": [0.0]}), litchi_df=None, records=records
+        )
+        flight.to_hdf5(temp_h5_file)
+
+        loaded = Flight.from_hdf5(temp_h5_file).raw_data.drone_data.records
+        assert set(loaded) == set(records)
+        for name, table in records.items():
+            assert loaded[name].equals(table)

@@ -9,12 +9,21 @@ All notable changes to PILS are documented here.
   (`sync_data.h5`, AZEL per telescope with the telescope AZEL files,
   optional power analysis, `package_manifest.json`)
 - `output_dir` for `AZELAnalysis`
+- DJI .dat: IMU attitude (three IMUs, with roll/pitch/yaw), motors, motor
+  PWM, battery, controller, wind and the other GNSS receivers, in
+  `flight.raw_data.drone_data.records` and the flight HDF5
 - MkDocs documentation with Material theme
 - Comprehensive API reference
 - Data format specifications
 - Development guides
 
 ### Fixed
+- DJI .dat: about one GPS/RTK record in five was dropped (records with a
+  `0x55` byte in the encrypted payload); records are now found by length and
+  CRC, and decoded with numpy
+- DJI .dat RTK layout after `vel_d` (yaw, satellites, hdop, pitch, flags,
+  state were read 2 bytes early) and missing scale factors (RTK secondary
+  position and velocities, GPS DOPs and accuracies)
 - `Flight.to_hdf5` failed on text columns with missing values, on date and
   time columns and on the inclinometer (a dict of tables); these now round-trip,
   and the columns are gzip-compressed

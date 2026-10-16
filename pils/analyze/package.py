@@ -222,6 +222,9 @@ class FlightPackager:
             result.add(
                 "load drone", "done", _describe(flight.raw_data.drone_data.drone)
             )
+            records = getattr(flight.raw_data.drone_data, "records", None) or {}
+            if records:
+                result.add("load drone records", "done", _describe(records))
         except Exception as e:
             result.add("load drone", "failed", _error(e))
         return flight
