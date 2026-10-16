@@ -181,3 +181,33 @@ This two-stage approach allows synchronization even when Inclinometer and GPS do
     - $0.7 < \rho < 0.9$: Good
     - $\rho < 0.7$: Questionable
 - **Spatial Offset** ($d$): Residual position error after time alignment (should be < 5m for good GPS)
+
+## Resampling
+
+With `common_time=True` every source is linearly interpolated to the
+reference time base at its target rate, with NaN outside the source's time
+range.
+
+- **Angle columns** are interpolated the short way across the wrap: from
+  179° to −179° the midpoint is −180°, not 0°. A column is an angle by its
+  name (the part after the last `:`): `yaw`, `roll`, `pitch` and `heading`,
+  with or without `gimbal`, `Abs` and `(deg)` (degrees), with `_rad`
+  (radians), or with `Raw` (0.1°). The result keeps the range of the input,
+  [−180°, 180°) or [0°, 360°).
+- **Drone records** (DJI `.dat`, see [DJI Drone](dji-drone.md)) take the
+  drone GPS offset, since they are on the same clock. `Flight.sync`
+  synchronizes `IMU_ATTI(0)`, the flight controller attitude, by default, as
+  `drone_IMU_ATTI(0)`; pass `drone_records=[...]` or `drone_records="all"` for
+  others. Their integer columns (counts, flags, states) hold the last value
+  instead of being interpolated. The rate is `target_rate["drone_records"]`,
+  or the drone rate.
+
+```python
+flight.sync(target_rate={"drone": 100.0}, drone_records=["IMU_ATTI(0)", "Motor"])
+flight.sync_data["drone_IMU_ATTI(0)"]  # roll, pitch, yaw, accel, gyro, ...
+flight.sync_offsets  # {"drone_gps": 0.233, "litchi_gps": -0.187, "inclinometer": 0.306}
+```
+
+`flight.sync_offsets` keeps the detected offsets in seconds; as in the
+offsets above, the inclinometer and camera ones are relative to Litchi.
+`pils package` saves them in the synchronized revision (`user_time_offsets`).

@@ -14,6 +14,9 @@ All notable changes to PILS are documented here.
   `flight.raw_data.drone_data.records` and the flight HDF5
 - Litchi: `gimbalRoll` and `gimbalYaw` in degrees (as `gimbalPitch`), and
   `gimbalYawAbs`, the gimbal heading from north
+- Sync: DJI .dat records on the payload time base, with the drone GPS
+  offset (`drone_IMU_ATTI(0)` by default, `Flight.sync(drone_records=...)`);
+  `flight.sync_offsets`, saved by `pils package`
 - MkDocs documentation with Material theme
 - Comprehensive API reference
 - Data format specifications
@@ -30,6 +33,8 @@ All notable changes to PILS are documented here.
   time columns and on the inclinometer (a dict of tables); these now round-trip,
   and the columns are gzip-compressed
 - `PowerAnalysis(output_dir=...)` wrote its AZEL results into the flight folder
+- Sync: angles (yaw, roll, pitch, heading) are interpolated across the
+  ±180° wrap instead of through 0°
 - Sync: the GPS and pitch time offsets were biased towards zero (a 2 s clock
   difference came out as 1.27 s; on flight_20251208_1927 the Litchi offset
   moves by 54 ms, the drone one by 26 ms). Offsets are now fitted by least

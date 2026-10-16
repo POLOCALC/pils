@@ -65,8 +65,11 @@ PILS can perform automatic decoding of the ```.DAT``` file created by the DJI Ma
     GPS and RTK make the drone table (`flight.raw_data.drone_data.drone`). The
     other records are in `flight.raw_data.drone_data.records`, one table per
     record with `tick` and UTC `timestamp`, and are saved in the flight HDF5
-    under `raw_data/drone_data/dat_records/`. Names follow DatCon's CSV
-    columns. Every field was compared with DatCon 4.3.0's CSV of the same
+    under `raw_data/drone_data/dat_records/`. `flight.sync()` puts
+    `IMU_ATTI(0)` (or the records you choose) on the payload time base as
+    `drone_IMU_ATTI(0)`, see
+    [Synchronization](synchronization.md#resampling). Names follow DatCon's
+    CSV columns. Every field was compared with DatCon 4.3.0's CSV of the same
     flight, tick by tick, unless marked otherwise.
 
     | Record | Type | Rate | Content |
