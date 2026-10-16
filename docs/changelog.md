@@ -5,10 +5,20 @@ All notable changes to PILS are documented here.
 ## [Unreleased]
 
 ### Added
+- `pils package`: sync a flight and save its data products in `proc/`
+  (`sync_data.h5`, AZEL per telescope with the telescope AZEL files,
+  optional power analysis, `package_manifest.json`)
+- `output_dir` for `AZELAnalysis`
 - MkDocs documentation with Material theme
 - Comprehensive API reference
 - Data format specifications
 - Development guides
+
+### Fixed
+- `Flight.to_hdf5` failed on text columns with missing values, on date and
+  time columns and on the inclinometer (a dict of tables); these now round-trip,
+  and the columns are gzip-compressed
+- `PowerAnalysis(output_dir=...)` wrote its AZEL results into the flight folder
 
 ---
 

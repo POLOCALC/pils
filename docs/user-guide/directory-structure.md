@@ -41,12 +41,13 @@ flight_YYYYMMDD_hhmm/
 │   └── YYYYMMDD_hhmmss_litchi.csv
 └── proc
     ├── sync_data.h5
-    └── analyzed_data
+    ├── package_manifest.json
+    └── analyzed_data (azel/, power/, ppk/, ...)
 
 
 ```
 
-This structure is designed to work with both available loaders in PILS, [PathLoader](../api/loaders/path-loader.md) and [StoutLoader](../api/loaders/stout-loader.md). The specific structure for the the ```proc\``` folder is given in the following section. 
+This structure is designed to work with both available loaders in PILS, [PathLoader](../api/loaders/path-loader.md) and [StoutLoader](../api/loaders/stout-loader.md). The specific structure for the the ```proc\``` folder is given in the following section. The whole ```proc/``` folder of a flight is produced by ```pils package <flight>``` (see [Flight Packaging](../api/analysis/package.md)).
 
 
 ## Output Structure
@@ -78,15 +79,14 @@ flight.h5
 │       ├── imu/
 │       │   └── [DataFrame columns]
 │       └── ...
-└── synchronized/                        # Versioned sync data
+└── sync_data/                          # Versioned sync data
     ├── rev_20231101_120000/
-    │   ├── metadata
-    │   │   ├── sync_method: "correlation"
-    │   │   └── column_names: []
-    │   └── GPS
-    │       ├── metadata
-    │       │   └── column_names: []
-    │       └── data (dataset)
+    │   ├── [attrs]                     # created_at, pils_version, user_* metadata
+    │   ├── drone/                      # one group per synchronized source
+    │   │   ├── [attrs] columns, dtypes, n_rows
+    │   │   └── <column> (dataset)
+    │   ├── inclinometer/
+    │   └── ...
     │
     └── rev_20231101_140000/
         └── ...
@@ -126,6 +126,8 @@ analysis_result.h5
 ```
 
 **metadata** are assigned using ```.attrs``` and are mandatory for each dataset. They should at least include the column names. 
+
+In ```sync_data.h5``` the columns are gzip-compressed. Text columns are stored as strings (a missing value becomes an empty string), date and time columns as integers that are converted back to their type on load (the ```dtypes``` attribute), and missing numbers as NaN. A sensor made of several tables, such as the inclinometer (```INS```, ```IMU```, ```INL2```), is a group with one subgroup per table.
 
 ---
 
