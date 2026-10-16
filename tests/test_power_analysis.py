@@ -295,12 +295,18 @@ def test_power_analysis_end_to_end(tmp_path, monkeypatch):
     loaded = analysis.get_latest_version("SATP1", "ws0")
     assert loaded.power_data.equals(data)
     assert loaded.metadata["rf_chain"]["coupler"] == "COU_001"
-    figures = tmp_path / "out" / "proc" / "power" / "SATP1_ws0" / version.version_name
-    assert sorted(p.name for p in figures.iterdir()) == [
+    # One folder per run: the saved tables (pils.store) and the plots
+    folder = tmp_path / "out" / "proc" / "power" / "SATP1_ws0" / version.version_name
+    assert sorted(p.name for p in folder.iterdir()) == [
         "adc.png",
+        "manifest.json",
         "pointing.png",
         "power.png",
+        "power_data.parquet",
     ]
+    from pils import store
+
+    assert store.read_manifest(folder)["kind"] == "power"
     assert not (tmp_path / "flight_test" / "proc").exists()
 
 

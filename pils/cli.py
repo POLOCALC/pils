@@ -145,6 +145,21 @@ def _package(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
+def _migrate(args: argparse.Namespace) -> int:
+    from pils.migrate import migrate_proc
+
+    failed = 0
+    for proc in args.proc_dirs:
+        done = migrate_proc(proc, dry_run=args.dry_run)
+        print(
+            f"{proc}: {len(done)} revision(s)" + (" to convert" if args.dry_run else "")
+        )
+        for item in done:
+            print(f"  {item}")
+        failed += any(item.startswith("FAILED") for item in done)
+    return 1 if failed else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="pils", description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -231,6 +246,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--lab-root",
         help="Lab data root for --power (default: PILS_LAB_DATA_PATH or STOUT)",
     )
+    migrate = sub.add_parser(
+        "migrate", help="Convert HDF5 results in proc/ to the Parquet layout"
+    )
+    migrate.add_argument("proc_dirs", nargs="+", help="Flight proc/ folders")
+    migrate.add_argument(
+        "--dry-run", action="store_true", help="List what would be converted"
+    )
     return parser
 
 
@@ -240,6 +262,8 @@ def main(argv: list[str] | None = None) -> int:
         return _lab(args)
     if args.command == "package":
         return _package(args)
+    if args.command == "migrate":
+        return _migrate(args)
     return _power(args)
 
 

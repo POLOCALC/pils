@@ -3,10 +3,10 @@
 import json
 from datetime import UTC, datetime
 
-import h5py
 import polars as pl
 import pytest
 
+from pils import store
 from pils.analyze import package as pkg
 from pils.analyze.azel import AZELAnalysis, AZELVersion
 from pils.analyze.package import (
@@ -75,7 +75,7 @@ def fake_azel(monkeypatch):
             raise ValueError(f"No telescope positions found for '{telescope}'")
         version = AZELVersion("rev_20260101_000000", AZEL, {})
         if save_data:
-            self._save_to_hdf5(version, telescope_name=telescope)
+            self._save_version(version, telescope_name=telescope)
         return version
 
     monkeypatch.setattr(AZELAnalysis, "run_analysis", run_analysis)
@@ -134,7 +134,7 @@ class TestRun:
             "load imu": "skipped",
             "load drone": "done",
             "sync": "done",
-            "save sync_data.h5": "done",
+            "save flight": "done",
             "azel SATP1": "done",
             "azel SATP9": "skipped",
             "manifest": "done",
@@ -142,23 +142,22 @@ class TestRun:
         # Errors are reported on one line
         assert "second line" not in result.summary()
 
-        with h5py.File(proc / "sync_data.h5", "r") as f:
-            assert "gps" in f["raw_data/payload_data"]
-            (revision,) = list(f["sync_data"])
-            attrs = f["sync_data"][revision].attrs
-            assert attrs["user_package_version"] == result.version_name
+        # Flight.save: raw data and one synchronized revision
+        flight_out = proc / pkg.FLIGHT_DIR
+        assert (flight_out / "raw" / "payload" / "gps.parquet").is_file()
+        (revision,) = store.list_versions(flight_out / "sync")
+        sync_manifest = store.read_manifest(flight_out / "sync" / revision)
+        assert sync_manifest["metadata"]["package_version"] == result.version_name
+        assert "drone" in sync_manifest["tables"]
 
         # AZEL saved, with the sync revision it used, and its telescope file
         telescope, saved, metadata = fake_azel[0]
         assert (telescope, saved) == ("SATP1", True)
         assert metadata["sync_revision"] == revision
-        assert (proc / "azel" / "azel_solution.h5").is_file()
-        csv = (
-            proc
-            / "azel"
-            / "rev_20260101_000000"
-            / "rev_20260101_000000_azel_satp1_20251208_1927.csv"
-        )
+        azel_dir = proc / "azel" / "SATP1" / "rev_20260101_000000"
+        assert (azel_dir / "manifest.json").is_file()
+        assert (azel_dir / "azel_data.parquet").is_file()
+        csv = azel_dir / "rev_20260101_000000_azel_satp1_20251208_1927.csv"
         assert pl.read_csv(csv).columns == ["timestamp", "az", "el", "srange"]
 
         manifest = json.loads((proc / "package_manifest.json").read_text())
@@ -171,7 +170,7 @@ class TestRun:
             telescopes=["SATP1"], save=False
         )
         assert result.ok
-        assert steps(result)["save sync_data.h5"] == "skipped"
+        assert steps(result)["save flight"] == "skipped"
         assert steps(result)["azel SATP1"] == "done"
         assert fake_azel[0][1] is False
         assert not (flight_dir / "proc").exists()
@@ -183,8 +182,8 @@ class TestRun:
         )
         proc = out / flight_dir.name / "proc"
         assert result.proc_dir == str(proc)
-        assert (proc / "sync_data.h5").is_file()
-        assert (proc / "azel" / "azel_solution.h5").is_file()
+        assert store.list_versions(proc / pkg.FLIGHT_DIR / "sync")
+        assert store.list_versions(proc / "azel" / "SATP1")
         assert not (flight_dir / "proc").exists()
 
     def test_no_gps_stops_before_sync(self, flight_dir, fake_flight, monkeypatch):
@@ -195,7 +194,7 @@ class TestRun:
         assert not result.ok
         assert steps(result)["load"] == "failed"
         assert "sync" not in steps(result)
-        assert not (flight_dir / "proc" / "sync_data.h5").exists()
+        assert not (flight_dir / "proc" / pkg.FLIGHT_DIR).exists()
 
     def test_sync_failure_is_reported(self, flight_dir, fake_flight, monkeypatch):
         def sync(self, **kwargs):
@@ -205,7 +204,7 @@ class TestRun:
         result = FlightPackager.from_flight(flight_dir).run()
         assert not result.ok
         assert steps(result)["sync"] == "failed"
-        assert "save sync_data.h5" not in steps(result)
+        assert "save flight" not in steps(result)
 
     def test_power_targets(self, flight_dir, fake_flight, fake_azel, monkeypatch):
         from pils.analyze.power import PowerAnalysis
@@ -233,7 +232,7 @@ class TestCli:
         assert main(["package", str(flight_dir), "-t", "SATP1"]) == 0
         out = capsys.readouterr().out
         assert "azel SATP1" in out
-        assert (flight_dir / "proc" / "sync_data.h5").is_file()
+        assert store.list_versions(flight_dir / "proc" / pkg.FLIGHT_DIR / "sync")
 
     def test_exit_code_on_failure(self, flight_dir, fake_flight, monkeypatch, capsys):
         monkeypatch.setattr(Flight, "add_sensor_data", lambda self, sensor: None)

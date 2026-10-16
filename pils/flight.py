@@ -2,6 +2,7 @@ import glob
 import json
 import logging
 import re
+import warnings
 from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
@@ -66,6 +67,28 @@ def _standardize(data: Any, kind: str | None = None) -> Any:
             for key, value in data.items()
         }
     return data
+
+
+_LEGACY_SYNC_COORDINATES = {
+    "latitude": "lat_deg",
+    "longitude": "lon_deg",
+    "altitude": "h_ell_m",
+}
+_SYNC_KINDS = {"drone": "dji", "reference_gps": "gps"}
+
+
+def _legacy_sync_table(key: str, df: pl.DataFrame) -> tuple[str, pl.DataFrame]:
+    """A synchronized table from a file written before the schema, renamed."""
+    df = df.rename(
+        {k: v for k, v in _LEGACY_SYNC_COORDINATES.items() if k in df.columns}
+    )
+    if key.startswith("drone_"):
+        record = key.removeprefix("drone_")
+        return f"drone_{schema.record_name(record)}", schema.canonical(
+            df, record=record
+        )
+    kind = _SYNC_KINDS.get(key, key.split("_")[0])  # imu_barometer -> imu
+    return key, schema.canonical(df, kind)
 
 
 def _standardize_records(records: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
@@ -236,6 +259,11 @@ class Flight:
         self.sync_offsets: dict[str, float] = {}
         self.sync_rates: dict[str, float] = {}
         self.adc_gain_config = None
+        # Set by the loaders; saved with the raw data
+        self.__drone_model: str | None = None
+        self.__inclinometer: str | None = None
+        self.__camera_model: str | None = None
+        self.__use_photogrammetry = False
 
     @classmethod
     def from_hdf5(
@@ -351,7 +379,9 @@ class Flight:
                         if df is not None:
                             sync_dict[key] = df
                     if sync_dict:
-                        flight.sync_data = sync_dict
+                        flight.sync_data = dict(
+                            _legacy_sync_table(key, df) for key, df in sync_dict.items()
+                        )
 
         return flight
 
@@ -423,6 +453,15 @@ class Flight:
                     if table is not None:
                         records[record_name] = table
 
+            # Files written before the schema: rename to it (no-op otherwise)
+            if drone_df is not None:
+                drone_df = schema.canonical(drone_df, "dji")
+            if litchi_df is not None:
+                litchi_df = schema.canonical(litchi_df, "litchi")
+            records = {
+                schema.record_name(name): schema.canonical(table, record=name)
+                for name, table in records.items()
+            }
             if drone_df is not None or litchi_df is not None:
                 flight.raw_data.drone_data = DroneData(drone_df, litchi_df, records)
 
@@ -437,7 +476,11 @@ class Flight:
                 assert isinstance(sensor_data, h5py.Group)
                 sensor_df = Flight._load_dataframe_from_hdf5(sensor_data)
                 if sensor_df is not None:
-                    setattr(flight.raw_data.payload_data, sensor_name, sensor_df)
+                    setattr(
+                        flight.raw_data.payload_data,
+                        sensor_name,
+                        schema.canonical(sensor_df, sensor_name),
+                    )
                     continue
                 # A group of tables (e.g. the inclinometer message types)
                 tables = {
@@ -445,7 +488,11 @@ class Flight:
                     for name, item in sensor_data.items()
                     if isinstance(item, h5py.Group)
                 }
-                tables = {k: v for k, v in tables.items() if v is not None}
+                tables = {
+                    schema.snake_case(k): schema.canonical(v, sensor_name)
+                    for k, v in tables.items()
+                    if v is not None
+                }
                 if tables:
                     setattr(flight.raw_data.payload_data, sensor_name, tables)
 
@@ -968,14 +1015,23 @@ class Flight:
             if isinstance(drone_df, dict):  # ArduPilot messages
                 drone_df = drone_df.get("gps", next(iter(drone_df.values())))
 
-            if "dji" in self.__drone_model.lower() and use_rtk_data:
+            model = (self.__drone_model or "").lower()
+            records_gps = (self.raw_data.drone_data.records or {}).get("gps")
+            if "dji" in model and use_rtk_data and "rtk_lat_deg" in drone_df.columns:
                 lat_col, lon_col, alt_col = "rtk_lat_deg", "rtk_lon_deg", "rtk_h_ell_m"
             else:
-                # Heights above mean sea level: to the ellipsoid with the geoid
-                # separation of the payload receiver
-                prefix = "gps_" if "dji" in self.__drone_model.lower() else ""
+                # The main receiver: in the drone table (DatCon CSV,
+                # BlackSquare) or, for DJI .dat files, its own record
+                if "gps_lat_deg" in drone_df.columns:
+                    prefix = "gps_"
+                elif "dji" in model and records_gps is not None:
+                    drone_df, prefix = records_gps, ""
+                else:
+                    prefix = ""
                 lat_col, lon_col = f"{prefix}lat_deg", f"{prefix}lon_deg"
                 alt_col = f"{prefix}h_ell_m"
+                # Heights above mean sea level: to the ellipsoid with the geoid
+                # separation of the payload receiver
                 separation = (gps_data["h_ell_m"] - gps_data["h_msl_m"]).median()
                 drone_df = drone_df.with_columns(
                     (pl.col(f"{prefix}h_msl_m") + separation).alias(alt_col)
@@ -1083,6 +1139,159 @@ class Flight:
 
         return self.sync_data
 
+    # -- storage (pils.store) ------------------------------------------------
+
+    def _raw_tables(self) -> dict[str, Any]:
+        drone = self.raw_data.drone_data
+        tables: dict[str, Any] = {"drone": {}, "payload": {}}
+        if drone is not None:
+            if isinstance(drone.drone, pl.DataFrame | dict) and len(drone.drone):
+                tables["drone"]["drone"] = drone.drone
+            if isinstance(drone.litchi, pl.DataFrame) and drone.litchi.height:
+                tables["drone"]["litchi"] = drone.litchi
+            if drone.records:
+                tables["drone"]["records"] = drone.records
+        for name in self.raw_data.payload_data.list_loaded_sensors():
+            data = self.raw_data.payload_data[name]
+            data = data.data if hasattr(data, "data") else data
+            if isinstance(data, pl.DataFrame | dict):
+                tables["payload"][name] = data
+        return {k: v for k, v in tables.items() if v}
+
+    def save(
+        self,
+        directory: str | Path,
+        sync_metadata: dict[str, Any] | None = None,
+        revision: str | None = None,
+    ) -> str | None:
+        """Save the flight: raw data and a new synchronized revision.
+
+        Layout (see :mod:`pils.store`)::
+
+            <directory>/
+            ├── raw/                      # replaced at each save
+            │   ├── manifest.json         # flight info, loaders, code version
+            │   ├── drone/drone.parquet, drone/litchi.parquet,
+            │   │   drone/records/<record>.parquet
+            │   └── payload/<sensor>.parquet, payload/<sensor>/<table>.parquet
+            └── sync/
+                └── rev_YYYYMMDD_hhmmss/  # one per save with sync_data
+                    ├── manifest.json     # offsets, rates, raw data used
+                    └── <table>.parquet
+
+        Parameters
+        ----------
+        directory : str or Path
+            Folder of the flight's products, e.g. ``<flight>/proc/flight``.
+        sync_metadata : dict, optional
+            Stored in the synchronized revision's manifest (e.g. the run).
+        revision : str, optional
+            Name of the synchronized revision (default: the current time).
+
+        Returns
+        -------
+        str or None
+            Name of the synchronized revision, or None without sync_data.
+        """
+        from pils import store
+
+        directory = Path(directory)
+        raw = store.write_tables(
+            directory / "raw",
+            self._raw_tables(),
+            metadata={
+                "flight_info": self.flight_info,
+                "flight_metadata": self.metadata,
+                "drone_model": self.__drone_model,
+                "inclinometer": self.__inclinometer,
+                "camera_model": self.__camera_model,
+                "use_photogrammetry": self.__use_photogrammetry,
+            },
+            kind="flight_raw",
+            replace=True,
+        )
+        if not self.sync_data:
+            return None
+        if revision is None:
+            revision = store.new_version_name()
+            while (directory / "sync" / revision).exists():
+                import time
+
+                time.sleep(1)
+                revision = store.new_version_name()
+        store.save_version(
+            directory / "sync",
+            revision,
+            dict(self.sync_data),
+            metadata={
+                "raw_saved_at": store.read_manifest(raw)["saved_at"],
+                "time_offsets": self.sync_offsets,
+                "rates": self.sync_rates,
+                **(sync_metadata or {}),
+            },
+            kind="flight_sync",
+        )
+        return revision
+
+    @classmethod
+    def load(
+        cls, directory: str | Path, sync_revision: str | None | bool = None
+    ) -> "Flight":
+        """Load a flight saved with :meth:`save`.
+
+        Parameters
+        ----------
+        directory : str or Path
+            Folder given to :meth:`save`.
+        sync_revision : str, None or False, default=None
+            Synchronized revision to load: None for the latest, False for
+            none.
+
+        Returns
+        -------
+        Flight
+            The flight, ready to be synchronized again.
+        """
+        from pils import store
+
+        directory = Path(directory)
+        tables, manifest = store.read_tables(directory / "raw")
+        meta = manifest["metadata"]
+        flight = cls(meta["flight_info"])
+        flight.metadata.update(meta.get("flight_metadata") or {})
+        flight.__drone_model = meta.get("drone_model")
+        flight.__inclinometer = meta.get("inclinometer")
+        flight.__camera_model = meta.get("camera_model")
+        flight.__use_photogrammetry = bool(meta.get("use_photogrammetry"))
+
+        drone: dict[str, Any] = tables.get("drone", {})  # type: ignore[assignment]
+        if drone:
+            flight.raw_data.drone_data = DroneData(
+                drone.get("drone", pl.DataFrame()),
+                drone.get("litchi"),
+                drone.get("records"),
+            )
+        payload: dict[str, Any] = tables.get("payload", {})  # type: ignore[assignment]
+        for name, data in payload.items():
+            setattr(flight.raw_data.payload_data, name, data)
+
+        if sync_revision is not False:
+            revisions = store.list_versions(directory / "sync")
+            if sync_revision is None and revisions:
+                sync_revision = revisions[-1]
+            if sync_revision:
+                if sync_revision not in revisions:
+                    raise ValueError(
+                        f"Sync revision '{sync_revision}' not found: {revisions}"
+                    )
+                sync_tables, sync_meta = store.load_version(
+                    directory / "sync", sync_revision
+                )
+                flight.sync_data = sync_tables  # type: ignore[assignment]
+                flight.sync_offsets = sync_meta.get("time_offsets", {})
+                flight.sync_rates = sync_meta.get("rates", {})
+        return flight
+
     def to_hdf5(
         self,
         filepath: str | Path | None = None,
@@ -1090,6 +1299,10 @@ class Flight:
     ) -> str:
         """
         Save flight data to HDF5 file.
+
+        .. deprecated::
+            Use :meth:`save` (Parquet tables, see :mod:`pils.store`);
+            :meth:`from_hdf5` still reads HDF5 files.
 
         Saves metadata and raw_data hierarchy.
 
@@ -1127,6 +1340,11 @@ class Flight:
         >>> # ... add other sources ...
         >>> result = sync.synchronize(target_rate={'drone': 10.0, 'payload': 100.0})
         """
+        warnings.warn(
+            "Flight.to_hdf5 is deprecated: use Flight.save (Parquet, pils.store)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
         if filepath:
             filepath = Path(filepath)

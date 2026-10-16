@@ -423,3 +423,44 @@ def canonical(
 def names_of(names: dict[str, str], target: str) -> list[str]:
     """Source columns mapped to ``target``."""
     return [k for k, v in names.items() if v == target]
+
+
+_TABLE_TITLES = {
+    "gps": "Payload GPS (`payload_data.gps`)",
+    "adc": "ADC (`payload_data.adc`)",
+    "lm76": "LM76 (`payload_data.lm76`)",
+    "imu": "Payload IMU (`payload_data.imu[...]`)",
+    "inclinometer": "Inclinometer (`payload_data.inclinometer[...]`)",
+    "litchi": "Litchi (`drone_data.litchi`)",
+    "dji": "DJI drone table (`drone_data.drone`)",
+    "blacksquare": "BlackSquare / ArduPilot (`drone_data.drone[...]`)",
+    "camera": "Camera (`payload_data.camera`)",
+}
+
+
+def markdown_reference() -> str:
+    """The renamed columns of every source, as Markdown tables.
+
+    ``docs/user-guide/data-schema.md`` includes this text; a test checks
+    that it is up to date.
+    """
+    lines = []
+
+    def table(title: str, fields: dict[str, Field], drop: tuple[str, ...] = ()):
+        lines.extend(
+            [f"### {title}", "", "| Source column | Column | Unit |", "|---|---|---|"]
+        )
+        for native, field in fields.items():
+            scale = f" (×{field.scale:g})" if field.scale is not None else ""
+            unit = unit_of(field.name) or ""
+            lines.append(f"| `{native}` | `{field.name}` | {unit}{scale} |")
+        for native in drop:
+            lines.append(f"| `{native}` | dropped (duplicate) | |")
+        lines.append("")
+
+    for kind, fields in TABLES.items():
+        table(_TABLE_TITLES[kind], fields, DROP.get(kind, ()))
+    for record, fields in DJI_RECORDS.items():
+        name = record_name(record) + ("_<n>" if record in ("IMU_ATTI", "GPS") else "")
+        table(f"DJI record `{record}` (`drone_data.records['{name}']`)", fields)
+    return "\n".join(lines)

@@ -16,6 +16,7 @@ import numpy as np
 import polars as pl
 from scipy.interpolate import RegularGridInterpolator
 
+from pils import store as result_store
 from pils.analyze.power.rf_chain import (
     RFChain,
     detector_power,
@@ -31,8 +32,8 @@ from pils.analyze.power.signal import (
 from pils.analyze.power.telescope import TelescopeBeam, load_config, telescope_beam
 from pils.flight import Flight
 from pils.lab_analysis.store import LabStore, value_at
+from pils.store import new_version_name
 from pils.utils import geometry
-from pils.utils.hdf5 import list_versions, load_version, new_version_name, save_version
 from pils.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -73,9 +74,9 @@ class PowerAnalysis:
 
     File Structure
     --------------
-    flight_dir/proc/power/
-    ├── power_solution.h5          # <TELESCOPE>_<wafer slot>/rev_*/power_data
-    └── SATP1_ws0/rev_*/           # plots of a run
+    flight_dir/proc/power/          # see pils.store
+    └── SATP1_ws0/                  # <TELESCOPE>_<wafer slot>
+        └── rev_*/                  # manifest.json, power_data.parquet, plots
 
     Examples
     --------
@@ -106,30 +107,29 @@ class PowerAnalysis:
         self.output_dir = Path(output_dir) if output_dir is not None else None
         base = self.output_dir or self.flight_path
         self.power_dir = base / "proc" / "power"
-        self.results_path = self.power_dir / "power_solution.h5"
 
     @staticmethod
     def target_name(telescope: str, wafer_slot: str) -> str:
-        """HDF5 group of a telescope and wafer slot, e.g. ``SATP1_ws0``."""
+        """Folder of a telescope and wafer slot, e.g. ``SATP1_ws0``."""
         return f"{telescope.upper()}_{wafer_slot}"
 
     # -- versions -----------------------------------------------------------
 
     def list_versions(self, telescope: str, wafer_slot: str) -> list[str]:
         """Runs for a telescope and wafer slot, oldest first."""
-        return list_versions(
-            self.results_path, parent=self.target_name(telescope, wafer_slot)
+        return result_store.list_versions(
+            self.power_dir, parent=self.target_name(telescope, wafer_slot)
         )
 
     def get_version(
         self, telescope: str, wafer_slot: str, version_name: str
     ) -> PowerVersion:
-        tables, metadata = load_version(
-            self.results_path,
+        tables, metadata = result_store.load_version(
+            self.power_dir,
             version_name,
             parent=self.target_name(telescope, wafer_slot),
         )
-        return PowerVersion(version_name, tables["power_data"], metadata)
+        return PowerVersion(version_name, tables["power_data"], metadata)  # type: ignore[arg-type]
 
     def get_latest_version(
         self, telescope: str, wafer_slot: str
@@ -201,7 +201,7 @@ class PowerAnalysis:
             names = azel.list_versions(telescope_name=telescope)
             if azel_version not in names:
                 raise ValueError(f"AZEL version {azel_version} not found ({names})")
-            version = azel._load_from_hdf5(azel_version, telescope_name=telescope)  # type: ignore[attr-defined]
+            version = azel._load_version(azel_version, telescope_name=telescope)
         else:
             version = azel.run_analysis(telescope, dji_broadcast_geod, save_data=save)
         if version is None:
@@ -457,16 +457,15 @@ class PowerAnalysis:
             },
         )
         if save_data:
-            save_version(
-                self.results_path,
+            path = result_store.save_version(
+                self.power_dir,
                 version.version_name,
                 {"power_data": power_data},
                 version.metadata,
                 parent=self.target_name(telescope, wafer_slot),
+                kind="power",
             )
-            logger.info(
-                f"Saved power version {version.version_name} to {self.results_path}"
-            )
+            logger.info(f"Saved power version {version.version_name} to {path}")
         if plot:
             self._save_plots(
                 version,

@@ -45,12 +45,13 @@ from typing import Any
 import h5py
 import polars as pl
 
+from pils import store
 from pils.analyze.ppkdata.PPK.pos_analyzer import POSAnalyzer
 from pils.analyze.ppkdata.PPK.report import RTKLIBReport
 from pils.analyze.ppkdata.PPK.stat_analyzer import STATAnalyzer
 from pils.analyze.ppkdata.RINEX.report import RINEXReport
 from pils.flight import Flight
-from pils.utils.hdf5 import read_table, write_table
+from pils.utils.hdf5 import read_table
 
 logger = logging.getLogger(__name__)
 
@@ -364,11 +365,6 @@ class PPKAnalysis:
         ... else:
         ...     print("Config unchanged, skipping")
         """
-        # Run if no HDF5 file exists (first run)
-        if not self.hdf5_path.exists():
-            logger.info("No HDF5 file found - running analysis")
-            return True
-
         # Run if no versions loaded
         if not self.versions:
             logger.info("No previous versions found - running analysis")
@@ -832,102 +828,52 @@ class PPKAnalysis:
         # Store in versions dict
         self.versions[version_name] = version
 
-        # Save to HDF5 automatically
-        self._save_version_to_hdf5(version)
+        # Save automatically
+        self._save_version(version)
 
         logger.info(f"PPK analysis complete: {version_name}")
         return version
 
-    def _save_version_to_hdf5(self, version: PPKVersion) -> None:
+    def _save_version(self, version: PPKVersion) -> Path:
+        """Save a version: ``ppk/<version>/`` (see :mod:`pils.store`).
+
+        The tables (``position``, ``statistics``) and the manifest go next to
+        the RTKLIB files of the revision.
         """
-        Save a single PPKVersion to HDF5 file.
+        path = store.save_version(
+            self.ppk_dir,
+            version.version_name,
+            {"position": version.pos_data, "statistics": version.stat_data},
+            {
+                "config_hash": version.metadata.get("config_hash"),
+                "timestamp": version.metadata.get("timestamp"),
+                "config_params": version.metadata.get("config_params", {}),
+                "revision_path": str(version.revision_path),
+            },
+            kind="ppk",
+        )
+        logger.info(f"Saved version {version.version_name} to {path}")
+        return path
 
-        Creates or opens ppk_solution.h5 and saves the version's position data,
-        statistics data, and metadata. Follows Flight.py pattern for DataFrame
-        serialization with column-wise datasets.
-
-        HDF5 Structure
-        --------------
-        /{version_name}/
-        ├── position/           # POSAnalyzer DataFrame columns
-        │   ├── timestamp (dataset)
-        │   ├── lat (dataset)
-        │   └── ...
-        ├── statistics/         # STATAnalyzer DataFrame columns
-        │   ├── timestamp (dataset)
-        │   ├── num_sat (dataset)
-        │   └── ...
-        └── attrs:              # Group attributes
-            ├── config_hash
-            ├── timestamp
-            ├── config_params (JSON string)
-            └── revision_path
-
-        Parameters
-        ----------
-        version : PPKVersion
-            PPKVersion to save
-
-        Examples
-        --------
-        >>> ppk = PPKAnalysis('/path/to/flight')
-        >>> version = PPKVersion(...)
-        >>> ppk._save_version_to_hdf5(version)
-        """
-        import h5py
-
-        # Create/open HDF5 file
-        with h5py.File(self.hdf5_path, "a") as f:
-            # Create version group (remove if exists)
-            if version.version_name in f:
-                del f[version.version_name]
-
-            version_group = f.create_group(version.version_name)
-
-            # Save position DataFrame
-            self._save_dataframe_to_hdf5(version_group, "position", version.pos_data)
-
-            # Save statistics DataFrame
-            self._save_dataframe_to_hdf5(version_group, "statistics", version.stat_data)
-
-            # Save metadata as group attributes
-            from pils.flight import _serialize_for_hdf5
-
-            version_group.attrs["config_hash"] = _serialize_for_hdf5(
-                version.metadata.get("config_hash")
-            )
-            version_group.attrs["timestamp"] = _serialize_for_hdf5(
-                version.metadata.get("timestamp")
-            )
-            version_group.attrs["config_params"] = _serialize_for_hdf5(
-                version.metadata.get("config_params", {})
-            )
-            version_group.attrs["revision_path"] = _serialize_for_hdf5(
-                str(version.revision_path)
-            )
-
-        logger.info(f"Saved version {version.version_name} to HDF5")
-
-    def _save_dataframe_to_hdf5(
-        self, parent_group: h5py.Group, name: str, df: pl.DataFrame
-    ) -> None:
-        """
-        Save a Polars DataFrame to HDF5 (see :func:`pils.utils.hdf5.write_table`).
-
-        Parameters
-        ----------
-        parent_group : h5py.Group
-            Parent HDF5 group
-        name : str
-            Name for the column group
-        df : pl.DataFrame
-            Polars DataFrame to save
-        """
-        write_table(parent_group, name, df)
+    def _load_version(self, version_name: str) -> PPKVersion:
+        """Load a saved version and add it to :attr:`versions`."""
+        tables, metadata = store.load_version(self.ppk_dir, version_name)
+        revision_path = metadata.pop("revision_path", None)
+        version = PPKVersion(
+            version_name=version_name,
+            pos_data=tables["position"],  # type: ignore[arg-type]
+            stat_data=tables["statistics"],  # type: ignore[arg-type]
+            metadata=metadata,
+            revision_path=Path(revision_path)
+            if revision_path
+            else self.ppk_dir / version_name,
+        )
+        self.versions[version_name] = version
+        return version
 
     def _load_version_from_hdf5(self, version_name: str) -> PPKVersion:
         """
-        Load a single PPKVersion from HDF5 file.
+        Load a single PPKVersion from the legacy ppk_solution.h5 file.
 
         Reconstructs a PPKVersion object from HDF5 storage, loading position
         data, statistics data, and metadata. Adds loaded version to self.versions dict.
@@ -1031,12 +977,12 @@ class PPKAnalysis:
         return read_table(dataset_group, legacy_time_unit="us")
 
     @classmethod
-    def from_hdf5(cls, flight: Flight) -> PPKAnalysis:
+    def load(cls, flight: Flight) -> PPKAnalysis:
         """
-        Load existing PPKAnalysis from HDF5 file.
+        PPKAnalysis with the saved versions of a flight.
 
-        Creates a PPKAnalysis instance and loads all stored versions from
-        ppk_solution.h5. If no HDF5 file exists, returns empty PPKAnalysis.
+        Loads the versions in ``proc/ppk/rev_*/`` (see :mod:`pils.store`) and,
+        for results saved before, the ones in ``ppk_solution.h5``.
 
         Parameters
         ----------
@@ -1057,37 +1003,32 @@ class PPKAnalysis:
 
         Examples
         --------
-        >>> from pils.flight import Flight
-        >>> flight_info = {
-        ...     "drone_data_folder_path": "/path/to/flight/drone",
-        ...     "aux_data_folder_path": "/path/to/flight/aux"
-        ... }
-        >>> flight = Flight(flight_info)
-        >>> ppk = PPKAnalysis.from_hdf5(flight)
+        >>> ppk = PPKAnalysis.load(flight)
         >>> print(f"Loaded {len(ppk.versions)} versions")
-        >>> for version_name in ppk.list_versions():
-        ...     print(f"  - {version_name}")
         """
-        import h5py
-
         ppk = cls(flight)
+        for version_name in store.list_versions(ppk.ppk_dir):
+            try:
+                ppk._load_version(version_name)
+            except Exception as e:
+                logger.warning(f"Failed to load version {version_name}: {e}")
+        if ppk.hdf5_path.exists():
+            import h5py
 
-        # Check if HDF5 file exists
-        if not ppk.hdf5_path.exists():
-            logger.info("No HDF5 file found, returning empty PPKAnalysis")
-            return ppk
-
-        # Load all version groups
-        with h5py.File(ppk.hdf5_path, "r") as f:
-            for version_name in f.keys():
+            with h5py.File(ppk.hdf5_path, "r") as f:
+                legacy = [name for name in f.keys() if name not in ppk.versions]
+            for version_name in legacy:
                 try:
                     ppk._load_version_from_hdf5(version_name)
-                    logger.info(f"Loaded version: {version_name}")
                 except Exception as e:
                     logger.warning(f"Failed to load version {version_name}: {e}")
-
-        logger.info(f"Loaded {len(ppk.versions)} versions from HDF5")
+        logger.info(f"Loaded {len(ppk.versions)} versions")
         return ppk
+
+    @classmethod
+    def from_hdf5(cls, flight: Flight) -> PPKAnalysis:
+        """Same as :meth:`load` (kept for older code)."""
+        return cls.load(flight)
 
     def list_versions(self) -> list[str]:
         """
@@ -1166,7 +1107,7 @@ class PPKAnalysis:
                 shutil.rmtree(version.revision_path)
                 logger.info(f"Deleted revision folder: {version.revision_path}")
 
-        # Delete from HDF5 file
+        # Delete from the legacy HDF5 file
         if self.hdf5_path.exists():
             with h5py.File(self.hdf5_path, "a") as f:
                 if version_name in f:

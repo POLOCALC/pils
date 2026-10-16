@@ -323,10 +323,13 @@ class TestColumnTypesRoundTrip:
         gps = loaded.raw_data.payload_data.gps
         assert gps.equals(flight.raw_data.payload_data.gps)
         assert gps.schema == flight.raw_data.payload_data.gps.schema
+        # Tables and columns come back with the schema's names
         inclinometer = loaded.raw_data.payload_data.inclinometer
-        assert set(inclinometer) == {"INS", "IMU"}
-        for name, table in flight.raw_data.payload_data.inclinometer.items():
-            assert inclinometer[name].equals(table)
+        assert set(inclinometer) == {"ins", "imu"}
+        assert inclinometer["ins"].columns == ["timestamp", "roll_deg"]
+        assert inclinometer["imu"].equals(
+            flight.raw_data.payload_data.inclinometer["IMU"]
+        )
 
     def test_columns_are_compressed(self, temp_h5_file):
         flight = Flight({"drone_data_folder_path": "/tmp/test_flight/drone"})
@@ -359,10 +362,12 @@ class TestColumnTypesRoundTrip:
         )
         flight.to_hdf5(temp_h5_file)
 
+        # Older files: records and columns get the schema's names
         loaded = Flight.from_hdf5(temp_h5_file).raw_data.drone_data.records
-        assert set(loaded) == set(records)
-        for name, table in records.items():
-            assert loaded[name].equals(table)
+        assert set(loaded) == {"imu_atti_0", "motor"}
+        assert loaded["imu_atti_0"].columns == ["roll_deg", "tick", "timestamp"]
+        assert loaded["imu_atti_0"]["roll_deg"].to_list() == [1.0, 2.0]
+        assert loaded["motor"].columns == ["speed_rfront_rpm", "tick"]
 
 
 class TestTableFormat:
