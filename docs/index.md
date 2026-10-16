@@ -68,7 +68,7 @@ flight.add_drone_data()
 flight.add_sensor_data(['gps', 'imu'])
 
 # Access data
-gps_df = flight['gps'].data
+gps_df = flight.raw_data.payload_data.gps
 print(gps_df.head())
 ```
 

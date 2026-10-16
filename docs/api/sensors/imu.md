@@ -4,20 +4,22 @@ The payload IMU writes four text files in `aux/sensors/`, one sample per
 line, at about 150 Hz: the timestamp in microseconds since the epoch, then
 the values.
 
-| File | Table | Columns | Units |
+| File | Table | Columns in `Flight` | Units |
 |------|-------|---------|-------|
-| `*_ACC.bin` | `accelerometer` | `acc_x`, `acc_y`, `acc_z` | g |
-| `*_GYR.bin` | `gyroscope` | `gyro_x`, `gyro_y`, `gyro_z` | as logged (rad/s, from the turns of flight_20250428_1625) |
+| `*_ACC.bin` | `accelerometer` | `acc_x_g`, `acc_y_g`, `acc_z_g` | g |
+| `*_GYR.bin` | `gyroscope` | `gyro_x_rad_s`, `gyro_y_rad_s`, `gyro_z_rad_s` | rad/s (from the turns of flight_20250428_1625) |
 | `*_MAG.bin` | `magnetometer` | `mag_x`, `mag_y`, `mag_z` | raw counts |
-| `*_BAR.bin` | `barometer` | `pressure`, `temperature` | hPa, deg C |
+| `*_BAR.bin` | `barometer` | `pressure_hpa`, `temperature_c` | hPa, °C |
 
 Every table also has `timestamp` (seconds), `timestamp_us` (as logged) and
-`datetime` (UTC).
+`datetime` (UTC). The loader (`IMUSensor`) uses the names without units
+(`acc_x`, `pressure`, ...); `Flight` renames them (see
+[Data Schema](../../user-guide/data-schema.md)).
 
 ```python
 flight.add_sensor_data("imu")
 imu = flight.raw_data.payload_data.imu  # {"barometer": df, ...}
-imu["accelerometer"]
+imu["accelerometer"]["acc_z_g"]
 ```
 
 `flight.sync()` adds them as `imu_barometer`, `imu_accelerometer`,

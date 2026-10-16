@@ -33,12 +33,11 @@ from pils.sensors import GPS, IMU, Camera, ADC, Inclinometer
 All sensors follow the same pattern:
 
 ```python
-# Via Flight container (recommended)
+# Via Flight container (recommended): schema column names
 flight.add_sensor_data(['gps', 'imu'])
-gps = flight['gps']
-gps_df = gps.data
+gps_df = flight.raw_data.payload_data.gps
 
-# Direct instantiation
+# Direct instantiation: the names of the file format
 from pils.sensors import GPS
 gps = GPS(path="/path/to/sensors/gps.bin")
 gps.load_data()
@@ -61,24 +60,26 @@ sensor_config = {
 
 ## Data Access
 
-All sensors provide data as Polars DataFrames:
+All sensors provide data as Polars DataFrames, with the column names of the
+[Data Schema](../../user-guide/data-schema.md):
 
 ```python
 import polars as pl
 
-# GPS
-gps_df = flight['gps'].data
-rtk_fixes = gps_df.filter(pl.col('fix_quality') == 4)
+# GPS (columns as in the schema: lat_deg, lon_deg, h_ell_m, h_msl_m, ...)
+payload = flight.raw_data.payload_data
+gps_df = payload.gps
+good = gps_df.filter(pl.col('h_acc_m') < 2.0)
 
 # IMU (multiple sub-sensors)
-accel_df = flight['imu']['accelerometer']
-gyro_df = flight['imu']['gyroscope']
+accel_df = payload.imu['accelerometer']  # acc_x_g, acc_y_g, acc_z_g
+gyro_df = payload.imu['gyroscope']  # gyro_x_rad_s, ...
 
 # ADC
-adc_df = flight['adc'].data
+adc_df = payload.adc  # amplitude_mv
 
-# Inclinometer
-inclino_df = flight['inclinometer'].data
+# Inclinometer (IMX-5: ins, imu, inl2 tables)
+ins_df = payload.inclinometer['ins']  # roll_deg, pitch_deg, yaw_deg, ...
 ```
 
 ## Detailed Documentation

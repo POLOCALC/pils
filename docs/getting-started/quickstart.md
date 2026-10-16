@@ -72,34 +72,37 @@ flight.add_sensor_data()
 ## Step 4: Access Data
 
 ```python
-# Access GPS data
-gps = flight['gps']
-gps_df = gps.data  # Polars DataFrame
-
-# Filter and analyze
 import polars as pl
 
-high_quality = gps_df.filter(pl.col('fix_quality') >= 4)
-print(f"RTK fixes: {high_quality.height}")
+payload = flight.raw_data.payload_data
+
+# Payload GPS: lat_deg, lon_deg, h_ell_m, h_msl_m, h_acc_m, ...
+gps_df = payload.gps
+good = gps_df.filter(pl.col("h_acc_m") < 2.0)
+print(f"Samples with horizontal accuracy < 2 m: {good.height}")
 ```
+
+Column names carry their unit (`_deg`, `_m`, `_g`, ...); see
+[Data Schema](../user-guide/data-schema.md).
 
 ## Step 5: Synchronize Data (Optional)
 
 ```python
-# Synchronize all sensors to common time base
-synced_df = flight.sync(target_rate_hz=10.0)
+# Synchronize all sources on the payload GPS time base
+synced = flight.sync(target_rate={"drone": 10.0, "payload": 10.0})
 
-print(f"Synchronized: {synced_df.shape}")
-print(f"Time range: {synced_df['timestamp'].min():.1f}s - {synced_df['timestamp'].max():.1f}s")
+print(list(synced))            # drone, litchi, inclinometer, adc, ...
+print(synced["drone"].select("timestamp", "lat_deg", "lon_deg", "h_ell_m"))
 ```
 
-## Step 6: Export Results
+## Step 6: Save Results
 
-RAW data can be exported into a single .h5 file which contains also the synchronized data
+`Flight.save` writes the raw data and a new synchronized revision as Parquet
+tables with a manifest; `Flight.load` reads them back.
 
 ```python
-# Export to HDF5 (includes sync_data if available)
-flight.to_hdf5("/path/to/output/flight.h5")
+flight.save("/path/to/output/flight")
+reloaded = Flight.load("/path/to/output/flight")
 ```
 
 ---
@@ -125,28 +128,23 @@ flight_info = loader.load_single_flight(flight_id=FLIGHT_ID)
 flight = Flight(flight_info)
 flight.add_drone_data()
 flight.add_sensor_data(['gps', 'imu'])
+payload = flight.raw_data.payload_data
 
 # Analyze GPS
-gps_df = flight['gps'].data
-print(f"Total points: {gps_df.height}")
-print(f"RTK fixes: {gps_df.filter(pl.col('fix_quality') == 4).height}")
+print(f"Total points: {payload.gps.height}")
 
 # Analyze IMU
-imu = flight['imu']  # {"barometer": df, "accelerometer": df, ...}
+imu = payload.imu  # {"barometer": df, "accelerometer": df, ...}
 accel_df = imu['accelerometer']
 print(f"IMU samples: {accel_df.height}")
-print(f"Max acceleration: {accel_df['acc_z'].max():.2f} g")
+print(f"Max acceleration: {accel_df['acc_z_g'].max():.2f} g")
 
 # Synchronize all data
-synced_df = flight.sync(target_rate_hz=10.0)
-print(f"Synchronized: {synced_df.shape}")
+synced = flight.sync(target_rate={"drone": 10.0, "payload": 10.0})
+print(f"Synchronized drone: {synced['drone'].shape}")
 
 # Save results
-output_dir = Path("./output")
-output_dir.mkdir(exist_ok=True)
-
-flight.to_hdf5(output_dir / f"{FLIGHT_ID}.h5")
-print(f"Saved to {output_dir}")
+flight.save(Path("./output") / FLIGHT_ID)
 ```
 
 ---
@@ -172,21 +170,25 @@ for flight_info in flights:
 
 ```python
 # Option 1: Use Flight.sync() - recommended for most cases
-synced_df = flight.sync(target_rate_hz=10.0)
-print(f"Synchronized data: {synced_df.shape}")
+synced = flight.sync(target_rate={"drone": 10.0})
 
-# Synchronized data is stored in flight.sync_data
-print(f"Columns: {flight.sync_data.columns}")
+# Synchronized data is stored in flight.sync_data, one table per source
+print({name: df.shape for name, df in flight.sync_data.items()})
 
-# Option 2: Manual synchronization with CorrelationSynchronizer
-from pils.synchronizer import CorrelationSynchronizer
+# Option 2: Manual synchronization with the Synchronizer
+from pils.synchronizer import Synchronizer
 
-sync = CorrelationSynchronizer()
-sync.add_gps_reference(flight['gps'].data)
-sync.add_drone_gps(flight.drone_data['data'])
+sync = Synchronizer()
+sync.add_gps_reference(flight.raw_data.payload_data.gps)
+sync.add_drone_gps(
+    flight.raw_data.drone_data.drone,
+    lat_col="rtk_lat_deg",
+    lon_col="rtk_lon_deg",
+    alt_col="rtk_h_ell_m",
+)
 
-result = sync.synchronize(target_rate_hz=10.0)
-print(f"Synchronized data: {result.shape}")
+result = sync.synchronize(target_rate={"drone": 10.0})
+print(sync.get_offset_summary())
 ```
 
 <!-- ### PPK Analysis

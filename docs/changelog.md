@@ -4,22 +4,46 @@ All notable changes to PILS are documented here.
 
 ## [Unreleased]
 
+### Changed (breaking)
+- Column names follow one schema (`pils.schema`, version 1): `snake_case`,
+  the unit as a suffix (`_deg`, `_m`, `_m_s`, `_rad_s`, `_g`, `_hpa`, `_c`,
+  `_mv`, ...), heights with their reference (`h_ell_m`, `h_msl_m`,
+  `h_rel_m`, `h_m`), `timestamp` as the time base. `Flight` renames the
+  columns of every loaded table and converts units where the source used
+  others (u-blox mm/cm to m); tables are `snake_case` too (inclinometer
+  `ins`/`imu`/`inl2`, DJI records `imu_atti_0`, `gps_1`, `osd`, ...).
+  Synchronized positions are `lat_deg`/`lon_deg`/`h_ell_m` (were
+  `latitude`/`longitude`/`altitude`); AZEL tables `az_deg`, `el_deg`,
+  `srange_m`, `e_m`, `n_m`, `u_m` (the telescope CSV keeps its header). See
+  [Data Schema](user-guide/data-schema.md)
+- DJI .dat: the drone table is the RTK solution only, with its own rows and
+  timestamps from the tick fit; the main GNSS receiver is the record `gps`.
+  The two receivers were merged and every column interpolated between their
+  rows (e.g. RTK yaw across 359° → 0° gave 293°)
+- Results are saved as write-once revision directories of Parquet tables
+  with a `manifest.json` (`pils.store`) instead of HDF5: the flight in
+  `proc/flight/{raw,sync/rev_*}`, AZEL in `proc/azel/<TELESCOPE>/rev_*`,
+  power in `proc/power/<TELESCOPE>_<wafer slot>/rev_*`, EKF and PPK in
+  `proc/<analysis>/rev_*`
+
 ### Added
 - `pils package`: sync a flight and save its data products in `proc/`
-  (`sync_data.h5`, AZEL per telescope with the telescope AZEL files,
-  optional power analysis, `package_manifest.json`)
+  (raw and synchronized data, AZEL per telescope with the telescope AZEL
+  files, optional power analysis, `package_manifest.json`)
+- `Flight.save`/`Flight.load`, `pils.store` (revisions with the schema
+  version, the code's git commit and the units of every column), and
+  `pils migrate <proc>` to convert HDF5 results (the HDF5 files are kept)
 - `output_dir` for `AZELAnalysis`
 - DJI .dat: IMU attitude (three IMUs, with roll/pitch/yaw), motors, motor
   PWM, battery, controller, wind and the other GNSS receivers, in
-  `flight.raw_data.drone_data.records` and the flight HDF5
-- Litchi: `gimbalRoll` and `gimbalYaw` in degrees (as `gimbalPitch`), and
-  `gimbalYawAbs`, the gimbal heading from north
-- `pils.utils.column_units`: units of the flight table columns
-- `raw_data` records when it was saved; each sync revision records the raw
-  data it was made from (`raw_data_saved_at`)
+  `flight.raw_data.drone_data.records`
+- Litchi: gimbal roll and yaw in degrees (as the pitch), and
+  `gimbal_heading_deg`, the gimbal heading from north
+- `pils.schema`: names and units of the flight table columns
+- Each sync revision records the raw data it was made from (`raw_saved_at`)
 - Sync: DJI .dat records on the payload time base, with the drone GPS
-  offset (`drone_IMU_ATTI(0)` by default, `Flight.sync(drone_records=...)`);
-  `flight.sync_offsets`, saved by `pils package`
+  offset (`drone_imu_atti_0` by default, `Flight.sync(drone_records=...)`);
+  `flight.sync_offsets`, saved with the revision
 - MkDocs documentation with Material theme
 - Comprehensive API reference
 - Data format specifications
@@ -46,20 +70,26 @@ All notable changes to PILS are documented here.
   (the saved rates listed keys the synchronizer ignored)
 - Raw datetime columns are all `Datetime("us", "UTC")`; the DJI `datetime`
   was a string
-- HDF5 tables: one writer/reader (`pils.utils.hdf5.write_table`/`read_table`)
-  for the flight and the AZEL, EKF and PPK results; nulls are kept (they
-  became NaN or ""), and each table stores the units of its columns
+- HDF5 tables: one writer/reader (`pils.utils.hdf5.write_table`/`read_table`);
+  nulls are kept (they became NaN or ""). Used to read results saved before
+  `pils.store`
+- DJI .dat: when all tick-fit residuals were equal, `get_tick_offset` gave
+  NaN timestamps
 - `Flight.sync` and the power analysis changed the caller's rate dict
 - Payload IMU: never loaded (it looked for `barometer.bin` and the other
   old names, and `Flight` expected one table). It now reads the payload's
   `*_BAR.bin`, `*_ACC.bin`, `*_GYR.bin` and `*_MAG.bin`, drops the damaged
   tail of a recording that stopped uncleanly, and is a dict of tables
-  (`flight['imu']['accelerometer']`); timestamps are in seconds, with
-  `timestamp_us` as logged; gyroscope columns are `gyro_x`/`gyro_y`/`gyro_z`
+  (`flight.raw_data.payload_data.imu['accelerometer']`); timestamps are in
+  seconds, with `timestamp_us` as logged
 - Sync: the GPS and pitch time offsets were biased towards zero (a 2 s clock
   difference came out as 1.27 s; on flight_20251208_1927 the Litchi offset
   moves by 54 ms, the drone one by 26 ms). Offsets are now fitted by least
   squares on mean-removed signals, after a coarse cross-correlation
+
+### Deprecated
+- `Flight.to_hdf5`: use `Flight.save`. `Flight.from_hdf5` still reads HDF5
+  flight files and renames their columns to the schema
 
 ---
 
