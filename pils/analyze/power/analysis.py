@@ -97,7 +97,8 @@ class PowerAnalysis:
             raise ValueError("Flight object must have a valid flight_path attribute")
         self.flight = flight
         self.flight_path = Path(flight.flight_path)
-        base = Path(output_dir) if output_dir is not None else self.flight_path
+        self.output_dir = Path(output_dir) if output_dir is not None else None
+        base = self.output_dir or self.flight_path
         self.power_dir = base / "proc" / "power"
         self.results_path = self.power_dir / "power_solution.h5"
 
@@ -189,7 +190,7 @@ class PowerAnalysis:
     ) -> tuple[pl.DataFrame, str]:
         from pils.analyze.azel import AZELAnalysis
 
-        azel = AZELAnalysis(self.flight)
+        azel = AZELAnalysis(self.flight, output_dir=self.output_dir)
         if azel_version is not None:
             names = azel.list_versions(telescope_name=telescope)
             if azel_version not in names:

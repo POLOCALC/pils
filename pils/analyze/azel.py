@@ -101,7 +101,7 @@ class AZELAnalysis:
     >>> latest = azel.get_latest_version(telescope_name='SATP1')
     """
 
-    def __init__(self, flight: Flight) -> None:
+    def __init__(self, flight: Flight, output_dir: str | Path | None = None) -> None:
         """Initialize AZEL analysis with Flight object.
 
         Creates the proc/azel directory structure if it doesn't exist.
@@ -110,6 +110,9 @@ class AZELAnalysis:
         ----------
         flight : Flight
             Flight object with valid flight_path attribute.
+        output_dir : str | Path, optional
+            Base folder for the results instead of the flight folder
+            (results go to ``<output_dir>/proc/azel``).
 
         Raises
         ------
@@ -155,7 +158,8 @@ class AZELAnalysis:
         self.flight_path = flight_path
 
         # Create AZEL directory
-        self.azel_dir = self.flight_path / "proc" / "azel"
+        base = Path(output_dir) if output_dir is not None else self.flight_path
+        self.azel_dir = base / "proc" / "azel"
         self.azel_dir.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"Initialized AZEL analysis for flight: {self.flight_path}")
