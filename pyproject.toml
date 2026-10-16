@@ -36,6 +36,7 @@ dependencies = [
     "ahrs>=0.3.0",
     "telemetry-parser>=0.1.0",
     "pyarrow>=14.0.0",
+    "numdifftools>=0.9.41",
 ]
 
 [project.optional-dependencies]
@@ -55,6 +56,9 @@ dev = [
     "bumpver>=2023.0",
     "pyright>1.1",
 ]
+
+[project.scripts]
+pils = "pils.cli:main"
 
 [project.urls]
 Repository = "https://github.com/POLOCALC/data-loader"
