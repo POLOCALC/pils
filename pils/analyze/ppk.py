@@ -50,6 +50,7 @@ from pils.analyze.ppkdata.PPK.report import RTKLIBReport
 from pils.analyze.ppkdata.PPK.stat_analyzer import STATAnalyzer
 from pils.analyze.ppkdata.RINEX.report import RINEXReport
 from pils.flight import Flight
+from pils.utils.hdf5 import read_table, write_table
 
 logger = logging.getLogger(__name__)
 
@@ -911,11 +912,7 @@ class PPKAnalysis:
         self, parent_group: h5py.Group, name: str, df: pl.DataFrame
     ) -> None:
         """
-        Save a Polars DataFrame to HDF5 using column-wise storage.
-
-        Follows Flight.py pattern exactly: each DataFrame column becomes a
-        separate HDF5 dataset, with metadata (columns, dtypes, n_rows) stored
-        as group attributes.
+        Save a Polars DataFrame to HDF5 (see :func:`pils.utils.hdf5.write_table`).
 
         Parameters
         ----------
@@ -926,37 +923,7 @@ class PPKAnalysis:
         df : pl.DataFrame
             Polars DataFrame to save
         """
-        import json
-
-        # Remove existing if present
-        if name in parent_group:
-            del parent_group[name]
-
-        # Create group for columns
-        column_group = parent_group.create_group(name)
-
-        # Save each column as separate dataset
-        for col_name in df.columns:
-            col_series = df[col_name]
-            # Convert datetime columns to int64 (microseconds since epoch) for HDF5 compatibility
-            if col_series.dtype in [
-                pl.Datetime,
-                pl.Datetime("us"),
-                pl.Datetime("ms"),
-                pl.Datetime("ns"),
-            ]:
-                col_data = col_series.dt.epoch(time_unit="us").to_numpy()
-            else:
-                col_data = col_series.to_numpy()
-
-            if col_name in column_group:
-                del column_group[col_name]
-            column_group.create_dataset(col_name, data=col_data)
-
-        # Save metadata as attrs
-        column_group.attrs["columns"] = json.dumps(df.columns)
-        column_group.attrs["dtypes"] = json.dumps([str(dtype) for dtype in df.dtypes])
-        column_group.attrs["n_rows"] = len(df)
+        write_table(parent_group, name, df)
 
     def _load_version_from_hdf5(self, version_name: str) -> PPKVersion:
         """
@@ -1046,10 +1013,7 @@ class PPKAnalysis:
 
     def _load_dataframe_from_hdf5(self, dataset_group: h5py.Group) -> pl.DataFrame:
         """
-        Load a Polars DataFrame from HDF5 dataset group.
-
-        Reconstructs DataFrame from column-wise HDF5 datasets. Follows Flight.py
-        pattern for deserialization.
+        Load a Polars DataFrame from HDF5 (see :func:`pils.utils.hdf5.read_table`).
 
         Parameters
         ----------
@@ -1061,50 +1025,10 @@ class PPKAnalysis:
         pl.DataFrame
             Reconstructed Polars DataFrame
         """
-        import json
-
-        import h5py
-
         if "columns" not in dataset_group.attrs:
             return pl.DataFrame()
-
-        columns_attr = dataset_group.attrs["columns"]
-        # Handle different attr types (bytes or string)
-        if isinstance(columns_attr, bytes):
-            columns = json.loads(columns_attr.decode())
-        else:
-            columns = json.loads(str(columns_attr))
-
-        dtypes_attr = dataset_group.attrs.get("dtypes")
-        if dtypes_attr:
-            if isinstance(dtypes_attr, bytes):
-                dtypes = json.loads(dtypes_attr.decode())
-            else:
-                dtypes = json.loads(str(dtypes_attr))
-        else:
-            dtypes = [None] * len(columns)
-
-        data_dict = {}
-
-        for col_name in columns:
-            if col_name in dataset_group:
-                col_dataset = dataset_group[col_name]
-                if isinstance(col_dataset, h5py.Dataset):
-                    data_dict[col_name] = col_dataset[:]
-
-        if not data_dict:
-            return pl.DataFrame()
-
-        df = pl.DataFrame(data_dict)
-
-        # Restore datetime columns from int64 microseconds
-        for col_name, dtype_str in zip(columns, dtypes, strict=False):
-            if dtype_str and "Datetime" in dtype_str:
-                df = df.with_columns(
-                    pl.from_epoch(pl.col(col_name), time_unit="us").alias(col_name)
-                )
-
-        return df
+        # Older PPK files stored datetimes as microseconds whatever their unit
+        return read_table(dataset_group, legacy_time_unit="us")
 
     @classmethod
     def from_hdf5(cls, flight: Flight) -> PPKAnalysis:

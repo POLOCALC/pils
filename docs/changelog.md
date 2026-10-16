@@ -14,6 +14,9 @@ All notable changes to PILS are documented here.
   `flight.raw_data.drone_data.records` and the flight HDF5
 - Litchi: `gimbalRoll` and `gimbalYaw` in degrees (as `gimbalPitch`), and
   `gimbalYawAbs`, the gimbal heading from north
+- `pils.utils.column_units`: units of the flight table columns
+- `raw_data` records when it was saved; each sync revision records the raw
+  data it was made from (`raw_data_saved_at`)
 - Sync: DJI .dat records on the payload time base, with the drone GPS
   offset (`drone_IMU_ATTI(0)` by default, `Flight.sync(drone_records=...)`);
   `flight.sync_offsets`, saved by `pils package`
@@ -35,6 +38,18 @@ All notable changes to PILS are documented here.
 - `PowerAnalysis(output_dir=...)` wrote its AZEL results into the flight folder
 - Sync: angles (yaw, roll, pitch, heading) are interpolated across the
   ±180° wrap instead of through 0°
+- Sync tables follow one set of rules: `timestamp` is the only time column
+  (other clocks, dates and text are dropped), states/flags/counts hold their
+  last value and keep their type instead of being averaged, missing values
+  are null, and `reference_gps` is resampled like the other tables. The
+  rates actually used are in `flight.sync_rates` and saved by `pils package`
+  (the saved rates listed keys the synchronizer ignored)
+- Raw datetime columns are all `Datetime("us", "UTC")`; the DJI `datetime`
+  was a string
+- HDF5 tables: one writer/reader (`pils.utils.hdf5.write_table`/`read_table`)
+  for the flight and the AZEL, EKF and PPK results; nulls are kept (they
+  became NaN or ""), and each table stores the units of its columns
+- `Flight.sync` and the power analysis changed the caller's rate dict
 - Payload IMU: never loaded (it looked for `barometer.bin` and the other
   old names, and `Flight` expected one table). It now reads the payload's
   `*_BAR.bin`, `*_ACC.bin`, `*_GYR.bin` and `*_MAG.bin`, drops the damaged

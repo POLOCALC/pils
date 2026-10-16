@@ -46,7 +46,14 @@ PAYLOAD_SENSORS = ("gps", "adc", "inclinometer", "lm76", "imu")
 # Telescopes surveyed in the campaign coordinates file
 DEFAULT_TELESCOPES = ("SATP1", "SATP2", "SATP3")
 # Same rates as the power analysis, so it reuses this synchronization
-SYNC_RATES = {"drone": 100.0, "litchi": 100.0, "inclinometer": 100.0, "gps": 100.0}
+# Rates in Hz of the synchronized tables (drone records follow the drone)
+SYNC_RATES = {
+    "drone": 100.0,
+    "litchi": 100.0,
+    "inclinometer": 100.0,
+    "payload": 100.0,
+    "reference_gps": 100.0,
+}
 # Columns of the AZEL file handed to the telescopes
 AZEL_CSV_COLUMNS = ("timestamp", "az", "el", "srange")
 
@@ -257,7 +264,7 @@ class FlightPackager:
                     "sync_method": "gps correlation",
                     "common_time": True,
                     "use_rtk_data": True,
-                    "target_rate": dumps_metadata(SYNC_RATES),
+                    "target_rate": dumps_metadata(flight.sync_rates),
                     "time_offsets": dumps_metadata(flight.sync_offsets),
                     "sensors_requested": list(sensors),
                 },

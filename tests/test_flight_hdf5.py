@@ -317,7 +317,7 @@ class TestColumnTypesRoundTrip:
         loaded_drone = loaded.raw_data.drone_data.drone
         assert loaded_drone["datetime"].to_list() == [
             "2025-12-08 19:27:00",
-            "",  # HDF5 strings have no null
+            None,  # nulls are stored as a mask
             "2025-12-08 19:27:02",
         ]
         gps = loaded.raw_data.payload_data.gps
@@ -363,3 +363,54 @@ class TestColumnTypesRoundTrip:
         assert set(loaded) == set(records)
         for name, table in records.items():
             assert loaded[name].equals(table)
+
+
+class TestTableFormat:
+    """Nulls, units and types through pils.utils.hdf5.write_table/read_table."""
+
+    def test_nulls_types_and_units(self, temp_h5_file):
+        import h5py
+
+        from pils.utils.hdf5 import read_table, read_units, write_table
+
+        frame = pl.DataFrame(
+            {
+                "timestamp": [0.0, 1.0, 2.0],
+                "RTK:lat_p": [1.0, None, float("nan")],
+                "numSV": pl.Series([3, None, 5], dtype=pl.Int64),
+                "flag": [True, None, False],
+                "name": ["a", None, "c"],
+                "when": pl.Series(
+                    [datetime(2025, 1, 1), None, datetime(2025, 1, 2)]
+                ).dt.replace_time_zone("UTC"),
+            }
+        )
+        with h5py.File(temp_h5_file, "w") as f:
+            write_table(f, "t", frame)
+            loaded = read_table(f["t"])
+            units = read_units(f["t"])
+        assert loaded.schema == frame.schema
+        assert loaded["RTK:lat_p"].is_null().to_list() == [False, True, False]
+        assert np.isnan(loaded["RTK:lat_p"][2])  # a NaN stays a NaN
+        assert loaded.select(pl.all().exclude("RTK:lat_p")).equals(
+            frame.select(pl.all().exclude("RTK:lat_p"))
+        )
+        assert units == {"timestamp": "s", "RTK:lat_p": "deg"}
+
+    def test_legacy_ppk_microseconds(self, temp_h5_file):
+        import json
+
+        import h5py
+
+        from pils.utils.hdf5 import read_table
+
+        with h5py.File(temp_h5_file, "w") as f:
+            group = f.create_group("t")
+            group.create_dataset("t", data=np.array([1_000_000]))
+            group.attrs["columns"] = json.dumps(["t"])
+            group.attrs["dtypes"] = json.dumps(
+                ["Datetime(time_unit='ns', time_zone=None)"]
+            )
+            loaded = read_table(group, legacy_time_unit="us")
+        assert loaded["t"][0] == datetime(1970, 1, 1, 0, 0, 1)
+        assert loaded.schema["t"] == pl.Datetime("ns")

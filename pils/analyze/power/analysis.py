@@ -39,7 +39,13 @@ logger = get_logger(__name__)
 
 # ADC samples per half period of the source modulation, per band
 ENVELOPE_WINDOW = {"WR10": 200, "WR06": 50}
-SYNC_RATES = {"drone": 100, "litchi": 100, "inclinometer": 100, "gps": 100}
+SYNC_RATES = {
+    "drone": 100.0,
+    "litchi": 100.0,
+    "inclinometer": 100.0,
+    "payload": 100.0,
+    "reference_gps": 100.0,
+}
 _BEAM_GRID_DEG = np.linspace(-90, 90, 501)
 
 
@@ -161,7 +167,7 @@ class PowerAnalysis:
     def _synced(self) -> dict[str, pl.DataFrame]:
         if self.flight.sync_data is None:
             self.flight.sync(
-                use_rtk_data=True, common_time=True, target_rate=SYNC_RATES
+                use_rtk_data=True, common_time=True, target_rate=dict(SYNC_RATES)
             )
         sync = self.flight.sync_data
         drone = sync["drone"]

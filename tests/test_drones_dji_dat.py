@@ -2,6 +2,7 @@
 
 import math
 import struct
+from datetime import UTC, datetime
 
 import numpy as np
 import polars as pl
@@ -198,7 +199,8 @@ class TestLoadDat:
         gps = drone.data["GPS"]
         assert gps.height == 20  # last 10 dropped, as before
         assert gps.columns[0] == "msg_type"
-        assert gps["datetime"][0] == "2025-12-08 19:27:00"
+        assert gps["datetime"][0] == datetime(2025, 12, 8, 19, 27, tzinfo=UTC)
+        assert gps.schema["datetime"] == pl.Datetime("us", "UTC")
         assert gps["timestamp"][1] - gps["timestamp"][0] == 1.0
         assert (gps["tick"].diff().drop_nulls() > 0).all()  # unwrapped
         # RTK has no valid date: no datetime columns, as before

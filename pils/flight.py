@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, Literal, Optional, Union, overload
 
 import h5py
-import numpy as np
 import polars as pl
 
 from pils.drones.BlackSquareDrone import BlackSquareDrone
@@ -17,7 +16,8 @@ from pils.drones.litchi import Litchi
 from pils.sensors.camera import Camera
 from pils.sensors.sensors import sensor_config
 from pils.synchronizer import Synchronizer
-from pils.utils.tools import get_path_from_keyword
+from pils.utils.hdf5 import read_table, write_table
+from pils.utils.tools import get_path_from_keyword, standardize_datetimes
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +49,15 @@ def _get_package_version() -> str:
         return getattr(pils, "__version__", "unknown")
     except Exception:
         return "unknown"
+
+
+def _standardize(data: Any) -> Any:
+    """Datetime columns as UTC microseconds, in a table or a dict of tables."""
+    if isinstance(data, pl.DataFrame):
+        return standardize_datetimes(data)
+    if isinstance(data, dict):
+        return {key: _standardize(value) for key, value in data.items()}
+    return data
 
 
 def _parse_temporal_dtype(dtype: str) -> pl.DataType:
@@ -207,6 +216,7 @@ class Flight:
         self.raw_data = RawData()
         self.sync_data: dict[str, pl.DataFrame] | None = None
         self.sync_offsets: dict[str, float] = {}
+        self.sync_rates: dict[str, float] = {}
         self.adc_gain_config = None
 
     @classmethod
@@ -431,53 +441,18 @@ class Flight:
         Parameters
         ----------
         dataset_group : h5py.Group
-            Group containing column datasets
+            Group containing column datasets (see
+            :func:`pils.utils.hdf5.write_table`)
 
         Returns
         -------
         pl.DataFrame or None
             Polars DataFrame if data found, None otherwise
         """
-
         if "columns" not in dataset_group.attrs:
             return None
-
-        columns_attr = dataset_group.attrs["columns"]
-        # Handle different attr types
-        if isinstance(columns_attr, bytes):
-            columns = json.loads(columns_attr.decode())
-        else:
-            columns = json.loads(str(columns_attr))
-
-        dtypes_attr = dataset_group.attrs.get("dtypes")
-        dtypes = json.loads(dtypes_attr) if dtypes_attr is not None else []
-        temporal = {
-            col: dtype
-            for col, dtype in zip(columns, dtypes, strict=False)
-            if dtype.startswith(("Datetime", "Date", "Duration", "Time"))
-        }
-
-        data_dict = {}
-
-        for col_name in columns:
-            if col_name in dataset_group:
-                col_dataset = dataset_group[col_name]
-                assert isinstance(col_dataset, h5py.Dataset)
-                if h5py.check_string_dtype(col_dataset.dtype):
-                    data_dict[col_name] = list(col_dataset.asstr()[()])
-                else:
-                    data_dict[col_name] = col_dataset[:]
-
-        if not data_dict:
-            return None
-
-        df = pl.DataFrame(data_dict)
-        casts = [
-            pl.col(col).cast(_parse_temporal_dtype(dtype))
-            for col, dtype in temporal.items()
-            if col in df.columns
-        ]
-        return df.with_columns(casts) if casts else df
+        df = read_table(dataset_group)
+        return df if df.width else None
 
     def set_metadata(self, metadata: dict[str, Any] | None = None) -> None:
         """
@@ -719,7 +694,9 @@ class Flight:
                 drone_data = drone.data
                 litchi_data = None
 
-        self.raw_data.drone_data = DroneData(drone_data, litchi_data, records)
+        self.raw_data.drone_data = DroneData(
+            _standardize(drone_data), _standardize(litchi_data), _standardize(records)
+        )
 
     def _read_sensor_data(self, sensor_name: str, sensor_folder: Path) -> Any | None:
         """
@@ -798,13 +775,19 @@ class Flight:
                 if isinstance(sensor_data, dict) and {"data", "metadata"} <= set(
                     sensor_data
                 ):
-                    setattr(self.raw_data.payload_data, sensor, sensor_data["data"])
+                    setattr(
+                        self.raw_data.payload_data,
+                        sensor,
+                        _standardize(sensor_data["data"]),
+                    )
                     self.flight_info["flight_info"].update(
                         {f"{sensor}_metadata": sensor_data["metadata"]}
                     )
 
                 else:
-                    setattr(self.raw_data.payload_data, sensor, sensor_data)
+                    setattr(
+                        self.raw_data.payload_data, sensor, _standardize(sensor_data)
+                    )
         else:
             logger.info("Sensor datasets are not available")
 
@@ -945,8 +928,8 @@ class Flight:
             isinstance(drone_data, pl.DataFrame) and len(drone_data) > 0
         )
 
-        if target_rate is None:
-            target_rate = {}
+        # A copy: the defaults below must not change the caller's dict
+        target_rate = dict(target_rate or {})
 
         if drone_has_data:
             # Ensure target_rate dict has drone key with default 10 Hz
@@ -1070,6 +1053,8 @@ class Flight:
             for name, offset in sync.offsets.items()
             if "time_offset" in offset
         }
+        # Rates (Hz) of the synchronized tables, as used
+        self.sync_rates = dict(sync.rates)
 
         return self.sync_data
 
@@ -1187,6 +1172,10 @@ class Flight:
         else:
             raw_data_group = h5file["raw_data"]
             assert isinstance(raw_data_group, h5py.Group)
+        # Raw data is replaced at each save: the sync revisions record which
+        # raw data (saved_at) they were made from
+        raw_data_group.attrs["saved_at"] = _get_current_timestamp()
+        raw_data_group.attrs["pils_version"] = _get_package_version()
 
         # Save drone data
         drone_has_data = (
@@ -1289,6 +1278,10 @@ class Flight:
             revision_group.attrs["created_at"] = revision_name
             revision_group.attrs["n_keys"] = len(self.sync_data)
         revision_group.attrs["pils_version"] = _get_package_version()
+        if "raw_data" in h5file:
+            revision_group.attrs["raw_data_saved_at"] = h5file["raw_data"].attrs.get(
+                "saved_at", ""
+            )
 
         # Save user-provided metadata
         if sync_metadata:
@@ -1302,7 +1295,7 @@ class Flight:
         self, parent_group: "h5py.Group", name: str, df: "pl.DataFrame"
     ) -> None:
         """
-        Save a Polars DataFrame to HDF5.
+        Save a Polars DataFrame to HDF5 (see :func:`pils.utils.hdf5.write_table`).
 
         Parameters
         ----------
@@ -1313,35 +1306,7 @@ class Flight:
         df : pl.DataFrame
             DataFrame to save
         """
-
-        # Convert to arrow and save as HDF5 dataset
-        if name in parent_group:
-            del parent_group[name]
-
-        # Create group for columns
-        column_group = parent_group.create_group(name)
-
-        for col_name in df.columns:
-            series = df[col_name]
-            if series.dtype == pl.Utf8:
-                col_data = np.array(
-                    series.fill_null("").to_list(), dtype=h5py.string_dtype()
-                )
-            elif series.dtype.is_temporal():
-                # Stored as integers; the dtypes attr restores the type on load
-                col_data = series.to_physical().to_numpy()
-            else:
-                col_data = series.to_numpy()
-            if col_name in column_group:
-                del column_group[col_name]
-            # Compress (transparent to readers); empty arrays cannot be chunked
-            compression = {"compression": "gzip"} if len(col_data) else {}
-            column_group.create_dataset(col_name, data=col_data, **compression)
-
-        # Save column order and dtypes as attrs
-        column_group.attrs["columns"] = json.dumps(df.columns)
-        column_group.attrs["dtypes"] = json.dumps([str(dtype) for dtype in df.dtypes])
-        column_group.attrs["n_rows"] = len(df)
+        write_table(parent_group, name, df)
 
     def __getitem__(self, key):
         """

@@ -148,3 +148,69 @@ class TestSynchronize:
         sync.add_drone_records({"IMU": pl.DataFrame({"timestamp": t, "yaw": t})})
         result = sync.synchronize(target_rate={"drone": 10.0})
         assert "drone_IMU" not in result
+
+
+class TestResampleTable:
+    def test_rules(self):
+        from datetime import datetime
+
+        from pils.synchronizer import resample_table
+
+        t = np.array([0.0, 1.0, 2.0, 3.0])
+        df = pl.DataFrame(
+            {
+                "timestamp": t,
+                "unix_time_ms": (t * 1000).astype(np.int64),
+                "datetime": [datetime(2025, 1, 1)] * 4,
+                "note": ["a", "b", "c", "d"],
+                "insStatus": pl.Series([1, 1, 7, 7], dtype=pl.Int64),
+                "posllh_hMSL": pl.Series([0, 10, 20, 30], dtype=pl.Int64),
+                "flag": [True, False, True, True],
+                "yaw": [170.0, -170.0, -160.0, None],
+            }
+        )
+        target = np.array([-1.0, 0.5, 1.5, 2.5, 4.0])
+        out = resample_table(df, t, target)
+        assert out.columns == ["timestamp", "insStatus", "posllh_hMSL", "flag", "yaw"]
+        assert out["insStatus"].dtype == pl.Int64
+        assert out["insStatus"].to_list() == [None, 1, 1, 7, None]
+        assert out["posllh_hMSL"].to_list() == [None, 5.0, 15.0, 25.0, None]
+        assert out["flag"].to_list() == [None, True, False, True, None]
+        assert out["yaw"][1] == pytest.approx(-180.0)
+        assert out["yaw"][3] is None  # no value in the source
+        assert out["yaw"][0] is None  # outside the source
+
+    def test_drops_rows_without_time_and_sorts(self):
+        from pils.synchronizer import resample_table
+
+        df = pl.DataFrame({"timestamp": [2.0, None, 0.0], "v": [20.0, 99.0, 0.0]})
+        out = resample_table(
+            df, df["timestamp"].to_numpy().astype(float), np.array([1.0])
+        )
+        assert out["v"].to_list() == [10.0]
+
+
+def test_raw_and_sync_provenance(tmp_path):
+    import h5py
+
+    from pils.flight import Flight, PayloadData
+
+    flight = Flight({"drone_data_folder_path": "", "aux_data_folder_path": ""})
+    flight.raw_data.payload_data = PayloadData()
+    flight.raw_data.payload_data.gps = pl.DataFrame(
+        {
+            "timestamp": np.arange(0.0, 20.0),
+            "posllh_lat": np.full(20, 45.0),
+            "posllh_lon": np.full(20, 10.0),
+            "posllh_height": np.full(20, 100.0),
+        }
+    )
+    synced = flight.sync()
+    assert synced["reference_gps"].height == 20 * 100 - 99  # resampled at 100 Hz
+    assert flight.sync_rates["reference_gps"] == 100.0
+    path = tmp_path / "f.h5"
+    flight.to_hdf5(path)
+    with h5py.File(path) as f:
+        saved_at = f["raw_data"].attrs["saved_at"]
+        revision = f["sync_data"][sorted(f["sync_data"])[-1]]
+        assert revision.attrs["raw_data_saved_at"] == saved_at

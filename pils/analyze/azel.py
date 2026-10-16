@@ -13,6 +13,7 @@ import pymap3d as pm
 
 from pils.flight import Flight
 from pils.sensors.emlid import Emlid
+from pils.utils.hdf5 import read_table, write_table
 from pils.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -605,17 +606,7 @@ class AZELAnalysis:
 
             version_group = telescope_group.create_group(version.version_name)
 
-            # Save DataFrame columns
-            df_group = version_group.create_group("azel_data")
-            for col_name in version.azel_data.columns:
-                col_data = version.azel_data[col_name].to_numpy()
-                df_group.create_dataset(col_name, data=col_data)
-
-            # Save DataFrame schema info
-            df_group.attrs["columns"] = json.dumps(version.azel_data.columns)
-            df_group.attrs["dtypes"] = json.dumps(
-                [str(dtype) for dtype in version.azel_data.dtypes]
-            )
+            write_table(version_group, "azel_data", version.azel_data)
 
             # Save metadata
             version_group.attrs["metadata"] = json.dumps(version.metadata)
@@ -667,28 +658,7 @@ class AZELAnalysis:
                 )
 
             version_group = telescope_group[version_name]
-            df_group = version_group["azel_data"]
-
-            # Reconstruct DataFrame from columns
-            columns = json.loads(df_group.attrs["columns"])
-            dtypes = json.loads(df_group.attrs["dtypes"])
-
-            data_dict = {}
-            for col_name in columns:
-                data_dict[col_name] = df_group[col_name][:]
-
-            azel_data = pl.DataFrame(data_dict)
-
-            # Cast to original dtypes
-            cast_exprs = []
-            for col_name, dtype_str in zip(columns, dtypes, strict=True):
-                if "Float64" in dtype_str:
-                    cast_exprs.append(pl.col(col_name).cast(pl.Float64))
-                elif "Int64" in dtype_str:
-                    cast_exprs.append(pl.col(col_name).cast(pl.Int64))
-
-            if cast_exprs:
-                azel_data = azel_data.with_columns(cast_exprs)
+            azel_data = read_table(version_group["azel_data"])
 
             # Load metadata
             metadata = json.loads(version_group.attrs["metadata"])
