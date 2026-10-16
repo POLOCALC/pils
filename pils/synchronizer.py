@@ -147,6 +147,10 @@ def is_held_column(column: str) -> bool:
     return any(_HELD_COLUMNS.search(part) for part in column.split(":"))
 
 
+# GNSS date and time fields (YYYYMMDD, hhmmss): other clocks, dropped too
+_CLOCK_FIELDS = re.compile(r"(^|_)(date|time)$")
+
+
 def resample_table(
     df: pl.DataFrame,
     source_time: np.ndarray,
@@ -156,7 +160,8 @@ def resample_table(
     """Resample a table at ``target_time``.
 
     - ``timestamp`` (seconds) is the only time column: date/time and text
-      columns and :data:`REDUNDANT_TIME_COLUMNS` are dropped;
+      columns, :data:`REDUNDANT_TIME_COLUMNS` and GNSS ``date``/``time``
+      fields are dropped;
     - state, flag and count columns (:func:`is_held_column`) and booleans
       hold their last value and keep their type;
     - angle columns are interpolated across the wrap (:func:`interp_column`),
@@ -199,6 +204,7 @@ def resample_table(
         if (
             col == time_col
             or col in REDUNDANT_TIME_COLUMNS
+            or _CLOCK_FIELDS.search(col)
             or dtype.is_temporal()
             or not (dtype.is_numeric() or dtype == pl.Boolean)
         ):
@@ -1031,7 +1037,7 @@ class Synchronizer:
     def add_inclinometer(
         self,
         inclinometer_data: pl.DataFrame,
-        inclinometer_type: str,
+        inclinometer_type: str | None,
         timestamp_col: str = "timestamp",
         pitch_col: str = "pitch_deg",
     ) -> None:

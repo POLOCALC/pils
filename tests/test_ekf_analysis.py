@@ -683,11 +683,11 @@ class TestRustBinaryValidation:
             ekf_module._EKF_BINARY_PATH = original_path
 
 
-# ==================== HDF5 Persistence Tests ====================
+# ==================== Persistence Tests ====================
 
 
-class TestHDF5Persistence:
-    """Test HDF5 persistence for EKF versions."""
+class TestPersistence:
+    """Persistence of EKF versions (pils.store: ekf/<rev>/)."""
 
     @pytest.fixture
     def sample_ekf_version(self):
@@ -723,31 +723,35 @@ class TestHDF5Persistence:
             version_name="rev_20260218_120000", ekf_data=ekf_data, metadata=metadata
         )
 
-    def test_save_ekf_version_to_hdf5(self, mock_flight, sample_ekf_version):
-        """Test saving EKFVersion to HDF5 file."""
+    def test_save_ekf_version(self, mock_flight, sample_ekf_version):
+        """Saving writes the version directory: manifest and Parquet table."""
         from pils.analyze.ekf import EKFAnalysis
 
         ekf = EKFAnalysis(mock_flight)
 
-        # Save version to HDF5
-        ekf._save_to_hdf5(sample_ekf_version)
+        ekf._save_version(sample_ekf_version)
 
-        # Verify HDF5 file exists
-        hdf5_path = ekf.ekf_dir / "ekf_solution.h5"
-        assert hdf5_path.exists()
-        assert hdf5_path.is_file()
+        from pils import store
 
-    def test_load_ekf_version_from_hdf5(self, mock_flight, sample_ekf_version):
+        folder = ekf.ekf_dir / "rev_20260218_120000"
+        assert (folder / "ekf_data.parquet").is_file()
+        manifest = store.read_manifest(folder)
+        assert manifest["kind"] == "ekf"
+        assert manifest["tables"]["ekf_data"]["rows"] == (
+            sample_ekf_version.ekf_data.height
+        )
+
+    def test_load_ekf_version(self, mock_flight, sample_ekf_version):
         """Test loading saved version matches original."""
         from pils.analyze.ekf import EKFAnalysis
 
         ekf = EKFAnalysis(mock_flight)
 
         # Save version
-        ekf._save_to_hdf5(sample_ekf_version)
+        ekf._save_version(sample_ekf_version)
 
         # Load version back
-        loaded_version = ekf._load_from_hdf5("rev_20260218_120000")
+        loaded_version = ekf._load_version("rev_20260218_120000")
 
         # Verify version name matches
         assert loaded_version.version_name == sample_ekf_version.version_name
@@ -776,7 +780,7 @@ class TestHDF5Persistence:
         assert loaded_version.metadata["config_file"] == "config.yaml"
         assert loaded_version.metadata["num_imu_samples"] == 5000
 
-    def test_hdf5_preserves_dataframe_dtypes(self, mock_flight, sample_ekf_version):
+    def test_save_preserves_dataframe_dtypes(self, mock_flight, sample_ekf_version):
         """Test dtypes are preserved after save/load cycle."""
         from pils.analyze.ekf import EKFAnalysis
 
@@ -788,8 +792,8 @@ class TestHDF5Persistence:
         assert sample_ekf_version.ekf_data["quat_x"].dtype == pl.Float64
 
         # Save and load
-        ekf._save_to_hdf5(sample_ekf_version)
-        loaded_version = ekf._load_from_hdf5("rev_20260218_120000")
+        ekf._save_version(sample_ekf_version)
+        loaded_version = ekf._load_version("rev_20260218_120000")
 
         # Verify loaded dtypes match original
         assert loaded_version.ekf_data["timestamp"].dtype == pl.Float64
@@ -830,7 +834,7 @@ class TestHDF5Persistence:
                 ekf_data=ekf_data,
                 metadata={"num_output_samples": 1},
             )
-            ekf._save_to_hdf5(version)
+            ekf._save_version(version)
 
         # List versions
         versions = ekf.list_versions()
@@ -877,7 +881,7 @@ class TestHDF5Persistence:
                 ekf_data=ekf_data,
                 metadata={"version_id": i},
             )
-            ekf._save_to_hdf5(version)
+            ekf._save_version(version)
 
         # Get latest version
         latest = ekf.get_latest_version()
@@ -888,8 +892,8 @@ class TestHDF5Persistence:
         assert latest.metadata["version_id"] == 2
         assert latest.ekf_data["quat_x"][0] == pytest.approx(0.02)
 
-    def test_multiple_versions_in_single_hdf5(self, mock_flight):
-        """Test multiple analysis versions stored in same HDF5."""
+    def test_multiple_versions_saved(self, mock_flight):
+        """Several versions load independently."""
         from pils.analyze.ekf import EKFAnalysis, EKFVersion
 
         ekf = EKFAnalysis(mock_flight)
@@ -921,11 +925,11 @@ class TestHDF5Persistence:
                 metadata={"version_num": i},
             )
             versions_to_save.append(version)
-            ekf._save_to_hdf5(version)
+            ekf._save_version(version)
 
         # Verify all versions can be loaded independently
         for i, original_version in enumerate(versions_to_save):
-            loaded_version = ekf._load_from_hdf5(original_version.version_name)
+            loaded_version = ekf._load_version(original_version.version_name)
 
             assert loaded_version.version_name == original_version.version_name
             assert loaded_version.ekf_data.shape == original_version.ekf_data.shape
@@ -936,31 +940,31 @@ class TestHDF5Persistence:
                 original_version.ekf_data["quat_w"].to_list()
             )
 
-    def test_hdf5_file_not_found_raises_error(self, mock_flight):
-        """Test loading from non-existent HDF5 raises FileNotFoundError."""
+    def test_nothing_saved_raises_error(self, mock_flight):
+        """Loading before anything is saved raises KeyError."""
         from pils.analyze.ekf import EKFAnalysis
 
         ekf = EKFAnalysis(mock_flight)
 
         # Try to load without saving first
-        with pytest.raises(FileNotFoundError):
-            ekf._load_from_hdf5("nonexistent_version")
+        with pytest.raises(KeyError):
+            ekf._load_version("nonexistent_version")
 
-    def test_hdf5_version_not_found_raises_error(self, mock_flight, sample_ekf_version):
+    def test_version_not_found_raises_error(self, mock_flight, sample_ekf_version):
         """Test loading non-existent version raises KeyError."""
         from pils.analyze.ekf import EKFAnalysis
 
         ekf = EKFAnalysis(mock_flight)
 
         # Save one version
-        ekf._save_to_hdf5(sample_ekf_version)
+        ekf._save_version(sample_ekf_version)
 
         # Try to load a different version
         with pytest.raises(KeyError):
-            ekf._load_from_hdf5("rev_99999999_999999")
+            ekf._load_version("rev_99999999_999999")
 
-    def test_overwrite_existing_version(self, mock_flight):
-        """Test saving a version with same name overwrites the old one."""
+    def test_saved_version_is_not_overwritten(self, mock_flight):
+        """A saved revision does not change: saving the same name again fails."""
         from pils.analyze.ekf import EKFAnalysis, EKFVersion
 
         ekf = EKFAnalysis(mock_flight)
@@ -981,9 +985,9 @@ class TestHDF5Persistence:
             ekf_data=ekf_data_v1,
             metadata={"iteration": 1},
         )
-        ekf._save_to_hdf5(v1)
+        ekf._save_version(v1)
 
-        # Overwrite with new data
+        # Same name, new data
         ekf_data_v2 = pl.DataFrame(
             {
                 "timestamp": [2000.0],
@@ -999,12 +1003,13 @@ class TestHDF5Persistence:
             ekf_data=ekf_data_v2,
             metadata={"iteration": 2},
         )
-        ekf._save_to_hdf5(v2)
+        with pytest.raises(FileExistsError):
+            ekf._save_version(v2)
 
-        # Load should return the overwritten version
-        loaded = ekf._load_from_hdf5("rev_20260218_120000")
-        assert loaded.metadata["iteration"] == 2
-        assert loaded.ekf_data["quat_w"][0] == pytest.approx(0.99)
+        # The first version is unchanged
+        loaded = ekf._load_version("rev_20260218_120000")
+        assert loaded.metadata["iteration"] == 1
+        assert loaded.ekf_data["quat_w"][0] == pytest.approx(1.0)
 
         # Should still be only 1 version
         assert len(ekf.list_versions()) == 1
@@ -1140,18 +1145,18 @@ class TestEKFRealDataIntegration:
         assert result.metadata["num_output_samples"] == result.ekf_data.height
 
     def test_run_analysis_with_save(self, mock_flight, real_imu_df, real_photo_df):
-        """EKF run_analysis with save_data=True creates an HDF5 version."""
+        """EKF run_analysis with save_data=True saves a version."""
         from pils.analyze.ekf import EKFAnalysis
 
         ekf = EKFAnalysis(mock_flight)
         result = ekf.run_analysis(real_imu_df, real_photo_df, save_data=True)
 
         assert result is not None
-        hdf5_path = ekf.ekf_dir / "ekf_solution.h5"
-        assert hdf5_path.exists()
+        assert ekf.list_versions() == [result.version_name]
+        assert (ekf.ekf_dir / result.version_name / "manifest.json").is_file()
 
         # Version is retrievable
-        loaded = ekf._load_from_hdf5(result.version_name)
+        loaded = ekf._load_version(result.version_name)
         assert loaded.ekf_data.height == result.ekf_data.height
 
     def test_euler_angles_within_physical_bounds(

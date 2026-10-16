@@ -115,3 +115,13 @@ def test_every_schema_name_is_snake_case():
     names = [f.name for table in schema.TABLES.values() for f in table.values()]
     names += [f.name for table in schema.DJI_RECORDS.values() for f in table.values()]
     assert all(schema.snake_case(n) == n for n in names)
+
+
+def test_docs_reference_is_up_to_date():
+    from pathlib import Path
+
+    page = Path(__file__).parent.parent / "docs" / "user-guide" / "data-schema.md"
+    assert schema.markdown_reference() in page.read_text(), (
+        "docs/user-guide/data-schema.md is out of date: regenerate the reference "
+        "with pils.schema.markdown_reference()"
+    )

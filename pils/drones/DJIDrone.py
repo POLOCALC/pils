@@ -698,7 +698,7 @@ class DJIDrone:
         correct_timestamp : bool, optional
             If True, correct timestamps.
         polars_interpolation : bool, optional
-            If True, use polars for interpolation.
+            Not used for DAT files (see :meth:`align_datfile`).
         align : bool, optional
             If True, align DAT file data with GPS.
         """
@@ -741,10 +741,7 @@ class DJIDrone:
                     )
                 )
             elif self.source_format == "dat":
-                # For DAT format, align_datfile returns a DataFrame
-                aligned = self.align_datfile(polars_interpolation=polars_interpolation)
-                if aligned is not None:
-                    self.data = aligned
+                self._split_receivers()
                 self._timestamp_records()
 
         else:
@@ -1049,6 +1046,37 @@ class DJIDrone:
             [c for c in ("datetime", "timestamp") if df[c].null_count() == df.height]
         )
 
+    def _split_receivers(self) -> None:
+        """The drone table and the main GNSS receiver, each with its own rows.
+
+        :attr:`data` becomes the RTK solution (or the main GNSS receiver if
+        the drone has no RTK) and the main receiver goes to
+        ``records["GPS"]``. Both are timestamped with the GPS tick-time fit;
+        no value is interpolated between the two receivers (as
+        :meth:`align_datfile` does).
+        """
+        assert isinstance(self.data, dict), "Expected dict for DAT format"
+        gps = self.data.get("GPS")
+        rtk = self.data.get("RTK")
+        if gps is None or gps.is_empty():
+            logger.warning("No GPS records: no timestamps for the drone data")
+            self.data = rtk if rtk is not None else pl.DataFrame()
+            return
+        self.get_tick_offset()
+        gps = self.data["GPS"]
+        self.records["GPS"] = gps
+        if rtk is None or rtk.is_empty():
+            self.data = gps
+            return
+        slope, intercept = self.tick_to_time  # type: ignore[misc]
+        timestamp = pl.col("tick") * slope + intercept
+        self.data = rtk.with_columns(
+            timestamp.alias("timestamp"),
+            pl.from_epoch((timestamp * 1e6).round().cast(pl.Int64), time_unit="us")
+            .dt.replace_time_zone("UTC")
+            .alias("datetime"),
+        )
+
     def _timestamp_records(self) -> None:
         """UTC timestamps for :attr:`records`, from the GPS tick-time fit."""
         if self.tick_to_time is None:
@@ -1327,6 +1355,10 @@ class DJIDrone:
         off = 0
 
         (idx_fast,) = np.where(residuals[off:] > np.quantile(residuals[off:], 0.95))
+        if idx_fast.size == 0:  # equal residuals: no record is late
+            (idx_fast,) = np.where(
+                residuals[off:] >= np.quantile(residuals[off:], 0.95)
+            )
 
         time_offset = float(
             np.average(

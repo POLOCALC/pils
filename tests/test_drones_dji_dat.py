@@ -226,3 +226,34 @@ class TestLoadDat:
         drone._load_from_dat()
         drone._timestamp_records()
         assert "timestamp" not in drone.records["IMU_ATTI(0)"].columns
+
+
+class TestReceivers:
+    def test_rtk_table_and_gps_record(self, tmp_path):
+        """The drone table is the RTK solution; the main GPS is a record."""
+        data = b""
+        tick = 1_000_000
+        for second in range(30):
+            t = tick + second * 4_500_000
+            data += record(2096, t, gps_payload(second, lon=-67.78 + second * 1e-5))
+            rtk = bytearray(72)
+            struct.pack_into("<dd", rtk, 8, -67.78, -22.96 + second * 1e-6)
+            struct.pack_into("<h", rtk, 52, 359 if second % 2 else 0)
+            data += record(53234, t + 2_250_000, bytes(rtk))
+        path = tmp_path / "flight_drone.dat"
+        path.write_bytes(data)
+
+        drone = DJIDrone(path)
+        drone.load_data(use_dat=True)
+        assert set(drone.data["msg_type"].unique()) == {53234}
+        assert drone.data.height == 20  # 30 records, last 10 dropped
+        # Its own rows, not interpolated: yaw is 0 or 359 only
+        assert set(drone.data["RTK:yaw"].unique()) <= {0, 359}
+        # Half a second after each GPS record, from the tick-time fit
+        gps = drone.records["GPS"]
+        np.testing.assert_allclose(
+            drone.data["timestamp"][:3].to_numpy(),
+            gps["timestamp"][:3].to_numpy() + 0.5,
+            atol=1e-6,
+        )
+        assert drone.data.schema["datetime"] == pl.Datetime("us", "UTC")

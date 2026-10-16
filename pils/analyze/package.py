@@ -3,13 +3,14 @@
 One call takes a flight from its raw files to the products described in
 ``docs/user-guide/directory-structure.md``::
 
-    flight_YYYYMMDD_hhmm/proc/
-    ├── sync_data.h5                    # metadata, raw_data, sync_data/rev_*
-    ├── azel/
-    │   ├── azel_solution.h5            # <TELESCOPE>/rev_*/azel_data
-    │   └── rev_YYYYMMDD_hhmmss/
-    │       └── rev_YYYYMMDD_hhmmss_azel_<telescope>_<YYYYMMDD_hhmm>.csv
-    ├── power/                          # only for the requested wafer slots
+    flight_YYYYMMDD_hhmm/proc/          # every revision as in pils.store
+    ├── flight/
+    │   ├── raw/                        # loaded data (replaced at each run)
+    │   └── sync/rev_YYYYMMDD_hhmmss/   # synchronized data
+    ├── azel/<TELESCOPE>/rev_YYYYMMDD_hhmmss/
+    │   ├── manifest.json, azel_data.parquet
+    │   └── rev_YYYYMMDD_hhmmss_azel_<telescope>_<YYYYMMDD_hhmm>.csv
+    ├── power/<TELESCOPE>_<wafer slot>/rev_*/   # only for the requested slots
     └── package_manifest.json           # what the last packaging produced
 
 Every run adds new revisions; earlier ones are kept. Steps that do not apply
@@ -35,8 +36,9 @@ from typing import Any
 
 import polars as pl
 
+from pils import store
 from pils.flight import Flight
-from pils.utils.hdf5 import dumps_metadata, new_version_name
+from pils.store import new_version_name
 from pils.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -63,7 +65,7 @@ AZEL_CSV_COLUMNS = {
     "srange_m": "srange",
 }
 
-SYNC_FILE = "sync_data.h5"
+FLIGHT_DIR = "flight"  # Flight.save: raw/ and sync/rev_*/
 MANIFEST_FILE = "package_manifest.json"
 
 
@@ -259,27 +261,29 @@ class FlightPackager:
         self, flight: Flight, result: PackageResult, save: bool, sensors: Sequence[str]
     ) -> str | None:
         if not save:
-            result.add("save sync_data.h5", "skipped", "dry run")
+            result.add("save flight", "skipped", "dry run")
             return None
-        path = self.proc_dir / SYNC_FILE
+        directory = self.proc_dir / FLIGHT_DIR
         try:
-            flight.to_hdf5(
-                path,
+            revision = flight.save(
+                directory,
                 sync_metadata={
                     "package_version": result.version_name,
                     "sync_method": "gps correlation",
                     "common_time": True,
                     "use_rtk_data": True,
-                    "target_rate": dumps_metadata(flight.sync_rates),
-                    "time_offsets": dumps_metadata(flight.sync_offsets),
                     "sensors_requested": list(sensors),
                 },
             )
         except Exception as e:
-            result.add("save sync_data.h5", "failed", _error(e))
+            result.add("save flight", "failed", _error(e))
             return None
-        revision = _latest_sync_revision(path)
-        result.add("save sync_data.h5", "done", f"sync_data/{revision}", [path])
+        result.add(
+            "save flight",
+            "done",
+            f"sync/{revision}",
+            [directory / "raw", directory / "sync" / str(revision)],
+        )
         return revision
 
     def _azel(
@@ -353,18 +357,16 @@ class FlightPackager:
             if not save:
                 result.add(name, "done", f"{detail} (not saved)")
                 continue
+            folder = azel.version_dir(version.version_name, telescope)
             csv_path = self._write_azel_csv(
-                azel.azel_dir, version.version_name, telescope, version.azel_data
+                folder, version.version_name, telescope, version.azel_data
             )
-            result.add(
-                name, "done", detail, [azel.azel_dir / "azel_solution.h5", csv_path]
-            )
+            result.add(name, "done", detail, [folder, csv_path])
 
     def _write_azel_csv(
-        self, azel_dir: Path, version_name: str, telescope: str, data: pl.DataFrame
+        self, folder: Path, version_name: str, telescope: str, data: pl.DataFrame
     ) -> Path:
         """The AZEL file for the telescope, in the version's folder."""
-        folder = azel_dir / version_name
         folder.mkdir(parents=True, exist_ok=True)
         stem = self.flight_name.removeprefix("flight_")
         path = folder / f"{version_name}_azel_{telescope.lower()}_{stem}.csv"
@@ -404,7 +406,16 @@ class FlightPackager:
             except Exception as e:
                 result.add(name, "failed", _error(e))
                 continue
-            outputs = [self.proc_dir / "power" / "power_solution.h5"] if save else []
+            outputs = (
+                [
+                    self.proc_dir
+                    / "power"
+                    / PowerAnalysis.target_name(telescope, wafer_slot)
+                    / version.version_name
+                ]
+                if save
+                else []
+            )
             result.add(name, "done", version.version_name, outputs)
 
     def _write_manifest(self, result: PackageResult, inputs: dict[str, Any]) -> None:
@@ -413,6 +424,7 @@ class FlightPackager:
         path = self.proc_dir / MANIFEST_FILE
         manifest = {
             "pils_version": getattr(pils, "__version__", "unknown"),
+            "pils": store.code_version(),
             "created_at": datetime.datetime.now().isoformat(timespec="seconds"),
             "flight_id": self.flight_info.get("flight_id"),
             "inputs": inputs,
@@ -501,16 +513,6 @@ def _describe(data: Any) -> str:
     if isinstance(data, dict):
         return "{" + ", ".join(f"{k}: {_describe(v)}" for k, v in data.items()) + "}"
     return type(data).__name__
-
-
-def _latest_sync_revision(path: Path) -> str | None:
-    import h5py
-
-    with h5py.File(path, "r") as f:
-        if "sync_data" not in f:
-            return None
-        names = sorted(k for k in f["sync_data"] if k.startswith("rev_"))
-    return names[-1] if names else None
 
 
 def _error(e: Exception) -> str:

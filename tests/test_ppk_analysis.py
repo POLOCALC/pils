@@ -12,8 +12,35 @@ from unittest.mock import MagicMock, patch
 import polars as pl
 import pytest
 
+from pils import store
 from pils.analyze.ppk import PPKAnalysis, PPKVersion
 from pils.flight import Flight
+
+
+def write_legacy_ppk_version(
+    path: Path,
+    version_name: str,
+    pos_data: pl.DataFrame,
+    stat_data: pl.DataFrame,
+    config_hash: str,
+    revision_path: Path,
+) -> None:
+    """A version in the ppk_solution.h5 layout used before pils.store."""
+    import json
+
+    import h5py
+
+    from pils.utils.hdf5 import write_table
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with h5py.File(path, "a") as f:
+        group = f.create_group(version_name)
+        write_table(group, "position", pos_data)
+        write_table(group, "statistics", stat_data)
+        group.attrs["config_hash"] = config_hash
+        group.attrs["timestamp"] = "2026-02-01T12:00:00"
+        group.attrs["config_params"] = json.dumps({"pos1-posmode": "kinematic"})
+        group.attrs["revision_path"] = str(revision_path)
 
 
 def create_flight_from_path(flight_path: Path) -> Flight:
@@ -170,30 +197,30 @@ class TestPPKAnalysisInit:
             PPKAnalysis(flight)
 
 
-class TestPPKAnalysisFromHDF5:
-    """Test PPKAnalysis.from_hdf5 classmethod with Flight objects."""
+class TestPPKAnalysisLoad:
+    """Test PPKAnalysis.load (and its alias from_hdf5) with Flight objects."""
 
-    def test_from_hdf5_with_flight_object(self, mock_flight):
-        """Test from_hdf5 accepts Flight object and extracts flight_path."""
-        ppk = PPKAnalysis.from_hdf5(mock_flight)
+    def test_load_with_flight_object(self, mock_flight):
+        """Test load accepts Flight object and extracts flight_path."""
+        ppk = PPKAnalysis.load(mock_flight)
 
         assert ppk.flight_path == mock_flight.flight_path
         assert ppk.ppk_dir.exists()
         assert isinstance(ppk.versions, dict)
 
-    def test_from_hdf5_validates_flight_type(self, tmp_path):
-        """Test from_hdf5 raises TypeError for non-Flight objects."""
+    def test_load_validates_flight_type(self, tmp_path):
+        """Test load raises TypeError for non-Flight objects."""
         flight_path = tmp_path / "flight_005"
         flight_path.mkdir()
 
         with pytest.raises(TypeError, match="Expected Flight object"):
-            PPKAnalysis.from_hdf5(str(flight_path))
+            PPKAnalysis.load(str(flight_path))
 
         with pytest.raises(TypeError, match="Expected Flight object"):
-            PPKAnalysis.from_hdf5(flight_path)
+            PPKAnalysis.load(flight_path)
 
-    def test_from_hdf5_validates_flight_path_exists(self, tmp_path):
-        """Test from_hdf5 raises ValueError if flight_path is invalid."""
+    def test_load_validates_flight_path_exists(self, tmp_path):
+        """Test load raises ValueError if flight_path is invalid."""
         drone_data_path = tmp_path / "drone"
         drone_data_path.mkdir()
 
@@ -207,7 +234,7 @@ class TestPPKAnalysisFromHDF5:
         with pytest.raises(
             ValueError, match="Flight object must have a valid flight_path"
         ):
-            PPKAnalysis.from_hdf5(flight)
+            PPKAnalysis.load(flight)
 
 
 class TestConfigHashing:
@@ -360,8 +387,8 @@ class TestVersionNaming:
 class TestSmartExecution:
     """Test smart re-run logic for PPK analysis."""
 
-    def test_should_run_when_no_hdf5_exists(self, tmp_path):
-        """Test that analysis runs when no previous HDF5 file exists."""
+    def test_should_run_when_nothing_saved(self, tmp_path):
+        """Test that analysis runs when no previous version exists."""
         flight_path = tmp_path / "flight_001"
         flight_path.mkdir()
         config_file = tmp_path / "test.conf"
@@ -382,9 +409,7 @@ class TestSmartExecution:
         flight = create_flight_from_path(flight_path)
         ppk = PPKAnalysis(flight)
 
-        # Create mock HDF5 file and simulate previous run
-        ppk.hdf5_path.parent.mkdir(parents=True, exist_ok=True)
-        ppk.hdf5_path.touch()
+        # Simulate a previous run
 
         # Mock latest version with same config hash
         config_hash = ppk._hash_config(config_file)
@@ -410,8 +435,6 @@ class TestSmartExecution:
 
         flight = create_flight_from_path(flight_path)
         ppk = PPKAnalysis(flight)
-        ppk.hdf5_path.parent.mkdir(parents=True, exist_ok=True)
-        ppk.hdf5_path.touch()
 
         # Mock latest version with old config hash
         old_hash = ppk._hash_config(old_config)
@@ -523,12 +546,12 @@ class TestPPKVersionDataclass:
         assert hasattr(version, "revision_path")
 
 
-class TestHDF5Save:
-    """Test HDF5 save operations for PPKVersion."""
+class TestSave:
+    """Saving PPKVersion (pils.store: ppk/<rev>/)."""
 
-    def test_save_version_creates_hdf5_file(self, tmp_path):
-        """Test that saving version creates HDF5 file."""
-        flight_path = tmp_path / "flight_hdf5"
+    def test_save_version_creates_version_dir(self, tmp_path):
+        """Saving writes the revision's manifest and tables."""
+        flight_path = tmp_path / "flight_save"
         flight_path.mkdir()
 
         flight = create_flight_from_path(flight_path)
@@ -556,16 +579,15 @@ class TestHDF5Save:
             revision_path=ppk.ppk_dir / "rev_20260204_143022",
         )
 
-        # Save to HDF5
-        ppk._save_version_to_hdf5(version)
+        ppk._save_version(version)
 
-        # Verify file exists
-        assert ppk.hdf5_path.exists()
+        folder = ppk.ppk_dir / "rev_20260204_143022"
+        assert (folder / "manifest.json").is_file()
+        # Nothing is written to the legacy HDF5 file
+        assert not ppk.hdf5_path.exists()
 
-    def test_save_version_creates_version_group(self, tmp_path):
-        """Test that saving creates correct version group structure."""
-        import h5py
-
+    def test_save_version_creates_tables(self, tmp_path):
+        """The revision has a position and a statistics table."""
         flight_path = tmp_path / "flight_groups"
         flight_path.mkdir()
 
@@ -582,19 +604,15 @@ class TestHDF5Save:
             revision_path=ppk.ppk_dir / "rev_20260204_143022",
         )
 
-        ppk._save_version_to_hdf5(version)
+        ppk._save_version(version)
 
-        # Check HDF5 structure
-        with h5py.File(ppk.hdf5_path, "r") as f:
-            assert "rev_20260204_143022" in f
-            version_group = f["rev_20260204_143022"]
-            assert "position" in version_group
-            assert "statistics" in version_group
+        folder = ppk.ppk_dir / "rev_20260204_143022"
+        assert (folder / "position.parquet").is_file()
+        assert (folder / "statistics.parquet").is_file()
+        assert store.list_versions(ppk.ppk_dir) == ["rev_20260204_143022"]
 
     def test_save_position_dataframe(self, tmp_path):
         """Test that position DataFrame is saved correctly."""
-        import h5py
-
         flight_path = tmp_path / "flight_pos"
         flight_path.mkdir()
 
@@ -618,21 +636,13 @@ class TestHDF5Save:
             revision_path=ppk.ppk_dir / "rev_test",
         )
 
-        ppk._save_version_to_hdf5(version)
+        ppk._save_version(version)
 
-        # Verify position data structure
-        with h5py.File(ppk.hdf5_path, "r") as f:
-            pos_group = f["rev_test/position"]
-            assert "timestamp" in pos_group
-            assert "lat" in pos_group
-            assert "lon" in pos_group
-            assert "height" in pos_group
-            assert len(pos_group["timestamp"]) == 3
+        position = pl.read_parquet(ppk.ppk_dir / "rev_test" / "position.parquet")
+        assert position.equals(pos_df)
 
     def test_save_statistics_dataframe(self, tmp_path):
         """Test that statistics DataFrame is saved correctly."""
-        import h5py
-
         flight_path = tmp_path / "flight_stat"
         flight_path.mkdir()
 
@@ -655,22 +665,13 @@ class TestHDF5Save:
             revision_path=ppk.ppk_dir / "rev_test2",
         )
 
-        ppk._save_version_to_hdf5(version)
+        ppk._save_version(version)
 
-        # Verify statistics data
-        with h5py.File(ppk.hdf5_path, "r") as f:
-            stat_group = f["rev_test2/statistics"]
-            assert "timestamp" in stat_group
-            assert "num_sat" in stat_group
-            assert "ratio" in stat_group
-            assert len(stat_group["num_sat"]) == 2
+        statistics = pl.read_parquet(ppk.ppk_dir / "rev_test2" / "statistics.parquet")
+        assert statistics.equals(stat_df)
 
-    def test_save_metadata_attrs(self, tmp_path):
-        """Test that metadata is saved as group attributes."""
-        import json
-
-        import h5py
-
+    def test_save_metadata_in_manifest(self, tmp_path):
+        """Test that metadata is saved in the revision manifest."""
         flight_path = tmp_path / "flight_meta"
         flight_path.mkdir()
 
@@ -692,28 +693,18 @@ class TestHDF5Save:
             revision_path=ppk.ppk_dir / "rev_meta_test",
         )
 
-        ppk._save_version_to_hdf5(version)
+        ppk._save_version(version)
 
-        # Verify metadata attributes
-        with h5py.File(ppk.hdf5_path, "r") as f:
-            version_group = f["rev_meta_test"]
-            assert "config_hash" in version_group.attrs
-            assert "timestamp" in version_group.attrs
-            assert "config_params" in version_group.attrs
-            assert "revision_path" in version_group.attrs
-
-            # Check values
-            assert version_group.attrs["config_hash"] == "abc123def456"
-            assert version_group.attrs["timestamp"] == "2026-02-04T14:30:22"
-
-            # Config params should be JSON string
-            config_params = json.loads(version_group.attrs["config_params"])
-            assert config_params["pos1-posmode"] == "kinematic"
+        manifest = store.read_manifest(ppk.ppk_dir / "rev_meta_test")
+        assert manifest["kind"] == "ppk"
+        saved = manifest["metadata"]
+        assert saved["config_hash"] == "abc123def456"
+        assert saved["timestamp"] == "2026-02-04T14:30:22"
+        assert saved["config_params"]["pos1-posmode"] == "kinematic"
+        assert saved["revision_path"] == str(ppk.ppk_dir / "rev_meta_test")
 
     def test_save_multiple_versions(self, tmp_path):
-        """Test saving multiple versions to same HDF5 file."""
-        import h5py
-
+        """Test saving multiple versions."""
         flight_path = tmp_path / "flight_multi"
         flight_path.mkdir()
 
@@ -728,7 +719,7 @@ class TestHDF5Save:
             metadata={"config_hash": "hash1"},
             revision_path=ppk.ppk_dir / "rev_20260204_140000",
         )
-        ppk._save_version_to_hdf5(version1)
+        ppk._save_version(version1)
 
         # Save second version
         version2 = PPKVersion(
@@ -738,19 +729,35 @@ class TestHDF5Save:
             metadata={"config_hash": "hash2"},
             revision_path=ppk.ppk_dir / "rev_20260204_150000",
         )
-        ppk._save_version_to_hdf5(version2)
+        ppk._save_version(version2)
 
-        # Verify both versions exist
-        with h5py.File(ppk.hdf5_path, "r") as f:
-            assert "rev_20260204_140000" in f
-            assert "rev_20260204_150000" in f
+        assert store.list_versions(ppk.ppk_dir) == [
+            "rev_20260204_140000",
+            "rev_20260204_150000",
+        ]
+
+    def test_saved_version_is_not_overwritten(self, tmp_path):
+        """A saved revision does not change: saving it again fails."""
+        flight_path = tmp_path / "flight_once"
+        flight_path.mkdir()
+        ppk = PPKAnalysis(create_flight_from_path(flight_path))
+        version = PPKVersion(
+            version_name="rev_20260204_140000",
+            pos_data=pl.DataFrame({"timestamp": [1.0]}),
+            stat_data=pl.DataFrame({"timestamp": [1.0]}),
+            metadata={},
+            revision_path=ppk.ppk_dir / "rev_20260204_140000",
+        )
+        ppk._save_version(version)
+        with pytest.raises(FileExistsError):
+            ppk._save_version(version)
 
 
-class TestHDF5Load:
-    """Test HDF5 load operations for PPKVersion."""
+class TestLoad:
+    """Loading PPKVersion and PPKAnalysis.load."""
 
-    def test_load_version_from_hdf5(self, tmp_path):
-        """Test loading a version from HDF5."""
+    def test_load_version(self, tmp_path):
+        """Test loading a saved version."""
         flight_path = tmp_path / "flight_load"
         flight_path.mkdir()
 
@@ -777,10 +784,10 @@ class TestHDF5Load:
             metadata={"config_hash": "loadhash"},
             revision_path=ppk.ppk_dir / "rev_load_test",
         )
-        ppk._save_version_to_hdf5(version)
+        ppk._save_version(version)
 
         # Load it back
-        loaded_version = ppk._load_version_from_hdf5("rev_load_test")
+        loaded_version = ppk._load_version("rev_load_test")
 
         assert loaded_version.version_name == "rev_load_test"
         assert isinstance(loaded_version.pos_data, pl.DataFrame)
@@ -815,10 +822,10 @@ class TestHDF5Load:
             metadata={},
             revision_path=ppk.ppk_dir / "rev_reconstruct",
         )
-        ppk._save_version_to_hdf5(version)
+        ppk._save_version(version)
 
         # Load and verify
-        loaded = ppk._load_version_from_hdf5("rev_reconstruct")
+        loaded = ppk._load_version("rev_reconstruct")
 
         # Check position data
         assert loaded.pos_data.shape == (3, 3)
@@ -851,18 +858,18 @@ class TestHDF5Load:
             metadata=metadata,
             revision_path=ppk.ppk_dir / "rev_meta_load",
         )
-        ppk._save_version_to_hdf5(version)
+        ppk._save_version(version)
 
         # Load and verify metadata
-        loaded = ppk._load_version_from_hdf5("rev_meta_load")
+        loaded = ppk._load_version("rev_meta_load")
 
         assert loaded.metadata["config_hash"] == "metatesthash"
         assert loaded.metadata["timestamp"] == "2026-02-04T15:00:00"
         assert loaded.metadata["config_params"]["pos1-posmode"] == "static"
         assert loaded.metadata["config_params"]["pos1-elmask"] == "10"
 
-    def test_from_hdf5_classmethod(self, tmp_path):
-        """Test loading PPKAnalysis from existing HDF5 file."""
+    def test_load_classmethod(self, tmp_path):
+        """Test loading PPKAnalysis with its saved versions."""
         flight_path = tmp_path / "flight_classmethod"
         flight_path.mkdir()
 
@@ -876,18 +883,19 @@ class TestHDF5Load:
             metadata={"config_hash": "classhash"},
             revision_path=ppk1.ppk_dir / "rev_classmethod",
         )
-        ppk1._save_version_to_hdf5(version)
+        ppk1._save_version(version)
 
-        # Load via classmethod
-        ppk2 = PPKAnalysis.from_hdf5(flight)
+        # Load via classmethod (from_hdf5 is the same)
+        ppk2 = PPKAnalysis.load(flight)
+        assert PPKAnalysis.from_hdf5(flight).list_versions() == ["rev_classmethod"]
 
         assert isinstance(ppk2, PPKAnalysis)
         assert ppk2.flight_path == flight_path
         assert len(ppk2.versions) == 1
         assert "rev_classmethod" in ppk2.versions
 
-    def test_from_hdf5_loads_all_versions(self, tmp_path):
-        """Test that from_hdf5 loads all stored versions."""
+    def test_load_loads_all_versions(self, tmp_path):
+        """Test that load reads all saved versions."""
         flight_path = tmp_path / "flight_all_versions"
         flight_path.mkdir()
 
@@ -902,27 +910,63 @@ class TestHDF5Load:
                 metadata={"config_hash": f"hash{i}"},
                 revision_path=ppk1.ppk_dir / f"rev_2026020414{i:02d}00",
             )
-            ppk1._save_version_to_hdf5(version)
+            ppk1._save_version(version)
 
         # Load all
-        ppk2 = PPKAnalysis.from_hdf5(flight)
+        ppk2 = PPKAnalysis.load(flight)
 
         assert len(ppk2.versions) == 3
         assert "rev_20260204140000" in ppk2.versions
         assert "rev_20260204140100" in ppk2.versions
         assert "rev_20260204140200" in ppk2.versions
 
-    def test_from_hdf5_no_file_returns_empty(self, tmp_path):
-        """Test that from_hdf5 returns empty PPKAnalysis if no HDF5 file exists."""
-        flight_path = tmp_path / "flight_no_hdf5"
+    def test_load_nothing_saved_returns_empty(self, tmp_path):
+        """Test that load returns an empty PPKAnalysis if nothing is saved."""
+        flight_path = tmp_path / "flight_nothing_saved"
         flight_path.mkdir()
 
         flight = create_flight_from_path(flight_path)
-        ppk = PPKAnalysis.from_hdf5(flight)
+        ppk = PPKAnalysis.load(flight)
 
         assert isinstance(ppk, PPKAnalysis)
         assert len(ppk.versions) == 0
         assert ppk.flight_path == flight_path
+
+    def test_load_reads_legacy_hdf5_versions(self, tmp_path):
+        """Versions in a ppk_solution.h5 written before the store are loaded."""
+        flight_path = tmp_path / "flight_legacy"
+        flight_path.mkdir()
+        flight = create_flight_from_path(flight_path)
+        ppk1 = PPKAnalysis(flight)
+
+        # A store version and a legacy one
+        ppk1._save_version(
+            PPKVersion(
+                version_name="rev_20260301_120000",
+                pos_data=pl.DataFrame({"timestamp": [2.0]}),
+                stat_data=pl.DataFrame({"timestamp": [2.0]}),
+                metadata={"config_hash": "new"},
+                revision_path=ppk1.ppk_dir / "rev_20260301_120000",
+            )
+        )
+        write_legacy_ppk_version(
+            ppk1.hdf5_path,
+            "rev_20260201_120000",
+            pl.DataFrame({"timestamp": [1.0, 2.0], "lat": [45.0, 45.1]}),
+            pl.DataFrame({"timestamp": [1.0], "num_sat": [12]}),
+            config_hash="old",
+            revision_path=ppk1.ppk_dir / "rev_20260201_120000",
+        )
+
+        ppk2 = PPKAnalysis.load(flight)
+
+        assert ppk2.list_versions() == ["rev_20260201_120000", "rev_20260301_120000"]
+        legacy = ppk2.get_version("rev_20260201_120000")
+        assert legacy is not None
+        assert legacy.metadata["config_hash"] == "old"
+        assert legacy.metadata["config_params"]["pos1-posmode"] == "kinematic"
+        assert legacy.pos_data["lat"].to_list() == [45.0, 45.1]
+        assert legacy.stat_data["num_sat"].to_list() == [12]
 
 
 class TestVersionManagement:
@@ -949,7 +993,7 @@ class TestVersionManagement:
                 metadata={},
                 revision_path=ppk.ppk_dir / name,
             )
-            ppk._save_version_to_hdf5(version)
+            ppk._save_version(version)
             ppk.versions[name] = version
 
         versions = ppk.list_versions()
@@ -976,7 +1020,7 @@ class TestVersionManagement:
             metadata={"config_hash": "gethash"},
             revision_path=ppk.ppk_dir / "rev_get_test",
         )
-        ppk._save_version_to_hdf5(version)
+        ppk._save_version(version)
         ppk.versions["rev_get_test"] = version
 
         retrieved = ppk.get_version("rev_get_test")
@@ -1012,7 +1056,7 @@ class TestVersionManagement:
             metadata={},
             revision_path=ppk.ppk_dir / "rev_delete_test",
         )
-        ppk._save_version_to_hdf5(version)
+        ppk._save_version(version)
         ppk.versions["rev_delete_test"] = version
 
         assert "rev_delete_test" in ppk.versions
@@ -1021,35 +1065,55 @@ class TestVersionManagement:
 
         assert "rev_delete_test" not in ppk.versions
 
-    def test_delete_version_removes_from_hdf5(self, tmp_path):
-        """Test that delete_version removes group from HDF5 file."""
-        import h5py
-
-        flight_path = tmp_path / "flight_delete_hdf5"
+    def test_delete_version_removes_saved_version(self, tmp_path):
+        """Test that delete_version removes the saved revision."""
+        flight_path = tmp_path / "flight_delete_saved"
         flight_path.mkdir()
 
         flight = create_flight_from_path(flight_path)
         ppk = PPKAnalysis(flight)
 
         version = PPKVersion(
-            version_name="rev_delete_hdf5",
+            version_name="rev_delete_saved",
             pos_data=pl.DataFrame({"timestamp": [1.0]}),
             stat_data=pl.DataFrame({"timestamp": [1.0]}),
             metadata={},
-            revision_path=ppk.ppk_dir / "rev_delete_hdf5",
+            revision_path=ppk.ppk_dir / "rev_delete_saved",
         )
-        ppk._save_version_to_hdf5(version)
-        ppk.versions["rev_delete_hdf5"] = version
+        ppk._save_version(version)
+        ppk.versions["rev_delete_saved"] = version
 
-        # Verify exists in HDF5
+        assert store.list_versions(ppk.ppk_dir) == ["rev_delete_saved"]
+
+        ppk.delete_version("rev_delete_saved")
+
+        assert store.list_versions(ppk.ppk_dir) == []
+        assert PPKAnalysis.load(flight).list_versions() == []
+
+    def test_delete_version_removes_legacy_hdf5_group(self, tmp_path):
+        """A legacy version is removed from ppk_solution.h5 too."""
+        import h5py
+
+        flight_path = tmp_path / "flight_delete_legacy"
+        flight_path.mkdir()
+        flight = create_flight_from_path(flight_path)
+        ppk = PPKAnalysis(flight)
+        write_legacy_ppk_version(
+            ppk.hdf5_path,
+            "rev_20260201_120000",
+            pl.DataFrame({"timestamp": [1.0]}),
+            pl.DataFrame({"timestamp": [1.0]}),
+            config_hash="old",
+            revision_path=ppk.ppk_dir / "rev_20260201_120000",
+        )
+        ppk = PPKAnalysis.load(flight)
+        assert ppk.list_versions() == ["rev_20260201_120000"]
+
+        ppk.delete_version("rev_20260201_120000")
+
         with h5py.File(ppk.hdf5_path, "r") as f:
-            assert "rev_delete_hdf5" in f
-
-        ppk.delete_version("rev_delete_hdf5")
-
-        # Verify removed from HDF5
-        with h5py.File(ppk.hdf5_path, "r") as f:
-            assert "rev_delete_hdf5" not in f
+            assert "rev_20260201_120000" not in f
+        assert PPKAnalysis.load(flight).list_versions() == []
 
     def test_delete_version_removes_folder(self, tmp_path):
         """Test that delete_version removes revision folder from filesystem."""
@@ -1071,7 +1135,7 @@ class TestVersionManagement:
             metadata={},
             revision_path=revision_path,
         )
-        ppk._save_version_to_hdf5(version)
+        ppk._save_version(version)
         ppk.versions["rev_delete_folder"] = version
 
         assert revision_path.exists()
@@ -1082,15 +1146,15 @@ class TestVersionManagement:
 
 
 class TestRunAnalysisIntegration:
-    """Test run_analysis integration with HDF5 save."""
+    """Test run_analysis integration with saving."""
 
     @patch("pils.analyze.ppk.subprocess.run")
     @patch("pils.analyze.ppk.POSAnalyzer")
     @patch("pils.analyze.ppk.STATAnalyzer")
-    def test_run_analysis_saves_to_hdf5(
+    def test_run_analysis_saves_version(
         self, mock_stat, mock_pos, mock_subprocess, tmp_path, mock_rtklib_files
     ):
-        """Test that run_analysis automatically saves to HDF5."""
+        """Test that run_analysis automatically saves the version."""
         flight_path, config_path, rover_path, base_path, nav_path = mock_rtklib_files
 
         # Mock subprocess.run to create output files
@@ -1133,14 +1197,11 @@ class TestRunAnalysisIntegration:
             config_path, rover_path, base_path, nav_path, force=True
         )
 
-        # HDF5 file should exist
-        assert ppk.hdf5_path.exists()
-
-        # Version should be in HDF5
-        import h5py
-
-        with h5py.File(ppk.hdf5_path, "r") as f:
-            assert version.version_name in f
+        # The revision is saved, next to the RTKLIB files
+        assert store.list_versions(ppk.ppk_dir) == [version.version_name]
+        folder = ppk.ppk_dir / version.version_name
+        assert (folder / "manifest.json").is_file()
+        assert (folder / "position.parquet").is_file()
 
     @patch("pils.analyze.ppk.subprocess.run")
     @patch("pils.analyze.ppk.POSAnalyzer")
@@ -1187,8 +1248,8 @@ class TestRunAnalysisIntegration:
             config_path, rover_path, base_path, nav_path, force=True
         )
 
-        # Load from HDF5
-        ppk2 = PPKAnalysis.from_hdf5(flight)
+        # Load back
+        ppk2 = PPKAnalysis.load(flight)
         version2 = ppk2.get_version(version1.version_name)
 
         assert version2 is not None
@@ -1256,7 +1317,7 @@ class TestRunAnalysisIntegration:
         assert version1.version_name != version2.version_name
 
         # Load fresh instance
-        ppk2 = PPKAnalysis.from_hdf5(flight)
+        ppk2 = PPKAnalysis.load(flight)
 
         assert len(ppk2.versions) == 2
         assert version1.version_name in ppk2.versions

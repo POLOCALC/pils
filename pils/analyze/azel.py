@@ -1,19 +1,17 @@
 """AZEL (Azimuth-Elevation) analysis module for flight data."""
 
 import datetime
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import h5py
 import numpy as np
 import polars as pl
 import pymap3d as pm
 
+from pils import store
 from pils.flight import Flight
 from pils.sensors.emlid import Emlid
-from pils.utils.hdf5 import read_table, write_table
 from pils.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -55,20 +53,15 @@ class AZELAnalysis:
     Manages azimuth-elevation calculations for telescope tracking of drone
     flights. Completely separate from Flight class.
 
-    File Structure
+    File Structure (see :mod:`pils.store`)
     --------------
     flight_dir/proc/azel/
-    └── azel_solution.h5  # HDF5 with telescope-grouped structure
-
-    HDF5 Structure
-    --------------
-    azel_solution.h5
-    ├── SATP1/                     # Telescope group
-    │   ├── rev_20260302_120000/   # Revision 1
-    │   │   ├── azel_data/         # DataFrame columns
-    │   │   └── metadata           # JSON metadata
-    │   └── rev_20260302_130000/   # Revision 2
-    └── SATP2/                     # Another telescope
+    ├── SATP1/
+    │   ├── rev_20260302_120000/
+    │   │   ├── manifest.json      # metadata, code version, columns
+    │   │   └── azel_data.parquet  # timestamp, az_deg, el_deg, srange_m, e/n/u_m
+    │   └── rev_20260302_130000/
+    └── SATP2/
         └── rev_20260302_120000/
 
     Attributes
@@ -316,7 +309,9 @@ class AZELAnalysis:
             )
 
         # 2. Detect drone format from flight's drone_model attribute
-        drone_model = getattr(self.flight, "_Flight__drone_model", "dji").lower()
+        drone_model = (
+            getattr(self.flight, "_Flight__drone_model", None) or "dji"
+        ).lower()
         logger.info(f"Detected drone model: {drone_model}")
 
         # Determine format type
@@ -501,155 +496,91 @@ class AZELAnalysis:
 
         # Save to HDF5 if requested
         if save_data:
-            self._save_to_hdf5(version, telescope_name=telescope_name)
+            self._save_version(version, telescope_name=telescope_name)
 
         return version
 
-    def _save_to_hdf5(self, version: AZELVersion, telescope_name: str) -> None:
-        """Save AZEL version to HDF5 file with telescope grouping.
-
-        Creates hierarchical structure: telescope_name/revision_name/data
+    def _save_version(self, version: AZELVersion, telescope_name: str) -> Path:
+        """Save a version: ``azel/<telescope>/<version>/`` (see :mod:`pils.store`).
 
         Parameters
         ----------
         version : AZELVersion
-            AZELVersion object to save to HDF5 file.
+            Version to save.
         telescope_name : str
-            Telescope name to use as parent group.
-
-        Examples
-        --------
-        >>> version = azel.run_analysis('SATP1', ...)
-        >>> azel._save_to_hdf5(version, telescope_name='SATP1')
-        """
-        hdf5_path = self.azel_dir / "azel_solution.h5"
-
-        with h5py.File(hdf5_path, "a") as f:
-            # Create telescope group if doesn't exist
-            if telescope_name not in f:
-                telescope_group = f.create_group(telescope_name)
-            else:
-                telescope_group = f[telescope_name]
-
-            # Create version group under telescope (overwrite if exists)
-            if version.version_name in telescope_group:
-                del telescope_group[version.version_name]
-
-            version_group = telescope_group.create_group(version.version_name)
-
-            write_table(version_group, "azel_data", version.azel_data)
-
-            # Save metadata
-            version_group.attrs["metadata"] = json.dumps(version.metadata)
-
-        logger.info(
-            f"Saved AZEL version '{version.version_name}' for telescope '{telescope_name}' to HDF5"
-        )
-
-    def _load_from_hdf5(self, version_name: str, telescope_name: str) -> AZELVersion:
-        """Load AZEL version from HDF5 file.
-
-        Parameters
-        ----------
-        version_name : str
-            Name of version to load (e.g., 'rev_20260218_143022').
-        telescope_name : str
-            Telescope group name containing the version.
+            Telescope it is for.
 
         Returns
         -------
-        AZELVersion
-            Loaded AZELVersion object containing azel_data and metadata.
+        Path
+            The version's directory.
+        """
+        path = store.save_version(
+            self.azel_dir,
+            version.version_name,
+            {"azel_data": version.azel_data},
+            version.metadata,
+            parent=telescope_name,
+            kind="azel",
+        )
+        logger.info(f"Saved AZEL version '{version.version_name}' to {path}")
+        return path
+
+    def version_dir(self, version_name: str, telescope_name: str) -> Path:
+        """Directory of a version (its tables, manifest and CSV)."""
+        return self.azel_dir / telescope_name / version_name
+
+    def _load_version(self, version_name: str, telescope_name: str) -> AZELVersion:
+        """Load a saved version.
 
         Raises
         ------
-        FileNotFoundError
-            If HDF5 file doesn't exist.
         KeyError
-            If telescope_name or version_name not found in HDF5 file.
-
-        Examples
-        --------
-        >>> version = azel._load_from_hdf5('rev_20260218_143022', telescope_name='SATP1')
+            If the version is not saved for this telescope.
         """
-        hdf5_path = self.azel_dir / "azel_solution.h5"
-
-        if not hdf5_path.exists():
-            raise FileNotFoundError(f"HDF5 file not found: {hdf5_path}")
-
-        with h5py.File(hdf5_path, "r") as f:
-            if telescope_name not in f:
-                raise KeyError(f"Telescope '{telescope_name}' not found in HDF5")
-
-            telescope_group = f[telescope_name]
-
-            if version_name not in telescope_group:
-                raise KeyError(
-                    f"Version '{version_name}' not found under telescope '{telescope_name}' in HDF5"
-                )
-
-            version_group = telescope_group[version_name]
-            azel_data = read_table(version_group["azel_data"])
-
-            # Load metadata
-            metadata = json.loads(version_group.attrs["metadata"])
-
-        logger.info(
-            f"Loaded AZEL version '{version_name}' for telescope '{telescope_name}' from HDF5"
+        tables, metadata = store.load_version(
+            self.azel_dir, version_name, parent=telescope_name
         )
-
         return AZELVersion(
-            version_name=version_name, azel_data=azel_data, metadata=metadata
+            version_name=version_name,
+            azel_data=tables["azel_data"],  # type: ignore[arg-type]
+            metadata=metadata,
         )
 
     def list_versions(
         self, telescope_name: str | None = None
     ) -> list[str] | dict[str, list[str]]:
-        """List all AZEL versions in HDF5 file.
+        """List the saved AZEL versions.
 
         Parameters
         ----------
         telescope_name : str | None, optional
             If provided, returns versions for that telescope only.
             If None, returns a dictionary with all telescopes and their versions.
-            Default is None.
 
         Returns
         -------
         list[str] | dict[str, list[str]]
-            If telescope_name provided: List of version names for that telescope,
-            sorted chronologically. Empty list if telescope doesn't exist.
-            If telescope_name is None: Dictionary mapping telescope names to
-            their version lists. Empty dict if HDF5 file doesn't exist.
+            Version names, oldest first; or, without ``telescope_name``, the
+            versions of each telescope.
 
         Examples
         --------
-        >>> # List all versions for specific telescope
         >>> azel.list_versions(telescope_name='SATP1')
         ['rev_20260218_120000', 'rev_20260218_143022']
-        >>> # List all telescopes and their versions
         >>> azel.list_versions()
         {'SATP1': ['rev_20260218_120000'], 'SATP2': ['rev_20260218_130000']}
         """
-        hdf5_path = self.azel_dir / "azel_solution.h5"
-
-        if not hdf5_path.exists():
-            return [] if telescope_name is not None else {}
-
-        with h5py.File(hdf5_path, "r") as f:
-            if telescope_name is not None:
-                # Return versions for specific telescope
-                if telescope_name not in f:
-                    return []
-                telescope_group = f[telescope_name]
-                versions = sorted(list(telescope_group.keys()))
-                return versions
-            else:
-                # Return all telescopes with their versions
-                result = {}
-                for tel_name in f.keys():
-                    result[tel_name] = sorted(list(f[tel_name].keys()))
-                return result
+        if telescope_name is not None:
+            return store.list_versions(self.azel_dir, parent=telescope_name)
+        if not self.azel_dir.is_dir():
+            return {}
+        result = {}
+        for item in sorted(self.azel_dir.iterdir()):
+            versions = store.list_versions(self.azel_dir, parent=item.name)
+            if item.is_dir() and versions:
+                result[item.name] = versions
+        return result
 
     def get_latest_version(
         self, telescope_name: str | None = None
@@ -687,7 +618,7 @@ class AZELAnalysis:
                 return None
 
             latest_name = versions[-1]  # Sorted chronologically, last is latest
-            return self._load_from_hdf5(latest_name, telescope_name=telescope_name)
+            return self._load_version(latest_name, telescope_name=telescope_name)
         else:
             # Get latest across all telescopes
             all_versions = self.list_versions()
@@ -712,6 +643,6 @@ class AZELAnalysis:
             if latest_version_name is None:
                 return None
 
-            return self._load_from_hdf5(
+            return self._load_version(
                 latest_version_name, telescope_name=latest_telescope
             )
