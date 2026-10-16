@@ -136,6 +136,17 @@ still reads HDF5 flight files and renames their columns to the schema.
 | `pitch` | `pitch_deg` | deg |
 | `yaw` | `yaw_deg` | deg |
 | `Temper` | `temperature_c` | degC |
+| `GyroX` | `gyro_x_deg_s` | deg/s |
+| `GyroY` | `gyro_y_deg_s` | deg/s |
+| `GyroZ` | `gyro_z_deg_s` | deg/s |
+| `AccX` | `acc_x` |  |
+| `AccY` | `acc_y` |  |
+| `AccZ` | `acc_z` |  |
+| `Vinp` | `supply_v` | V |
+| `USW` | `usw_status` |  |
+| `Type` | `message` |  |
+| `Counter` | `counter` |  |
+| `counter_timestamp` | `counter_time_s` | s |
 
 ### Litchi (`drone_data.litchi`)
 

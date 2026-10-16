@@ -155,3 +155,21 @@ def test_migrate_legacy_files(tmp_path):
     assert metadata == {"telescope_name": "SATP1"}
     assert migrate_proc(proc) == []  # already converted
     assert (proc / "azel" / "azel_solution.h5").exists()  # kept
+
+
+def test_prune_keeps_newest_and_referenced(tmp_path):
+    frame = {"t": pl.DataFrame({"timestamp": [0.0]})}
+    for i in range(4):
+        store.save_version(tmp_path / "flight" / "sync", f"rev_{i}", frame, {})
+    for i in range(3):
+        meta = {"sync_revision": "rev_0" if i == 2 else f"rev_{i + 1}"}
+        store.save_version(tmp_path / "azel", f"rev_{i}", frame, meta, parent="SATP1")
+    assert store.prune_versions(tmp_path, keep=1, dry_run=True)
+    assert len(store.list_versions(tmp_path / "flight" / "sync")) == 4
+    removed = store.prune_versions(tmp_path, keep=1)
+    # sync: newest kept, rev_0 kept because the kept AZEL revision uses it
+    assert store.list_versions(tmp_path / "flight" / "sync") == ["rev_0", "rev_3"]
+    assert store.list_versions(tmp_path / "azel", "SATP1") == ["rev_2"]
+    assert len(removed) == 4
+    with pytest.raises(ValueError):
+        store.prune_versions(tmp_path, keep=0)

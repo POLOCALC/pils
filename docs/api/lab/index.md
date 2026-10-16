@@ -16,10 +16,18 @@ the lab results of inventory items (used by the [power analysis](../analysis/pow
 <lab root>/<band>/<category>/<item name>/<test_type>/
 ├── 20251101_140000.md            # notes: YAML front matter (config) + description
 ├── 20251101_140000_raw.h5py      # raw data
-└── proc/<analysis>/
-    ├── <analysis>_solution.h5    # <stem>/rev_YYYYMMDD_HHMMSS/<tables> + metadata
-    └── <stem>/rev_YYYYMMDD_HHMMSS/*.png
+└── proc/<analysis>/<stem>/rev_YYYYMMDD_HHMMSS/
+    ├── manifest.json             # run metadata, code version, tables
+    ├── <table>.parquet           # e.g. summary, gain, fwhm, responsivity
+    └── *.png                     # plots of the run
 ```
+
+Each run is a write-once revision (see [Storage](../utilities/storage.md));
+table columns follow the [data schema](../../user-guide/data-schema.md)
+(`frequency_ghz`, `s21_avg_db`, `gain_dbi`, `fwhm_deg`, `diode_output_mv`...).
+Runs saved before in `proc/<analysis>/<analysis>_solution.h5` are still
+listed and read; `pils.migrate.migrate_lab(<test folder>/proc)` converts them
+(the HDF5 file is kept).
 
 The lab root is `PILS_LAB_DATA_PATH`, else STOUT's data path + `lab`, else
 `/mnt/data/POLOCALC/lab`. The notes front matter names the STOUT items used:

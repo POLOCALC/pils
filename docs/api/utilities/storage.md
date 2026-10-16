@@ -47,11 +47,22 @@ The flight itself is saved and loaded with `Flight.save(directory)` and
 ## Results saved in HDF5
 
 Earlier versions saved the flight in `sync_data.h5` and the analyses in
-`*_solution.h5`. `pils migrate <flight>/proc` converts them to revision
-directories and keeps the HDF5 files; `Flight.from_hdf5` still reads HDF5
-flight files and renames their columns to the schema. The lab results are
-still HDF5 (`pils.utils.hdf5`).
+`*_solution.h5`. `pils migrate <proc>` converts them to revision
+directories (for a flight's `proc/` or a lab item's `proc/`) and keeps the
+HDF5 files; `Flight.from_hdf5` still reads HDF5 flight files and renames
+their columns to the schema, and the lab analyses still read their HDF5
+runs.
 
 ::: pils.migrate.migrate_proc
+
+::: pils.migrate.migrate_lab
+
+## Old revisions
+
+Revisions are never deleted by a run. `pils prune <proc> --keep N` deletes
+all but the newest N of each folder of revisions; a synchronized revision
+that a kept analysis revision was made from is kept.
+
+::: pils.store.prune_versions
 
 ::: pils.utils.hdf5.read_table

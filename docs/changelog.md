@@ -24,9 +24,23 @@ All notable changes to PILS are documented here.
   with a `manifest.json` (`pils.store`) instead of HDF5: the flight in
   `proc/flight/{raw,sync/rev_*}`, AZEL in `proc/azel/<TELESCOPE>/rev_*`,
   power in `proc/power/<TELESCOPE>_<wafer slot>/rev_*`, EKF and PPK in
-  `proc/<analysis>/rev_*`
+  `proc/<analysis>/rev_*`, lab results in `proc/<analysis>/<stem>/rev_*`
+  (older HDF5 lab runs and `ppk_solution.h5` are still read)
+- PPK tables: `lat_deg`, `lon_deg`, `h_ell_m` (or `h_msl_m`, from the `.pos`
+  header), `quality`, `num_sats`, `sd_n_m`..., and UTC `datetime` and
+  `timestamp` (the RTKLIB time was GPST, without a time zone); statistics
+  with `timestamp`, `az_deg`, `el_deg`, `resid_*_m`, `snr_dbhz`. EKF output
+  `timestamp`, `monotonic_ns`; EKF input accepts the schema names
+- Payload sensors (ADC, LM76, IMU) take the payload computer's clock offset.
+  With a Kernel-100 inclinometer (own clock: log start + counter) they were
+  given the inclinometer's offset: 1.05 s wrong on flight_20250428_1625. The
+  payload clock is now tied to the inclinometer through the payload IMU
+  gyroscope, or not corrected without one (`offsets["payload_clock"]`)
 
 ### Added
+- `pils prune <proc> --keep N`: delete old revisions, keeping the newest N of
+  each analysis and the synchronized revisions the kept ones were made from
+- `pils migrate` also converts lab results (`proc/<analysis>/*_solution.h5`)
 - `pils package`: sync a flight and save its data products in `proc/`
   (raw and synchronized data, AZEL per telescope with the telescope AZEL
   files, optional power analysis, `package_manifest.json`)
@@ -50,6 +64,10 @@ All notable changes to PILS are documented here.
 - Development guides
 
 ### Fixed
+- Kernel-100 inclinometer (April-May 2025 flights) did not load: the decoder
+  was given the sensors folder; `*_INC_<time>.bin` files are found too
+- LM76 without a file and AZEL without campaign coordinates are reported
+  as skipped, with the reason
 - DJI .dat: about one GPS/RTK record in five was dropped (records with a
   `0x55` byte in the encrypted payload); records are now found by length and
   CRC, and decoded with numpy

@@ -1,7 +1,8 @@
 """Convert results saved in HDF5 (before pils.store) to the store layout.
 
 The HDF5 files are kept; revisions already converted are skipped. Column
-names are converted to the schema (:mod:`pils.schema`).
+names are converted to the schema (:mod:`pils.schema`): AZEL, EKF, PPK
+(:func:`pils.analyze.ppk.legacy_ppk_tables`) and the flight's tables.
 
 =====================  =====================================================
 HDF5 file              becomes
@@ -24,9 +25,14 @@ from typing import Any
 import h5py
 
 from pils import store
+from pils.analyze.ekf import EKF_OUTPUT_NAMES
+from pils.analyze.ppk import legacy_ppk_tables
 from pils.utils.hdf5 import read_table
 
 logger = logging.getLogger(__name__)
+
+# Flight results in <proc>/<analysis>/<analysis>_solution.h5 (not lab runs)
+FLIGHT_ANALYSES = frozenset({"azel", "power", "ekf", "ppk"})
 
 # AZEL tables before the schema
 _AZEL_NAMES = {
@@ -78,10 +84,10 @@ def _versions(
                 if dry_run:
                     continue
                 frame = read_table(group[table], legacy_time_unit="us")
-                if kind == "azel":
-                    frame = frame.rename(
-                        {k: v for k, v in _AZEL_NAMES.items() if k in frame.columns}
-                    )
+                names = {"azel": _AZEL_NAMES, "ekf": EKF_OUTPUT_NAMES}.get(kind, {})
+                frame = frame.rename(
+                    {k: v for k, v in names.items() if k in frame.columns}
+                )
                 attrs = _attrs(group)
                 metadata = attrs.pop("metadata", None) or attrs
                 store.save_version(
@@ -99,15 +105,14 @@ def _ppk(path: Path, root: Path, dry_run: bool) -> list[str]:
             done.append(f"ppk {name}")
             if dry_run:
                 continue
+            position, statistics = legacy_ppk_tables(
+                read_table(group["position"], legacy_time_unit="us"),
+                read_table(group["statistics"], legacy_time_unit="us"),
+            )
             store.save_version(
                 root,
                 name,
-                {
-                    "position": read_table(group["position"], legacy_time_unit="us"),
-                    "statistics": read_table(
-                        group["statistics"], legacy_time_unit="us"
-                    ),
-                },
+                {"position": position, "statistics": statistics},
                 _attrs(group),
                 kind="ppk",
             )
@@ -183,4 +188,59 @@ def migrate_proc(proc_dir: str | Path, dry_run: bool = False) -> list[str]:
             except Exception as e:
                 logger.error(f"{path}: {type(e).__name__}: {e}")
                 done.append(f"FAILED {relative}: {type(e).__name__}: {e}")
+    return done
+
+
+def migrate_lab(proc_dir: str | Path, dry_run: bool = False) -> list[str]:
+    """Convert the HDF5 lab results of a test folder's ``proc/`` folder.
+
+    ``proc/<analysis>/<analysis>_solution.h5`` (one group per measurement
+    stem, one per run) becomes ``proc/<analysis>/<stem>/<rev>/`` (see
+    :mod:`pils.store`). The HDF5 files are kept; runs already converted are
+    skipped. Lab tables already use the schema's names.
+
+    Parameters
+    ----------
+    proc_dir : str or Path
+        The test folder's ``proc`` folder, e.g.
+        ``<lab root>/<band>/<category>/<item>/<test_type>/proc``.
+    dry_run : bool, default=False
+        Only list what would be converted.
+
+    Returns
+    -------
+    list[str]
+        The runs converted (or to convert), as ``<analysis> <stem>/<rev>``.
+    """
+    from pils.utils import hdf5
+
+    done: list[str] = []
+    for path in sorted(Path(proc_dir).glob("*/*_solution.h5")):
+        root = path.parent
+        analysis = path.name.removesuffix("_solution.h5")
+        if analysis in FLIGHT_ANALYSES:  # converted by migrate_proc
+            continue
+        try:
+            with h5py.File(path, "r") as f:
+                stems = [name for name in f if isinstance(f[name], h5py.Group)]
+            for stem in stems:
+                existing = store.list_versions(root, parent=stem)
+                for name in hdf5.list_versions(path, parent=stem):
+                    if name in existing:
+                        continue
+                    done.append(f"{analysis} {stem}/{name}")
+                    if dry_run:
+                        continue
+                    tables, metadata = hdf5.load_version(path, name, parent=stem)
+                    store.save_version(
+                        root,
+                        name,
+                        dict(tables),
+                        metadata,
+                        parent=stem,
+                        kind=f"lab_{analysis}",
+                    )
+        except Exception as e:
+            logger.error(f"{path}: {type(e).__name__}: {e}")
+            done.append(f"FAILED {path.name}: {type(e).__name__}: {e}")
     return done

@@ -324,3 +324,61 @@ def delete_version(
     directory = _container(root, parent) / version_name
     if directory.is_dir():
         shutil.rmtree(directory)
+
+
+def find_containers(root: str | Path) -> list[Path]:
+    """Folders under ``root`` (included) that hold saved revisions."""
+    root = Path(root)
+    found = []
+    for folder in [root, *sorted(p for p in root.rglob("*") if p.is_dir())]:
+        if folder.name.startswith(VERSION_PREFIX):
+            continue
+        if list_versions(folder):
+            found.append(folder)
+    return found
+
+
+def prune_versions(root: str | Path, keep: int, dry_run: bool = False) -> list[Path]:
+    """Delete old revisions: keep the newest ``keep`` of each folder.
+
+    Every folder of revisions under ``root`` (e.g. a flight's ``proc/``:
+    ``flight/sync``, ``azel/<TELESCOPE>``, ``power/...``, ``ekf``, ``ppk``) is
+    pruned on its own. A synchronized revision that a kept revision was made
+    from (its ``sync_revision`` metadata) is kept too.
+
+    Parameters
+    ----------
+    root : str or Path
+        Folder to prune, searched recursively.
+    keep : int
+        Revisions to keep in each folder (at least 1).
+    dry_run : bool, default=False
+        Only list what would be deleted.
+
+    Returns
+    -------
+    list[Path]
+        The revisions deleted (or to delete).
+    """
+    if keep < 1:
+        raise ValueError("keep must be at least 1")
+    containers = {c: list_versions(c) for c in find_containers(root)}
+    kept = {c: set(v[-keep:]) for c, v in containers.items()}
+    # Keep what the kept revisions were made from
+    needed = set()
+    for container, versions in kept.items():
+        for version in versions:
+            metadata = read_manifest(container / version).get("metadata", {})
+            if metadata.get("sync_revision"):
+                needed.add(metadata["sync_revision"])
+    removed = []
+    for container, versions in containers.items():
+        for version in versions:
+            if version in kept[container]:
+                continue
+            if container.name == "sync" and version in needed:
+                continue
+            removed.append(container / version)
+            if not dry_run:
+                shutil.rmtree(container / version)
+    return removed
