@@ -347,6 +347,12 @@ class FlightPackager:
                 else:
                     result.add(name, "failed", f"ValueError: {e}")
                 continue
+            except FileNotFoundError as e:
+                if "EMLID" in str(e):  # the campaign has no coordinates file
+                    result.add(name, "skipped", f"no campaign coordinates: {e}")
+                else:
+                    result.add(name, "failed", _error(e))
+                continue
             except Exception as e:
                 result.add(name, "failed", _error(e))
                 continue
