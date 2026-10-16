@@ -165,22 +165,21 @@ Columns: ['timestamp', 'latitude', 'longitude', 'altitude', 'fix_quality',
 ### Access IMU Data
 
 ```python
-# Get IMU sensor object
+# One table per sub-sensor that has data
 imu = flight['imu']
 
-# IMU has multiple sub-sensors
-print(f"Accelerometer samples: {imu.accelerometer.height}")
-print(f"Gyroscope samples: {imu.gyroscope.height}")
-print(f"Magnetometer samples: {imu.magnetometer.height}")
-print(f"Barometer samples: {imu.barometer.height}")
+print(f"Accelerometer samples: {imu['accelerometer'].height}")
+print(f"Gyroscope samples: {imu['gyroscope'].height}")
+print(f"Magnetometer samples: {imu['magnetometer'].height}")
+print(f"Barometer samples: {imu['barometer'].height}")
 ```
 
 **Output:**
 ```
-Accelerometer samples: 35000
-Gyroscope samples: 35000
-Magnetometer samples: 35000
-Barometer samples: 17500
+Accelerometer samples: 131848
+Gyroscope samples: 131869
+Magnetometer samples: 131871
+Barometer samples: 131848
 ```
 
 ---

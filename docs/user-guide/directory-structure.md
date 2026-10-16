@@ -127,7 +127,7 @@ analysis_result.h5
 
 **metadata** are assigned using ```.attrs``` and are mandatory for each dataset. They should at least include the column names. 
 
-In ```sync_data.h5``` the columns are gzip-compressed. Text columns are stored as strings (a missing value becomes an empty string), date and time columns as integers that are converted back to their type on load (the ```dtypes``` attribute), and missing numbers as NaN. A sensor made of several tables, such as the inclinometer (```INS```, ```IMU```, ```INL2```), is a group with one subgroup per table.
+In ```sync_data.h5``` the columns are gzip-compressed. Text columns are stored as strings (a missing value becomes an empty string), date and time columns as integers that are converted back to their type on load (the ```dtypes``` attribute), and missing numbers as NaN. A sensor made of several tables, such as the inclinometer (```INS```, ```IMU```, ```INL2```) or the IMU (```barometer```, ```accelerometer```, ```gyroscope```, ```magnetometer```), is a group with one subgroup per table.
 
 ---
 

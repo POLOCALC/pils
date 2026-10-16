@@ -793,7 +793,11 @@ class Flight:
 
             for sensor in sensor_name:
                 sensor_data = self._read_sensor_data(sensor, sensor_path)
-                if isinstance(sensor_data, dict) and (sensor != "inclinometer"):
+                # {"data", "metadata"} (e.g. GPS); the inclinometer and the IMU
+                # are dicts of tables
+                if isinstance(sensor_data, dict) and {"data", "metadata"} <= set(
+                    sensor_data
+                ):
                     setattr(self.raw_data.payload_data, sensor, sensor_data["data"])
                     self.flight_info["flight_info"].update(
                         {f"{sensor}_metadata": sensor_data["metadata"]}
@@ -1042,26 +1046,16 @@ class Flight:
             )
             sync.add_payload_sensor("lm76", lm76_data)
 
-        # Add IMU sensors if available
-        if "imu" in payload:
+        # Add IMU sensors if available ({"barometer": df, ...})
+        if "imu" in payload and payload["imu"] is not None:
             if "payload" not in target_rate:
                 target_rate["payload"] = 100.0
-
-            imu_sensor = payload["imu"]
-            if hasattr(imu_sensor, "barometer") and imu_sensor.barometer is not None:
-                sync.add_payload_sensor("imu_barometer", imu_sensor.barometer)
-            if (
-                hasattr(imu_sensor, "accelerometer")
-                and imu_sensor.accelerometer is not None
-            ):
-                sync.add_payload_sensor("imu_accelerometer", imu_sensor.accelerometer)
-            if hasattr(imu_sensor, "gyroscope") and imu_sensor.gyroscope is not None:
-                sync.add_payload_sensor("imu_gyroscope", imu_sensor.gyroscope)
-            if (
-                hasattr(imu_sensor, "magnetometer")
-                and imu_sensor.magnetometer is not None
-            ):
-                sync.add_payload_sensor("imu_magnetometer", imu_sensor.magnetometer)
+            imu_data = payload["imu"]
+            if not isinstance(imu_data, dict):  # an IMU object
+                imu_data = imu_data.data or {}
+            for name, table in imu_data.items():
+                if isinstance(table, pl.DataFrame) and not table.is_empty():
+                    sync.add_payload_sensor(f"imu_{name}", table)
 
         # Perform synchronization
         self.sync_data = sync.synchronize(

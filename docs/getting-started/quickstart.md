@@ -132,10 +132,10 @@ print(f"Total points: {gps_df.height}")
 print(f"RTK fixes: {gps_df.filter(pl.col('fix_quality') == 4).height}")
 
 # Analyze IMU
-imu = flight['imu']
-accel_df = imu.accelerometer
+imu = flight['imu']  # {"barometer": df, "accelerometer": df, ...}
+accel_df = imu['accelerometer']
 print(f"IMU samples: {accel_df.height}")
-print(f"Max acceleration: {accel_df['az'].max():.2f} m/s²")
+print(f"Max acceleration: {accel_df['acc_z'].max():.2f} g")
 
 # Synchronize all data
 synced_df = flight.sync(target_rate_hz=10.0)

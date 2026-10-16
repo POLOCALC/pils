@@ -86,7 +86,7 @@ drone_df = flight.drone_data['data']
 # Sensors
 flight.add_sensor_data(['gps', 'imu'])
 gps_df = flight['gps'].data
-accel_df = flight['imu'].accelerometer
+accel_df = flight['imu']['accelerometer']
 ```
 
 ### Analysis

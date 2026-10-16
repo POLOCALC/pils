@@ -94,7 +94,7 @@ print(gps_df.head())
 ### Sensors
 
 - **GPS**: u-blox, NMEA compatible
-- **IMU**: MPU9250, accelerometer/gyroscope/magnetometer/barometer
+- **IMU**: accelerometer/gyroscope/magnetometer/barometer (150 Hz)
 - **ADC**: ADS1256, 4-channel voltage measurement
 - **Camera**: Video and image sequence
 - **Inclinometer**: Kernel-100, IMX-5

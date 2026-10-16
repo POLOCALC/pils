@@ -35,6 +35,12 @@ All notable changes to PILS are documented here.
 - `PowerAnalysis(output_dir=...)` wrote its AZEL results into the flight folder
 - Sync: angles (yaw, roll, pitch, heading) are interpolated across the
   ±180° wrap instead of through 0°
+- Payload IMU: never loaded (it looked for `barometer.bin` and the other
+  old names, and `Flight` expected one table). It now reads the payload's
+  `*_BAR.bin`, `*_ACC.bin`, `*_GYR.bin` and `*_MAG.bin`, drops the damaged
+  tail of a recording that stopped uncleanly, and is a dict of tables
+  (`flight['imu']['accelerometer']`); timestamps are in seconds, with
+  `timestamp_us` as logged; gyroscope columns are `gyro_x`/`gyro_y`/`gyro_z`
 - Sync: the GPS and pitch time offsets were biased towards zero (a 2 s clock
   difference came out as 1.27 s; on flight_20251208_1927 the Litchi offset
   moves by 54 ms, the drone one by 26 ms). Offsets are now fitted by least
