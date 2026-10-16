@@ -2,9 +2,10 @@ import glob
 import json
 import logging
 import re
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional, Union, overload
+from typing import Any, Literal, Optional, Union, overload
 
 import h5py
 import numpy as np
@@ -205,6 +206,7 @@ class Flight:
 
         self.raw_data = RawData()
         self.sync_data: dict[str, pl.DataFrame] | None = None
+        self.sync_offsets: dict[str, float] = {}
         self.adc_gain_config = None
 
     @classmethod
@@ -861,6 +863,7 @@ class Flight:
         target_rate: dict[str, float] | None = None,
         use_rtk_data: bool = True,
         common_time: bool = True,
+        drone_records: Sequence[str] | Literal["all"] = ("IMU_ATTI(0)",),
         **kwargs,
     ) -> dict[str, pl.DataFrame]:
         """
@@ -882,6 +885,10 @@ class Flight:
             Interpolate all the data at a common time, with a sampliing frequency
             determined by the target_rate. If False, the time is just shifted and the
             other columns are not touched
+        drone_records : sequence of str or "all", default=("IMU_ATTI(0)",)
+            Other drone records (DJI .dat, see ``raw_data.drone_data.records``)
+            to synchronize, each as ``drone_<name>``; they take the drone GPS
+            offset. The default is the flight controller attitude (200 Hz).
         **kwargs : dict
             Additional arguments passed to Synchronizer.synchronize()
 
@@ -982,6 +989,16 @@ class Flight:
 
                 sync.add_litchi_gps(litchi_df)
 
+        # Add other drone records (DJI .dat attitude, motors, ...)
+        records = getattr(self.raw_data.drone_data, "records", None) or {}
+        if drone_has_data and records:
+            if drone_records != "all":
+                missing = [name for name in drone_records if name not in records]
+                if missing:
+                    logger.warning(f"Drone records not found: {missing}")
+                records = {k: v for k, v in records.items() if k in drone_records}
+            sync.add_drone_records(records)
+
         # Add inclinometer if available
         if "inclinometer" in self.raw_data.payload_data:
             if "inclinometer" not in target_rate:
@@ -1052,6 +1069,13 @@ class Flight:
             common_time=common_time,
             **kwargs,
         )
+        # Detected time offsets in seconds, as in Synchronizer.offsets: the
+        # inclinometer and camera offsets are relative to Litchi
+        self.sync_offsets = {
+            name: float(offset["time_offset"])
+            for name, offset in sync.offsets.items()
+            if "time_offset" in offset
+        }
 
         return self.sync_data
 

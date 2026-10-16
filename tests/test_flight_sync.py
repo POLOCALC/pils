@@ -119,3 +119,56 @@ def test_sync_data_not_saved_if_none():
 
         # sync_data should still be None
         assert loaded_flight.sync_data is None
+
+
+def test_sync_drone_records(tmp_path):
+    """Selected DJI .dat records are synchronized and saved as drone_<name>."""
+    import numpy as np
+
+    from pils.flight import DroneData, PayloadData
+
+    flight = Flight({"drone_data_folder_path": "", "aux_data_folder_path": ""})
+    t = np.linspace(0, 100, 1000)
+    position = {
+        "lat": 45.0 + 0.001 * np.sin(0.1 * t),
+        "lon": 10.0 + 0.001 * np.cos(0.1 * t),
+        "h": 100.0 + 10.0 * np.sin(0.05 * t),
+    }
+    flight.raw_data.payload_data = PayloadData()
+    flight.raw_data.payload_data.gps = pl.DataFrame(
+        {
+            "timestamp": t,
+            "posllh_lat": position["lat"],
+            "posllh_lon": position["lon"],
+            "posllh_height": position["h"],
+        }
+    )
+    drone = pl.DataFrame(
+        {
+            "timestamp": t + 0.3,
+            "RTK:lat_p": position["lat"],
+            "RTK:lon_p": position["lon"],
+            "RTK:hmsl_p": position["h"],
+        }
+    )
+    imu = pl.DataFrame({"IMU_ATTI(0):yaw": t % 360 - 180, "timestamp": t + 0.3})
+    motor = pl.DataFrame({"Motor:Speed:RFront": t, "timestamp": t + 0.3})
+    flight.raw_data.drone_data = DroneData(
+        drone, pl.DataFrame(), {"IMU_ATTI(0)": imu, "Motor": motor}
+    )
+    flight._Flight__drone_model = "dji"
+
+    synced = flight.sync(target_rate={"drone": 10.0})
+    assert "drone_IMU_ATTI(0)" in synced
+    assert "drone_Motor" not in synced
+    assert flight.sync_offsets["drone_gps"] == pytest.approx(-0.3, abs=0.05)
+
+    synced = flight.sync(target_rate={"drone": 10.0}, drone_records="all")
+    assert {"drone_IMU_ATTI(0)", "drone_Motor"} <= set(synced)
+
+    path = tmp_path / "flight.h5"
+    flight.to_hdf5(path)
+    loaded = Flight.from_hdf5(path)
+    assert (
+        loaded.sync_data["drone_IMU_ATTI(0)"].shape == synced["drone_IMU_ATTI(0)"].shape
+    )

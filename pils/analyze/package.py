@@ -258,6 +258,7 @@ class FlightPackager:
                     "common_time": True,
                     "use_rtk_data": True,
                     "target_rate": dumps_metadata(SYNC_RATES),
+                    "time_offsets": dumps_metadata(flight.sync_offsets),
                     "sensors_requested": list(sensors),
                 },
             )

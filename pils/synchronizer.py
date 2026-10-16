@@ -17,6 +17,7 @@ Key Features:
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 import numpy as np
@@ -25,6 +26,83 @@ import pymap3d as pm
 from scipy import optimize, signal
 
 logger = logging.getLogger(__name__)
+
+# Angle columns, by name (the part after the last ":"), and their period.
+# Pitch is included: it does not wrap, so unwrapping leaves it unchanged.
+_ANGLE_PATTERNS: tuple[tuple[re.Pattern[str], float], ...] = (
+    (re.compile(r"^(gimbal)?(yaw|roll|pitch|heading)(abs)?(\(deg\))?$"), 360.0),
+    (re.compile(r"^(gimbal)?(yaw|roll|pitch|heading)_rad$"), 2 * np.pi),
+    (re.compile(r"^(gimbal)?(yaw|roll|pitch)raw$"), 3600.0),  # 0.1 deg
+)
+
+
+def angle_period(column: str) -> float | None:
+    """Period of an angle column, or None if the column is not an angle.
+
+    Parameters
+    ----------
+    column : str
+        Column name, e.g. ``"yaw(deg)"``, ``"RTK:yaw"``, ``"gimbalYawAbs"``,
+        ``"yaw_rad"`` or ``"gimbalYawRaw"`` (0.1 deg).
+
+    Returns
+    -------
+    float or None
+        360 for degrees, 2*pi for radians, 3600 for 0.1 deg.
+    """
+    leaf = column.rsplit(":", 1)[-1].lower()
+    for pattern, period in _ANGLE_PATTERNS:
+        if pattern.match(leaf):
+            return period
+    return None
+
+
+def interp_angle(
+    x: np.ndarray, xp: np.ndarray, fp: np.ndarray, period: float = 360.0
+) -> np.ndarray:
+    """Linear interpolation of an angle, taking the short way across the wrap.
+
+    The angle is unwrapped, interpolated and wrapped again to the range of
+    the input: ``[0, period)`` if it has no negative values, otherwise
+    ``[-period/2, period/2)``. Outside ``xp`` the result is NaN.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        Times to interpolate at.
+    xp : np.ndarray
+        Sample times, increasing.
+    fp : np.ndarray
+        Angles at ``xp``; NaN samples are skipped by the unwrapping.
+    period : float, default=360.0
+        Angle period (360 for degrees, 2*pi for radians).
+
+    Returns
+    -------
+    np.ndarray
+        Interpolated angles.
+    """
+    fp = np.asarray(fp, dtype=float)
+    unwrapped = fp.copy()
+    ok = np.isfinite(fp)
+    unwrapped[ok] = np.unwrap(fp[ok], period=period)
+    out = np.interp(x, xp, unwrapped, left=np.nan, right=np.nan)
+    low = 0.0 if np.nanmin(fp, initial=0.0) >= 0 else -period / 2
+    return np.asarray((out - low) % period + low)
+
+
+def interp_column(
+    x: np.ndarray, xp: np.ndarray, fp: np.ndarray, column: str
+) -> np.ndarray:
+    """Interpolate a column at ``x``; angle columns are interpolated as angles.
+
+    Outside ``xp`` the result is NaN. See :func:`angle_period` for the angle
+    columns.
+    """
+    period = angle_period(column)
+    if period is not None:
+        return interp_angle(x, xp, fp, period)
+    return np.asarray(np.interp(x, xp, fp, left=np.nan, right=np.nan))
 
 
 class Synchronizer:
@@ -56,6 +134,9 @@ class Synchronizer:
         Optional camera data (Sony or Alvium camera, or photogrammetry results)
     other_payload : Dict[str, pl.DataFrame]
         Other payload sensors (adc, imu, etc.)
+    drone_records : Dict[str, pl.DataFrame]
+        Other drone records (DJI .dat IMU attitude, motors, ...), on the drone
+        GPS clock
     offsets : Dict[str, Dict[str, Any]]
         Detected time offsets per source
     synchronized_data : Optional[pl.DataFrame]
@@ -111,6 +192,7 @@ class Synchronizer:
         self.inclinometer: pl.DataFrame | None = None
         self.camera: pl.DataFrame | None = None
         self.other_payload: dict[str, pl.DataFrame] = {}
+        self.drone_records: dict[str, pl.DataFrame] = {}
 
         self.offsets: dict[str, dict[str, Any]] = {}
         self.synchronized_data: dict[str, Any] | None = None
@@ -926,6 +1008,29 @@ class Synchronizer:
 
         self.camera = camera_data
 
+    def add_drone_records(self, records: dict[str, pl.DataFrame]) -> None:
+        """
+        Add other drone records, aligned with the drone GPS offset.
+
+        The records must have a ``timestamp`` column on the same clock as the
+        drone GPS (for DJI .dat files, the GPS tick-time fit). Each record is
+        synchronized as ``drone_<name>``. Records without timestamps are
+        skipped.
+
+        Parameters
+        ----------
+        records : dict[str, pl.DataFrame]
+            Record tables by name, e.g. ``{"IMU_ATTI(0)": df}``.
+        """
+        for name, df in records.items():
+            if "timestamp" not in df.columns or len(df) == 0:
+                logger.info(f"Skipped drone record '{name}': no timestamps")
+                continue
+            self.drone_records[name] = df.filter(
+                pl.col("timestamp").is_not_null()
+            ).sort("timestamp")
+            logger.info(f"Added drone record '{name}' with {len(df)} samples")
+
     def add_payload_sensor(
         self,
         sensor_name: str,
@@ -969,7 +1074,8 @@ class Synchronizer:
         ----------
         target_rate : dict
             Target sample rates in Hz for each source
-            Keys: "drone", "litchi", "inclinometer" and "payload"
+            Keys: "drone", "litchi", "inclinometer", "payload" and
+            "drone_records" (defaults to the "drone" rate)
             Values: float sample rate in Hz
         common_time: bool
             Interpolate all the data at a common time, with a sampliing frequency
@@ -980,7 +1086,12 @@ class Synchronizer:
         -------
         dict
             Synchronized data dictionary with interpolated values for each source.
-            Keys: "drone", "litchi", "reference_gps", "inclinometer", "camera", "payload"
+            Keys: "drone", "litchi", "reference_gps", "inclinometer", "camera",
+            one key per payload sensor and ``drone_<name>`` per drone record.
+
+            Angle columns (yaw, roll, pitch, heading; see :func:`angle_period`)
+            are interpolated the short way across the wrap. Integer columns of
+            the drone records hold their last value.
 
             GPS sources (drone, litchi, reference_gps) use standardized coordinate columns:
             - latitude: Latitude in degrees (WGS84)
@@ -1141,12 +1252,8 @@ class Synchronizer:
                                 continue
                             try:
                                 values = self.drone_gps[col].to_numpy().astype(float)
-                                interpolated = np.interp(
-                                    target_time,
-                                    drone_time,
-                                    values,
-                                    left=np.nan,
-                                    right=np.nan,
+                                interpolated = interp_column(
+                                    target_time, drone_time, values, col
                                 )
                                 sync_data["drone"][f"{col}"] = interpolated
                             except ValueError:
@@ -1181,12 +1288,8 @@ class Synchronizer:
                             if col == "timestamp":
                                 continue
                             values = self.litchi_gps[col].to_numpy().astype(float)
-                            interpolated = np.interp(
-                                target_time,
-                                litchi_time,
-                                values,
-                                left=np.nan,
-                                right=np.nan,
+                            interpolated = interp_column(
+                                target_time, litchi_time, values, col
                             )
                             sync_data["litchi"][f"{col}"] = interpolated
 
@@ -1243,12 +1346,8 @@ class Synchronizer:
                                         .to_numpy()
                                         .astype(float)
                                     )
-                                    interpolated = np.interp(
-                                        target_time,
-                                        inclinometer_time,
-                                        values,
-                                        left=np.nan,
-                                        right=np.nan,
+                                    interpolated = interp_column(
+                                        target_time, inclinometer_time, values, col
                                     )
                                     sync_data["inclinometer"][f"{key}_{col}"] = (
                                         interpolated
@@ -1265,12 +1364,8 @@ class Synchronizer:
                                 if col == "timestamp":
                                     continue
                                 values = self.inclinometer[col].to_numpy().astype(float)
-                                interpolated = np.interp(
-                                    target_time,
-                                    inclinometer_time,
-                                    values,
-                                    left=np.nan,
-                                    right=np.nan,
+                                interpolated = interp_column(
+                                    target_time, inclinometer_time, values, col
                                 )
                                 sync_data["inclinometer"][f"{col}"] = interpolated
 
@@ -1344,12 +1439,8 @@ class Synchronizer:
                                 continue
                             else:
                                 values = self.camera[col].to_numpy().astype(float)
-                                interpolated = np.interp(
-                                    target_time,
-                                    camera_time,
-                                    values,
-                                    left=np.nan,
-                                    right=np.nan,
+                                interpolated = interp_column(
+                                    target_time, camera_time, values, col
                                 )
                                 sync_data["camera"][f"{col}"] = interpolated
                 else:
@@ -1399,12 +1490,8 @@ class Synchronizer:
                         else:
                             if common_time:
                                 values = sensor_df[col].to_numpy().astype(float)
-                                interpolated = np.interp(
-                                    target_time,
-                                    sensor_time,
-                                    values,
-                                    left=np.nan,
-                                    right=np.nan,
+                                interpolated = interp_column(
+                                    target_time, sensor_time, values, col
                                 )
                                 sync_data["payload"][f"{sensor_name}"][f"{col}"] = (
                                     interpolated
@@ -1414,13 +1501,48 @@ class Synchronizer:
                                     sensor_df[col].to_numpy()
                                 )
 
+        if self.drone_records and "drone_gps" in self.offsets:
+            offset = self.offsets["drone_gps"]["time_offset"]
+            rate = target_rate.get("drone_records", target_rate.get("drone", 10.0))
+            n_samples = int((t_end - t_start) * rate) + 1
+            target_time = np.linspace(t_start, t_end, n_samples)
+
+            for name, df in self.drone_records.items():
+                record_time = df["timestamp"].to_numpy() + offset
+                synced: dict[str, Any] = {}
+                if common_time:
+                    synced["timestamp"] = target_time
+                    # Integer fields (counts, flags, states) hold their last value
+                    idx = np.searchsorted(record_time, target_time, side="right") - 1
+                    outside = (target_time < record_time[0]) | (
+                        target_time > record_time[-1]
+                    )
+                    for col in df.columns:
+                        if col == "timestamp":
+                            continue
+                        values = df[col].to_numpy().astype(float)
+                        if df[col].dtype.is_integer() and col != "tick":
+                            held = values[np.clip(idx, 0, len(values) - 1)]
+                            held[outside] = np.nan
+                            synced[col] = held
+                        else:
+                            synced[col] = interp_column(
+                                target_time, record_time, values, col
+                            )
+                else:
+                    synced = {col: df[col].to_numpy() for col in df.columns}
+                    synced["timestamp"] = record_time
+                sync_data.setdefault("drone_records", {})[f"drone_{name}"] = synced
+        elif self.drone_records:
+            logger.warning("No drone GPS offset: drone records not synchronized")
+
         sync_data["reference_gps"] = self.gps_payload
 
         self.synchronized_data = {}
 
         for key, value in sync_data.items():
-            if key == "payload":
-                for keyp, valuep in sync_data["payload"].items():
+            if key in ("payload", "drone_records"):
+                for keyp, valuep in sync_data[key].items():
                     self.synchronized_data[keyp] = pl.DataFrame(valuep)
             else:
                 self.synchronized_data[key] = pl.DataFrame(value)
