@@ -5,7 +5,7 @@ Tests the PPKAnalysis and PPKVersion classes for RTKLIB-based
 post-processing of GPS data with smart execution logic.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -415,7 +415,7 @@ class TestSmartExecution:
         config_hash = ppk._hash_config(config_file)
         mock_version = PPKVersion(
             version_name="rev_20260204_120000",
-            pos_data=pl.DataFrame({"lat": [45.0], "lon": [10.0]}),
+            pos_data=pl.DataFrame({"lat_deg": [45.0], "lon_deg": [10.0]}),
             stat_data=pl.DataFrame({"sat": [12]}),
             metadata={"config_hash": config_hash},
             revision_path=ppk.ppk_dir / "rev_20260204_120000",
@@ -440,7 +440,7 @@ class TestSmartExecution:
         old_hash = ppk._hash_config(old_config)
         mock_version = PPKVersion(
             version_name="rev_20260204_120000",
-            pos_data=pl.DataFrame({"lat": [45.0]}),
+            pos_data=pl.DataFrame({"lat_deg": [45.0]}),
             stat_data=pl.DataFrame({"sat": [12]}),
             metadata={"config_hash": old_hash},
             revision_path=ppk.ppk_dir / "rev_20260204_120000",
@@ -500,14 +500,14 @@ class TestPPKVersionDataclass:
         pos_df = pl.DataFrame(
             {
                 "timestamp": [1.0, 2.0, 3.0],
-                "lat": [45.0, 45.001, 45.002],
-                "lon": [10.0, 10.001, 10.002],
+                "lat_deg": [45.0, 45.001, 45.002],
+                "lon_deg": [10.0, 10.001, 10.002],
             }
         )
         stat_df = pl.DataFrame(
             {
                 "timestamp": [1.0, 2.0, 3.0],
-                "num_sat": [12, 13, 12],
+                "num_sats": [12, 13, 12],
             }
         )
         metadata = {
@@ -561,14 +561,14 @@ class TestSave:
         pos_df = pl.DataFrame(
             {
                 "timestamp": [1.0, 2.0, 3.0],
-                "lat": [45.0, 45.001, 45.002],
-                "lon": [10.0, 10.001, 10.002],
+                "lat_deg": [45.0, 45.001, 45.002],
+                "lon_deg": [10.0, 10.001, 10.002],
             }
         )
         stat_df = pl.DataFrame(
             {
                 "timestamp": [1.0, 2.0, 3.0],
-                "num_sat": [12, 13, 12],
+                "num_sats": [12, 13, 12],
             }
         )
         version = PPKVersion(
@@ -594,8 +594,8 @@ class TestSave:
         flight = create_flight_from_path(flight_path)
         ppk = PPKAnalysis(flight)
 
-        pos_df = pl.DataFrame({"timestamp": [1.0], "lat": [45.0]})
-        stat_df = pl.DataFrame({"timestamp": [1.0], "num_sat": [12]})
+        pos_df = pl.DataFrame({"timestamp": [1.0], "lat_deg": [45.0]})
+        stat_df = pl.DataFrame({"timestamp": [1.0], "num_sats": [12]})
         version = PPKVersion(
             version_name="rev_20260204_143022",
             pos_data=pos_df,
@@ -622,9 +622,9 @@ class TestSave:
         pos_df = pl.DataFrame(
             {
                 "timestamp": [1.0, 2.0, 3.0],
-                "lat": [45.0, 45.001, 45.002],
-                "lon": [10.0, 10.001, 10.002],
-                "height": [100.0, 101.0, 102.0],
+                "lat_deg": [45.0, 45.001, 45.002],
+                "lon_deg": [10.0, 10.001, 10.002],
+                "h_ell_m": [100.0, 101.0, 102.0],
             }
         )
         stat_df = pl.DataFrame({"timestamp": [1.0]})
@@ -653,7 +653,7 @@ class TestSave:
         stat_df = pl.DataFrame(
             {
                 "timestamp": [1.0, 2.0],
-                "num_sat": [12, 13],
+                "num_sats": [12, 13],
                 "ratio": [2.5, 3.0],
             }
         )
@@ -768,13 +768,13 @@ class TestLoad:
         pos_df = pl.DataFrame(
             {
                 "timestamp": [1.0, 2.0],
-                "lat": [45.0, 45.001],
+                "lat_deg": [45.0, 45.001],
             }
         )
         stat_df = pl.DataFrame(
             {
                 "timestamp": [1.0, 2.0],
-                "num_sat": [12, 13],
+                "num_sats": [12, 13],
             }
         )
         version = PPKVersion(
@@ -805,14 +805,14 @@ class TestLoad:
         pos_df = pl.DataFrame(
             {
                 "timestamp": [1.0, 2.0, 3.0],
-                "lat": [45.0, 45.001, 45.002],
-                "lon": [10.0, 10.001, 10.002],
+                "lat_deg": [45.0, 45.001, 45.002],
+                "lon_deg": [10.0, 10.001, 10.002],
             }
         )
         stat_df = pl.DataFrame(
             {
                 "timestamp": [1.0, 2.0],
-                "num_sat": [12, 13],
+                "num_sats": [12, 13],
             }
         )
         version = PPKVersion(
@@ -830,13 +830,13 @@ class TestLoad:
         # Check position data
         assert loaded.pos_data.shape == (3, 3)
         assert "timestamp" in loaded.pos_data.columns
-        assert "lat" in loaded.pos_data.columns
-        assert loaded.pos_data["lat"].to_list() == [45.0, 45.001, 45.002]
+        assert "lat_deg" in loaded.pos_data.columns
+        assert loaded.pos_data["lat_deg"].to_list() == [45.0, 45.001, 45.002]
 
         # Check statistics data
         assert loaded.stat_data.shape == (2, 2)
-        assert "num_sat" in loaded.stat_data.columns
-        assert loaded.stat_data["num_sat"].to_list() == [12, 13]
+        assert "num_sats" in loaded.stat_data.columns
+        assert loaded.stat_data["num_sats"].to_list() == [12, 13]
 
     def test_load_version_reconstructs_metadata(self, tmp_path):
         """Test that loaded version has correct metadata."""
@@ -949,11 +949,19 @@ class TestLoad:
                 revision_path=ppk1.ppk_dir / "rev_20260301_120000",
             )
         )
+        # Old names: GPS-time "time", "lat", "Q"; statistics with "tow" only
         write_legacy_ppk_version(
             ppk1.hdf5_path,
             "rev_20260201_120000",
-            pl.DataFrame({"timestamp": [1.0, 2.0], "lat": [45.0, 45.1]}),
-            pl.DataFrame({"timestamp": [1.0], "num_sat": [12]}),
+            pl.DataFrame(
+                {
+                    "time": [datetime(2025, 12, 6, 18, 33, 43)],
+                    "lat": [45.0],
+                    "height": [5000.0],
+                    "Q": [2],
+                }
+            ),
+            pl.DataFrame({"tow": [585223.0], "snr": [40.0]}),
             config_hash="old",
             revision_path=ppk1.ppk_dir / "rev_20260201_120000",
         )
@@ -965,8 +973,18 @@ class TestLoad:
         assert legacy is not None
         assert legacy.metadata["config_hash"] == "old"
         assert legacy.metadata["config_params"]["pos1-posmode"] == "kinematic"
-        assert legacy.pos_data["lat"].to_list() == [45.0, 45.1]
-        assert legacy.stat_data["num_sat"].to_list() == [12]
+        # Renamed to the schema; GPS time (18 leap seconds) to UTC
+        pos = legacy.pos_data
+        assert pos.columns == ["datetime", "timestamp", "lat_deg", "h_ell_m", "quality"]
+        assert pos["datetime"][0] == datetime(2025, 12, 6, 18, 33, 25, tzinfo=UTC)
+        assert (
+            pos["timestamp"][0]
+            == datetime(2025, 12, 6, 18, 33, 25, tzinfo=UTC).timestamp()
+        )
+        stat = legacy.stat_data
+        assert stat["gps_week"].to_list() == [2395]
+        assert stat["timestamp"][0] == pytest.approx(pos["timestamp"][0])
+        assert stat["snr_dbhz"].to_list() == [40.0]
 
 
 class TestVersionManagement:
@@ -1015,7 +1033,7 @@ class TestVersionManagement:
 
         version = PPKVersion(
             version_name="rev_get_test",
-            pos_data=pl.DataFrame({"timestamp": [1.0], "lat": [45.0]}),
+            pos_data=pl.DataFrame({"timestamp": [1.0], "lat_deg": [45.0]}),
             stat_data=pl.DataFrame({"timestamp": [1.0]}),
             metadata={"config_hash": "gethash"},
             revision_path=ppk.ppk_dir / "rev_get_test",
@@ -1182,7 +1200,7 @@ class TestRunAnalysisIntegration:
         # Mock analyzers
         mock_pos_instance = MagicMock()
         mock_pos_instance.parse.return_value = pl.DataFrame(
-            {"lat": [45.0], "lon": [10.0]}
+            {"lat_deg": [45.0], "lon_deg": [10.0]}
         )
         mock_pos.return_value = mock_pos_instance
 
@@ -1234,7 +1252,7 @@ class TestRunAnalysisIntegration:
         # Mock analyzers
         mock_pos_instance = MagicMock()
         mock_pos_instance.parse.return_value = pl.DataFrame(
-            {"lat": [45.0], "lon": [10.0]}
+            {"lat_deg": [45.0], "lon_deg": [10.0]}
         )
         mock_pos.return_value = mock_pos_instance
 
@@ -1288,7 +1306,7 @@ class TestRunAnalysisIntegration:
         # Mock analyzers
         mock_pos_instance = MagicMock()
         mock_pos_instance.parse.return_value = pl.DataFrame(
-            {"lat": [45.0], "lon": [10.0]}
+            {"lat_deg": [45.0], "lon_deg": [10.0]}
         )
         mock_pos.return_value = mock_pos_instance
 
@@ -1444,7 +1462,7 @@ class TestRevisionFolderCleanup:
 
         # Mock analyzers to succeed
         mock_pos.return_value.parse.return_value = pl.DataFrame(
-            {"lat": [45.0], "lon": [10.0]}
+            {"lat_deg": [45.0], "lon_deg": [10.0]}
         )
         mock_stat.return_value.parse.return_value = pl.DataFrame({"sat": [12]})
 

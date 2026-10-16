@@ -580,7 +580,11 @@ class TestRunAnalysis:
 
         assert isinstance(result, pl.DataFrame)
         assert result.height == 3
-        assert set(output_cols).issubset(set(result.columns))
+        # The Rust output columns, in the schema's names
+        from pils.analyze.ekf import EKF_OUTPUT_NAMES
+
+        expected = {EKF_OUTPUT_NAMES.get(c, c) for c in output_cols}
+        assert expected.issubset(set(result.columns))
 
     def test_load_ekf_output_raises_on_short_input(self):
         """Test that _load_ekf_output raises ValueError on too-short bytes."""
@@ -1131,7 +1135,7 @@ class TestEKFRealDataIntegration:
 
         # Required EKF output columns are present
         expected_cols = {
-            "timestamp_s",
+            "timestamp",
             "roll_deg",
             "pitch_deg",
             "yaw_deg",
@@ -1192,7 +1196,7 @@ class TestEKFRealDataIntegration:
 
         # Work with numpy arrays directly — no pandas required
         ekf_df = result.ekf_data
-        t_ekf = ekf_df["timestamp_s"].to_numpy()
+        t_ekf = ekf_df["timestamp"].to_numpy()
         roll_ekf = ekf_df["roll_deg"].to_numpy()
         pitch_ekf = ekf_df["pitch_deg"].to_numpy()
         yaw_ekf = ekf_df["yaw_deg"].to_numpy()
@@ -1307,3 +1311,34 @@ class TestEKFRealDataIntegration:
         print(f"\nComparison plot saved → {output_path}")
 
         assert output_path.exists()
+
+
+class TestSchemaNames:
+    """EKF input and output use the pils.schema names."""
+
+    def test_output_renamed(self):
+        from pils.analyze.ekf import _schema_output
+
+        df = pl.DataFrame(
+            {"timestamp_s": [1.0], "timestamp_monotonic_ns": [2.0], "roll_deg": [0.1]}
+        )
+        assert _schema_output(df).columns == ["timestamp", "monotonic_ns", "roll_deg"]
+
+    def test_imu_accepts_schema_names(self):
+        from pils.analyze.ekf import IMU_SCHEMA, EKFAnalysis
+
+        imu = pl.DataFrame(
+            {
+                "monotonic_ns": [0, 10],
+                "timestamp_ns": [1, 11],
+                "pqr_p_rad_s": [0.1, 0.2],
+                "pqr_q_rad_s": [0.1, 0.2],
+                "pqr_r_rad_s": [0.1, 0.2],
+                "acc_x_m_s2": [0.0, 0.1],
+                "acc_y_m_s2": [0.0, 0.1],
+                "acc_z_m_s2": [-9.81, -9.8],
+            }
+        )
+        table = EKFAnalysis._prepare_imu_table(imu)
+        assert table.schema == IMU_SCHEMA
+        assert table.column("pqr_P_rad_s").to_pylist() == [0.1, 0.2]

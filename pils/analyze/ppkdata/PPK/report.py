@@ -265,7 +265,7 @@ class RTKLIBReport:
             )
             report += "|---|---|---|---|---|---|\n"
             for row in (
-                sat_stats.sort("p95_resid_phase", descending=False)
+                sat_stats.sort("p95_resid_phase_m", descending=False)
                 .head(10)
                 .iter_rows(named=True)
             ):
@@ -279,7 +279,7 @@ class RTKLIBReport:
             )
             report += "|---|---|---|---|---|---|\n"
             for row in (
-                sat_stats.sort("p95_resid_phase", descending=True)
+                sat_stats.sort("p95_resid_phase_m", descending=True)
                 .head(10)
                 .iter_rows(named=True)
             ):
