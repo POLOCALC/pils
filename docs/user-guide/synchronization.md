@@ -82,56 +82,49 @@ Interpolated signals:
 - $E_1(t), N_1(t), U_1(t)$ - Reference GPS in ENU
 - $E_2(t), N_2(t), U_2(t)$ - Target GPS in ENU
 
-#### Step 3: Cross-Correlation Per Axis
+#### Step 3: Coarse Offset from the Cross-Correlation
 
-Cross-correlation for each spatial axis:
-
-$$
-R_{xy}[\tau] = \sum_{t} x(t) \cdot y(t + \tau)
-$$
-
-Normalized correlation:
+The means are removed from each axis, so a constant position difference
+between the two receivers (the lever arm between payload and drone antennas)
+does not matter:
 
 $$
-\rho_{xy}[\tau] = \frac{R_{xy}[\tau]}{\sqrt{\sum_t x^2(t) \cdot \sum_t y^2(t)}}
+x(t) = E_1(t) - \overline{E_1}, \quad y(t) = E_2(t) - \overline{E_2}
 $$
 
-Applied to each axis:
-- $\rho_E[\tau]$ - East correlation
-- $\rho_N[\tau]$ - North correlation  
-- $\rho_U[\tau]$ - Up correlation
-
-#### Step 4: Sub-Sample Peak Detection
-
-Find sub-sample peak using parabolic interpolation around integer peak:
+The cross-correlations of the three axes are summed:
 
 $$
-\begin{aligned}
-i_{\text{peak}} &= \arg\max_i |\rho[\tau_i]| \\
-y_1 &= |\rho[\tau_{i-1}]|, \quad y_2 = |\rho[\tau_i]|, \quad y_3 = |\rho[\tau_{i+1}]| \\
-\\
-\delta &= \frac{y_1 - y_3}{2(y_1 - 2y_2 + y_3)} \\
-\tau_{\text{peak}} &= \tau_i + \delta \cdot \Delta t
-\end{aligned}
+R[k] = \sum_{\text{axes}} \sum_{t} x(t + k\,\Delta t) \cdot y(t)
 $$
 
-#### Step 5: Weighted Average Time Offset
+The peak of $|R[k]|$, refined by a parabola through the three samples around
+it, gives the coarse offset $\tau_0 = k_{\text{peak}}\,\Delta t$. The sum runs
+over fewer samples at larger lags, which pulls the peak towards zero lag. That
+keeps a repeat of the flight pattern from matching, and the bias is removed by
+the next step.
 
-Combine offsets from all three axes weighted by correlation strength:
+#### Step 4: Least-Squares Offset
 
-$$
-\begin{aligned}
-w_E &= |\rho_E[\tau_E]|, \quad w_N = |\rho_N[\tau_N]|, \quad w_U = |\rho_U[\tau_U]| \\
-\\
-\tau_{\text{offset}} &= \frac{w_E \cdot \tau_E + w_N \cdot \tau_N + w_U \cdot \tau_U}{w_E + w_N + w_U}
-\end{aligned}
-$$
-
-Overall correlation quality:
+The offset minimizes the mean-removed residual at the reference samples:
 
 $$
-\rho_{\text{combined}} = \frac{w_E + w_N + w_U}{3}
+\tau_{\text{offset}} = \arg\min_{\tau}\;
+\frac{1}{N} \sum_{i} \left\| \mathbf{r}_i(\tau) - \overline{\mathbf{r}(\tau)} \right\|^2,
+\qquad
+\mathbf{r}_i(\tau) = \mathbf{p}_1(t_{1,i}) - \mathbf{p}_2(t_{1,i} - \tau)
 $$
+
+where $\mathbf{p}_2$ is linearly interpolated from the original target samples.
+$\tau$ is scanned in steps of $\Delta t$ over
+$\tau_0 \pm \max(2\text{ s}, |\tau_0|)$, and the minimum is refined between
+the neighbouring steps.
+
+#### Step 5: Correlation
+
+The reported correlation is the Pearson correlation of the mean-removed
+positions after alignment, over all axes (`correlation`) and per axis
+(`correlations_enu`). `offsets_enu` are the coarse offsets of each axis.
 
 #### Step 6: Spatial Offset After Time Alignment
 
@@ -163,27 +156,14 @@ $$
 \end{aligned}
 $$
 
-#### Step 2: Cross-Correlation
+#### Step 2: Offset
 
-$$
-R_{\theta\theta}[\tau] = \sum_{t} \theta_1(t) \cdot \theta_2(t + \tau)
-$$
+The same two steps as for positions: coarse offset from the cross-correlation
+of the mean-removed pitch, then least squares. A constant pitch bias does not
+matter. If the two pitch signals have opposite signs (the peak of the
+correlation is negative), the target pitch is flipped first.
 
-Normalized:
-
-$$
-\rho_{\theta}[\tau] = \frac{R_{\theta\theta}[\tau]}{\sqrt{\sum_t \theta_1^2(t) \cdot \sum_t \theta_2^2(t)}}
-$$
-
-#### Step 3: Sub-Sample Peak Detection
-
-Same parabolic interpolation as NED method:
-
-$$
-\tau_{\text{pitch}} = \tau_{i_{\text{peak}}} + \delta \cdot \Delta t
-$$
-
-#### Step 4: Chained Time Offset
+#### Step 3: Chained Time Offset
 
 Total time offset to align Inclinometer with GPS payload:
 

@@ -22,7 +22,7 @@ from typing import Any
 import numpy as np
 import polars as pl
 import pymap3d as pm
-from scipy import signal
+from scipy import optimize, signal
 
 logger = logging.getLogger(__name__)
 
@@ -74,13 +74,8 @@ class Synchronizer:
     ...     'longitude': 10.0 + 0.001 * np.cos(0.1 * t),
     ...     'altitude': 100.0 + 10.0 * np.sin(0.05 * t),
     ... })
-    >>> # Create drone GPS data with 2-second time offset
-    >>> drone_gps = pl.DataFrame({
-    ...     'timestamp': t + 2.0,  # Drone data 2s ahead
-    ...     'latitude': 45.0 + 0.001 * np.sin(0.1 * (t + 2.0)),
-    ...     'longitude': 10.0 + 0.001 * np.cos(0.1 * (t + 2.0)),
-    ...     'altitude': 100.0 + 10.0 * np.sin(0.05 * (t + 2.0)),
-    ... })
+    >>> # Drone GPS on a clock 2 s ahead: same positions, later timestamps
+    >>> drone_gps = gps_payload.with_columns(pl.col('timestamp') + 2.0)
     >>> # Initialize synchronizer
     >>> sync = Synchronizer()
     >>> # Add GPS payload as reference (mandatory)
@@ -95,17 +90,17 @@ class Synchronizer:
     ============================================================
 
     DRONE_GPS
-      Time Offset: 2.000 s
-      Correlation: 0.998
-      Spatial Offset: 15.32 m
-        East: 10.23 m
-        North: 11.45 m
-        Up: 0.12 m
+      Time Offset: -2.000 s
+      Correlation: 1.000
+      Spatial Offset: 0.00 m
+        East: 0.00 m
+        North: 0.00 m
+        Up: 0.00 m
     >>> # Access synchronized data
     >>> print(list(result.keys()))
     ['drone', 'reference_gps']
     >>> # Verify time offset was applied
-    >>> assert abs(sync.offsets['drone_gps']['time_offset'] - 2.0) < 0.1
+    >>> assert abs(sync.offsets['drone_gps']['time_offset'] + 2.0) < 0.01
     """
 
     def __init__(self):
@@ -251,6 +246,137 @@ class Synchronizer:
         return time[good_mask], east[good_mask], north[good_mask], up[good_mask]
 
     @staticmethod
+    def _estimate_time_offset(
+        time1: np.ndarray,
+        values1: np.ndarray,
+        time2: np.ndarray,
+        values2: np.ndarray,
+        rate_hz: float = 100.0,
+    ) -> tuple[float, np.ndarray, np.ndarray, float] | None:
+        """
+        Time offset that aligns source 2 to source 1, by least squares.
+
+        Both sources are resampled on a common grid over their overlap and
+        their means are removed, so a constant offset between the signals
+        (lever arm, pitch bias) does not matter. A coarse lag comes from the
+        peak of the cross-correlation; the shrinking overlap at large lags
+        pulls it towards zero, which avoids matching a repeat of the flight
+        pattern. It is then refined by minimizing the mean-removed residual
+        ``values1(t) - values2(t - offset)`` at the samples of source 1.
+
+        Parameters
+        ----------
+        time1, time2 : np.ndarray
+            Sample times in seconds, shape ``(n1,)`` and ``(n2,)``.
+        values1, values2 : np.ndarray
+            Signals, shape ``(k, n1)`` and ``(k, n2)`` (``k`` axes).
+        rate_hz : float, default=100.0
+            Rate of the common grid for the coarse lag.
+
+        Returns
+        -------
+        tuple or None
+            ``(offset, axis_offsets, axis_correlations, correlation)``:
+            offset in seconds to add to ``time2``; the coarse offset of each
+            axis; the absolute Pearson correlation of each axis and of all
+            axes after alignment (source 2 flipped if anti-correlated). None
+            if there are fewer than 10 s of overlap.
+        """
+        values1 = np.atleast_2d(np.asarray(values1, dtype=float))
+        values2 = np.atleast_2d(np.asarray(values2, dtype=float))
+        ok1 = np.isfinite(time1) & np.all(np.isfinite(values1), axis=0)
+        ok2 = np.isfinite(time2) & np.all(np.isfinite(values2), axis=0)
+        time1, values1 = time1[ok1], values1[:, ok1]
+        time2, values2 = time2[ok2], values2[:, ok2]
+        order2 = np.argsort(time2)
+        time2, values2 = time2[order2], values2[:, order2]
+        if time1.size < 2 or time2.size < 2:
+            return None
+
+        overlap_start = max(time1[0], time2[0])
+        overlap_end = min(time1[-1], time2[-1])
+        if overlap_end - overlap_start < 10.0:
+            logger.warning(
+                f"Insufficient overlap: {overlap_end - overlap_start:.1f}s < 10s minimum"
+            )
+            return None
+
+        dt = 1.0 / rate_hz
+        grid = np.arange(overlap_start, overlap_end, dt)
+        n = grid.size
+        a = np.array([np.interp(grid, time1, v) for v in values1])
+        b = np.array([np.interp(grid, time2, v) for v in values2])
+        a -= a.mean(axis=1, keepdims=True)
+        b -= b.mean(axis=1, keepdims=True)
+
+        # correlate(a, b)[k] = sum a[i + k] b[i]: b(t) ~ a(t + k dt) means
+        # source 2 runs k dt behind, and the offset is k dt
+        lags = signal.correlation_lags(n, n, mode="full")
+        usable = np.abs(lags) <= n // 2
+        # Not normalized by the overlap at each lag: the falling overlap
+        # favours small lags over repeats of the flight pattern, and its pull
+        # on the peak is removed by the least-squares step
+        per_axis = np.array(
+            [signal.correlate(x, y, mode="full") for x, y in zip(a, b, strict=True)]
+        )
+
+        def peak(corr: np.ndarray) -> float:
+            corr = np.where(usable, np.abs(corr), -np.inf)
+            k = int(np.argmax(corr))
+            if 0 < k < corr.size - 1 and np.all(np.isfinite(corr[k - 1 : k + 2])):
+                y1, y2, y3 = corr[k - 1 : k + 2]
+                denominator = y1 - 2.0 * y2 + y3
+                if abs(denominator) > 1e-12:
+                    return float((lags[k] + 0.5 * (y1 - y3) / denominator) * dt)
+            return float(lags[k] * dt)
+
+        axis_offsets = np.array([peak(c) for c in per_axis])
+        total = per_axis.sum(axis=0)
+        coarse = peak(total)
+        # Anti-correlated signals (e.g. pitch with the opposite sign) are
+        # aligned after flipping source 2
+        sign = np.sign(total[np.argmin(np.abs(lags * dt - coarse))]) or 1.0
+        values2 = sign * values2
+
+        def residual(offset: float) -> np.ndarray:
+            inside = (time1 > time2[0] + offset) & (time1 < time2[-1] + offset)
+            shifted = np.array(
+                [np.interp(time1[inside] - offset, time2, v) for v in values2]
+            )
+            res = values1[:, inside] - shifted
+            return np.asarray(res - res.mean(axis=1, keepdims=True))
+
+        def cost(offset: float) -> float:
+            res = residual(offset)
+            return float(np.mean(np.sum(res**2, axis=0))) if res.size else np.inf
+
+        # The coarse peak can be pulled by up to about its own size
+        span = max(2.0, abs(coarse))
+        steps = coarse + np.arange(-span, span + dt, dt)
+        best = steps[int(np.argmin([cost(step) for step in steps]))]
+        fit = optimize.minimize_scalar(
+            cost, bounds=(best - dt, best + dt), method="bounded"
+        )
+        offset = float(fit.x) if fit.success else float(best)
+
+        inside = (time1 > time2[0] + offset) & (time1 < time2[-1] + offset)
+        x = values1[:, inside]
+        y = np.array([np.interp(time1[inside] - offset, time2, v) for v in values2])
+        x = x - x.mean(axis=1, keepdims=True)
+        y = y - y.mean(axis=1, keepdims=True)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            axis_corr = np.sum(x * y, axis=1) / np.sqrt(
+                np.sum(x**2, axis=1) * np.sum(y**2, axis=1)
+            )
+            corr = np.sum(x * y) / np.sqrt(np.sum(x**2) * np.sum(y**2))
+        return (
+            offset,
+            axis_offsets,
+            np.abs(np.nan_to_num(axis_corr)),
+            float(np.nan_to_num(corr)),
+        )
+
+    @staticmethod
     def _find_gps_offset(
         time1: np.ndarray,
         lat1: np.ndarray,
@@ -269,11 +395,13 @@ class Synchronizer:
         the time offset needed to align source2 with source1 (reference).
 
         Method:
-        1. Convert both GPS sources to ENU coordinates (relative to reference midpoint)
-        2. Interpolate both to common high-rate timebase (default 100 Hz)
-        3. Cross-correlate E, N, U axes independently
-        4. Weighted average of offsets by correlation strength
-        5. Compute spatial offsets after time alignment
+        1. Convert both GPS sources to ENU coordinates (relative to the first
+           reference sample) and drop outliers
+        2. Coarse offset from the cross-correlation of the mean-removed E, N, U
+           positions on a common timebase (default 100 Hz)
+        3. Refine it by least squares (see :meth:`_estimate_time_offset`); a
+           constant position offset (lever arm) does not affect it
+        4. Compute spatial offsets after time alignment
 
         Parameters
         ----------
@@ -301,30 +429,30 @@ class Synchronizer:
         Dict[str, Any] or None
             Dictionary with:
             - time_offset: Time offset in seconds (add to time2 to align with time1)
-            - correlation: Combined correlation strength [0, 1]
+            - correlation: Correlation of the aligned positions [0, 1]
             - east_offset_m: East spatial offset after time alignment (meters)
             - north_offset_m: North spatial offset after time alignment (meters)
             - up_offset_m: Up spatial offset after time alignment (meters)
             - spatial_offset_m: 3D spatial offset magnitude (meters)
-            - offsets_enu: Individual axis offsets in seconds
-            - correlations_enu: Individual axis correlation strengths
+            - offsets_enu: Individual axis offsets in seconds (coarse)
+            - correlations_enu: Individual axis correlations after alignment
             Returns None if insufficient overlap or correlation too weak
 
         Notes
         -----
-        - Positive offset means source2 is ahead in time (add positive to align)
-        - Uses sub-sample precision via parabolic interpolation
+        - The offset is added to time2: if the clock of source2 is 2 s ahead,
+          the offset is -2 s
         - Requires minimum 10 seconds overlap for reliable correlation
 
         Examples
         --------
-        >>> # GPS source 2 is 2 seconds ahead of source 1
+        >>> # The clock of GPS source 2 is 2 seconds ahead of source 1
         >>> result = Synchronizer._find_gps_offset(
         ...     time1, lat1, lon1, alt1,
-        ...     time2, lat2, lon2, alt2
+        ...     time1 + 2.0, lat1, lon1, alt1
         ... )
         >>> print(f"Time offset: {result['time_offset']:.3f} s")
-        Time offset: 2.000 s
+        Time offset: -2.000 s
         >>> print(f"Correlation: {result['correlation']:.3f}")
         Correlation: 0.998
         """
@@ -354,92 +482,23 @@ class Synchronizer:
         logger.debug(f"Correlation: {e2} {n2} {u2}")
         logger.debug(f"Correlation: {e1} {n1} {u1}")
 
-        # Check for minimum overlap
-        t1_start, t1_end = time1[0], time1[-1]
-        t2_start, t2_end = time2[0], time2[-1]
-
-        overlap_start = max(t1_start, t2_start)
-        overlap_end = min(t1_end, t2_end)
-        overlap_duration = overlap_end - overlap_start
-
-        logger.info(f"Correlation: {overlap_start} {overlap_end}")
-
-        if overlap_duration < 10.0:
-            logger.warning(
-                f"Insufficient GPS overlap: {overlap_duration:.1f}s < 10s minimum"
-            )
+        estimate = Synchronizer._estimate_time_offset(
+            time1,
+            np.array([e1, n1, u1]),
+            time2,
+            np.array([e2, n2, u2]),
+            rate_hz=target_rate_hz,
+        )
+        if estimate is None:
+            logger.warning("Insufficient GPS overlap for the offset")
             return None
+        time_offset, axis_offsets, axis_corr, correlation = estimate
+        offset_e, offset_n, offset_u = axis_offsets
+        corr_e_strength, corr_n_strength, corr_u_strength = np.abs(axis_corr)
 
-        # Create common timebase for correlation (high rate for precision)
-        dt = 1.0 / target_rate_hz
-        common_time = np.arange(overlap_start, overlap_end, dt)
-
-        # Interpolate GPS1 to common timebase
-        e1_interp = np.interp(common_time, time1, e1)
-        n1_interp = np.interp(common_time, time1, n1)
-        u1_interp = np.interp(common_time, time1, u1)
-
-        logger.debug(
-            f"Correlation: {np.any(np.isnan(common_time))} {np.any(np.isnan(e1_interp))} {np.any(np.isnan(n1_interp))} {np.any(np.isnan(u1_interp))}"
-        )
-
-        # Interpolate GPS2 to common timebase
-        e2_interp = np.interp(common_time, time2, e2)
-        n2_interp = np.interp(common_time, time2, n2)
-        u2_interp = np.interp(common_time, time2, u2)
-
-        logger.debug(
-            f"Correlation: {np.any(np.isnan(common_time))} {np.any(np.isnan(e2_interp))} {np.any(np.isnan(n2_interp))} {np.any(np.isnan(u2_interp))}"
-        )
-
-        # Cross-correlate each axis independently
-        corr_e = signal.correlate(e1_interp, e2_interp, mode="same")
-        logger.debug(f"Correlation East: {corr_e}")
-        corr_n = signal.correlate(n1_interp, n2_interp, mode="same")
-        logger.debug(f"Correlation North: {corr_n}")
-        corr_u = signal.correlate(u1_interp, u2_interp, mode="same")
-        logger.debug(f"Correlation Up: {corr_u}")
-
-        # Normalize correlations properly
-        # Divide by sqrt of auto-correlations at zero lag
-        norm_e = np.sqrt(np.sum(e1_interp**2) * np.sum(e2_interp**2))
-        norm_n = np.sqrt(np.sum(n1_interp**2) * np.sum(n2_interp**2))
-        norm_u = np.sqrt(np.sum(u1_interp**2) * np.sum(u2_interp**2))
-
-        corr_e_norm = corr_e / norm_e if norm_e > 0 else corr_e
-        corr_n_norm = corr_n / norm_n if norm_n > 0 else corr_n
-        corr_u_norm = corr_u / norm_u if norm_u > 0 else corr_u
-
-        # Find sub-sample peaks for each axis
-        peak_e = Synchronizer._find_subsample_peak(np.abs(corr_e_norm))
-        peak_n = Synchronizer._find_subsample_peak(np.abs(corr_n_norm))
-        peak_u = Synchronizer._find_subsample_peak(np.abs(corr_u_norm))
-
-        # Convert peak indices to time offsets
-        center_idx = len(corr_e_norm) // 2
-        offset_e = (peak_e - center_idx) * dt
-        offset_n = (peak_n - center_idx) * dt
-        offset_u = (peak_u - center_idx) * dt
-
-        # Get correlation strengths at peaks
-        corr_e_strength = abs(corr_e_norm[int(peak_e)])
-        corr_n_strength = abs(corr_n_norm[int(peak_n)])
-        corr_u_strength = abs(corr_u_norm[int(peak_u)])
-
-        # Weighted average of offsets by correlation strength
-        total_weight = corr_e_strength + corr_n_strength + corr_u_strength
-        if total_weight < 0.1:
+        if correlation < 0.1:
             logger.warning("GPS correlation too weak, cannot detect reliable offset")
             return None
-
-        time_offset = (
-            offset_e * corr_e_strength
-            + offset_n * corr_n_strength
-            + offset_u * corr_u_strength
-        ) / total_weight
-
-        # Combined correlation (weighted average)
-        correlation = total_weight / 3.0
 
         # Compute spatial offsets after time alignment
         # Interpolate GPS2 with time correction
@@ -498,11 +557,9 @@ class Synchronizer:
         Uses cross-correlation of pitch angle signals to detect the time
         offset needed to align source2 with source1 (reference).
 
-        Method:
-        1. Interpolate both pitch signals to common high-rate timebase
-        2. Cross-correlate pitch signals
-        3. Find sub-sample peak using parabolic interpolation
-        4. Return time offset
+        Method: see :meth:`_estimate_time_offset` (coarse cross-correlation,
+        then least squares). A constant pitch bias does not affect it, and
+        pitch signals with opposite signs are aligned too.
 
         Parameters
         ----------
@@ -528,13 +585,13 @@ class Synchronizer:
         Notes
         -----
         - This is TIME synchronization, not angular offset detection
-        - Positive offset means source2 is ahead in time
-        - Uses sub-sample precision via parabolic interpolation
+        - The offset is added to time2: if the clock of source2 is ahead,
+          the offset is negative
         - Requires minimum 10 seconds overlap for reliable correlation
 
         Examples
         --------
-        >>> # Inclinometer is 1.5 seconds behind litchi gimbal
+        >>> # The inclinometer clock is 1.5 seconds ahead of Litchi
         >>> result = Synchronizer._find_pitch_offset(
         ...     time1_litchi, pitch1_litchi,
         ...     time2_inclinometer, pitch2_inclinometer
@@ -542,46 +599,13 @@ class Synchronizer:
         >>> print(f"Time offset: {result['time_offset']:.3f} s")
         Time offset: -1.500 s
         """
-        # Check for minimum overlap
-        t1_start, t1_end = time1[0], time1[-1]
-        t2_start, t2_end = time2[0], time2[-1]
-
-        overlap_start = max(t1_start, t2_start)
-        overlap_end = min(t1_end, t2_end)
-        overlap_duration = overlap_end - overlap_start
-
-        if overlap_duration < 10.0:
-            logger.warning(
-                f"Insufficient pitch overlap: {overlap_duration:.1f}s < 10s minimum"
-            )
+        estimate = Synchronizer._estimate_time_offset(
+            time1, np.asarray(pitch1), time2, np.asarray(pitch2), target_rate_hz
+        )
+        if estimate is None:
+            logger.warning("Insufficient pitch overlap for the offset")
             return None
-
-        # Create common timebase for correlation (high rate for precision)
-        dt = 1.0 / target_rate_hz
-        common_time = np.arange(overlap_start, overlap_end, dt)
-
-        # Interpolate pitch1 to common timebase
-        pitch1_interp = np.interp(common_time, time1, pitch1)
-
-        # Interpolate pitch2 to common timebase
-        pitch2_interp = np.interp(common_time, time2, pitch2)
-
-        # Cross-correlate pitch signals
-        corr = signal.correlate(pitch1_interp, pitch2_interp, mode="same")
-
-        # Normalize correlation properly
-        norm = np.sqrt(np.sum(pitch1_interp**2) * np.sum(pitch2_interp**2))
-        corr_norm = corr / norm if norm > 0 else corr
-
-        # Find sub-sample peak
-        peak_idx = Synchronizer._find_subsample_peak(np.abs(corr_norm))
-
-        # Convert peak index to time offset
-        center_idx = len(corr_norm) // 2
-        time_offset = (peak_idx - center_idx) * dt
-
-        # Get correlation strength at peak
-        correlation = abs(corr_norm[int(peak_idx)])
+        time_offset, _, _, correlation = estimate
 
         # Check minimum correlation threshold
         if correlation < 0.1:
