@@ -1,4 +1,4 @@
-"""Command line for the lab and telescope analyses.
+"""Command line for the lab and telescope analyses and flight packaging.
 
 Examples
 --------
@@ -8,6 +8,8 @@ Examples
     pils lab beam .../antenna/ANT_001/radiation_pattern --nominal-gain 15
     pils lab mult-diode .../detector/DET_001/responsivity
     pils power flight_20251201_1515 -t satp1 -w ws0
+    pils package flight_20251208_1927 flight_20251208_2010
+    pils package /mnt/data/POLOCALC/campaigns/202511/20251208/flight_20251208_1927
 
 Runs are saved (results file + plots) unless ``--dry-run``; ``--output-dir``
 writes them somewhere else than the data folders.
@@ -108,6 +110,41 @@ def _power(args: argparse.Namespace) -> int:
     return 0
 
 
+def _package(args: argparse.Namespace) -> int:
+    from pils.analyze.package import DEFAULT_TELESCOPES, FlightPackager
+
+    targets = []
+    for target in args.power or []:
+        telescope, sep, wafer_slot = target.partition(":")
+        if not sep or not telescope or not wafer_slot:
+            print(
+                f"--power expects TELESCOPE:WAFER_SLOT, got {target}", file=sys.stderr
+            )
+            return 2
+        targets.append((telescope, wafer_slot))
+
+    failed = 0
+    for flight in args.flights:
+        try:
+            packager = FlightPackager.from_flight(flight, output_dir=args.output_dir)
+        except (LookupError, FileNotFoundError) as e:
+            print(e, file=sys.stderr)
+            failed += 1
+            continue
+        result = packager.run(
+            telescopes=args.telescope or DEFAULT_TELESCOPES,
+            power_targets=targets,
+            lab_root=args.lab_root,
+            save=not args.dry_run,
+        )
+        print(result.summary())
+        if not result.ok:
+            failed += 1
+    if args.dry_run:
+        print("\nNothing saved (dry run)")
+    return 1 if failed else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="pils", description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -164,6 +201,36 @@ def build_parser() -> argparse.ArgumentParser:
     )
     power.add_argument("--azel-version", help="Use a saved AZEL version")
     outputs(power)
+
+    package = sub.add_parser(
+        "package", help="Sync a flight and save its data products in proc/"
+    )
+    package.add_argument(
+        "flights", nargs="+", help="Flight names (STOUT) or flight folders"
+    )
+    package.add_argument(
+        "-t",
+        "--telescope",
+        action="append",
+        help="AZEL for this telescope (repeatable; default SATP1, SATP2, SATP3)",
+    )
+    package.add_argument(
+        "--power",
+        action="append",
+        metavar="TELESCOPE:WAFER_SLOT",
+        help="Also run the expected-power analysis, e.g. satp1:ws0 (repeatable)",
+    )
+    package.add_argument(
+        "--output-dir",
+        help="Write <output-dir>/<flight>/proc/ instead of in the flight folder",
+    )
+    package.add_argument(
+        "--dry-run", action="store_true", help="Compute without saving"
+    )
+    package.add_argument(
+        "--lab-root",
+        help="Lab data root for --power (default: PILS_LAB_DATA_PATH or STOUT)",
+    )
     return parser
 
 
@@ -171,6 +238,8 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "lab":
         return _lab(args)
+    if args.command == "package":
+        return _package(args)
     return _power(args)
 
 

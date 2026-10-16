@@ -72,6 +72,8 @@ nav:
       - Litchi: api/drones/litchi.md
     - Analysis:
       - api/analysis/index.md
+      - Packaging: api/analysis/package.md
+      - AZEL: api/analysis/azel.md
       - PPK: api/analysis/ppk.md
       - Power: api/analysis/power.md
     - Lab Analysis:

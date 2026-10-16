@@ -6,6 +6,8 @@ Flight analysis modules. Lab measurements have their own [lab analysis](../lab/i
 
 | Module | Description |
 |--------|-------------|
+| [Packaging](package.md) | Sync a flight and save all its data products in `proc/` |
+| [AZEL](azel.md) | Azimuth, elevation and range of the drone from each telescope |
 | [PPK](ppk.md) | Post-Processed Kinematic analysis |
 | [Power](power.md) | Expected source power on telescope detectors |
 
