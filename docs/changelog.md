@@ -30,6 +30,10 @@ All notable changes to PILS are documented here.
   time columns and on the inclinometer (a dict of tables); these now round-trip,
   and the columns are gzip-compressed
 - `PowerAnalysis(output_dir=...)` wrote its AZEL results into the flight folder
+- Sync: the GPS and pitch time offsets were biased towards zero (a 2 s clock
+  difference came out as 1.27 s; on flight_20251208_1927 the Litchi offset
+  moves by 54 ms, the drone one by 26 ms). Offsets are now fitted by least
+  squares on mean-removed signals, after a coarse cross-correlation
 
 ---
 
