@@ -58,40 +58,61 @@ This structure is designed to work with both available loaders in PILS, [PathLoa
 The ```Flight```container should be considered _immutable_ at least for the ```raw_data``` and ```metadata```. Indeed, those are read from the multiple files and stored for conveninece in a single ```.h5``` file. This file should contain only a single set of _processed_ data. This is the synchronized data which should save all the data in a single dataframe following the recipe given in the [Synchronizer](../api/core/synchronizer.md) section. The resulting dataset should have associated metadata, such as _columnnames_ or _synchronizationmethod_ (or any useful, such as the timing reference).
 
 ```
-flight.h5
-├── metadata/
-│   ├── flight_info/                    # Flight identification
-│   │   ├── flight_id: "flight-001"
-│   │   ├── date: "2023-11-01"
-│   │   └── ...
-│   └── flight_metadata/                # Processing metadata
-│       ├── pils_version: "1.0.0"
-│       ├── created_at: "2023-11-01T12:00:00"
-│       └── ...
-├── raw_data/
-│   ├── drone/                          # Drone telemetry
-│   │   └── [DataFrame columns]
-│   ├── litchi/                         # Litchi data (if present)
-│   │   └── [DataFrame columns]
-│   └── sensors/
-│       ├── gps/
-│       │   └── [DataFrame columns]
-│       ├── imu/
-│       │   └── [DataFrame columns]
-│       └── ...
-└── sync_data/                          # Versioned sync data
-    ├── rev_20231101_120000/
-    │   ├── [attrs]                     # created_at, pils_version, user_* metadata
-    │   ├── drone/                      # one group per synchronized source
-    │   │   ├── [attrs] columns, dtypes, n_rows
-    │   │   └── <column> (dataset)
-    │   ├── inclinometer/
-    │   └── ...
-    │
-    └── rev_20231101_140000/
-        └── ...
+sync_data.h5
+├── metadata/                           # [attrs] flight_info_*, flight_metadata_*
+├── raw_data/                           # [attrs] saved_at, pils_version
+│   ├── drone_data/
+│   │   ├── drone                       # DJI GPS/RTK table (or BlackSquare)
+│   │   ├── litchi                      # Litchi log (if present)
+│   │   └── dat_records/                # DJI .dat records
+│   │       ├── IMU_ATTI(0)
+│   │       └── ...
+│   └── payload_data/
+│       ├── gps
+│       ├── adc
+│       ├── lm76
+│       ├── inclinometer/               # one table per message
+│       │   ├── INS
+│       │   ├── IMU
+│       │   └── INL2
+│       └── imu/                        # one table per sensor
+│           ├── barometer
+│           └── ...
+└── sync_data/                          # one revision per synchronization
+    └── rev_YYYYMMDD_hhmmss/            # [attrs] created_at, pils_version,
+        │                               #   raw_data_saved_at, user_* (run,
+        │                               #   rates, offsets, ...)
+        ├── drone
+        ├── litchi
+        ├── inclinometer
+        ├── adc, lm76, imu_<sensor>
+        ├── drone_IMU_ATTI(0)
+        └── reference_gps
 ```
 
+Every table is a group (see `pils.utils.hdf5.write_table`):
+
+```
+<table>/                                # [attrs] columns, dtypes, units (JSON),
+├── <column>                            #   n_rows, format
+├── ...                                 # one gzip-compressed dataset per column
+└── _nulls/<column>                     # null mask, for columns with nulls
+```
+
+- Numbers and booleans are stored as they are, text as UTF-8, dates and times
+  as integers converted back to their type on load (`dtypes`).
+- Nulls come back as nulls (the `_nulls` masks); a NaN stays a NaN.
+- `units` gives the unit of each column whose unit is known (see
+  `pils.utils.column_units`); e.g. `{"timestamp": "s", "RTK:lat_p": "deg"}`.
+- Every table has `timestamp` in UNIX seconds (UTC). In the raw data the
+  datetime columns are `Datetime("us", "UTC")`; the synchronized tables have
+  `timestamp` as their only time column (see
+  [Synchronization](synchronization.md#resampling)).
+
+`raw_data` is replaced at each save, while synchronized revisions are added;
+`raw_data_saved_at` on a revision tells which raw data it was made from. Each
+revision of a packaged flight adds about 40 MB; older revisions are not
+removed.
 
 ### HDF5 Analysis Output
 
@@ -127,7 +148,7 @@ analysis_result.h5
 
 **metadata** are assigned using ```.attrs``` and are mandatory for each dataset. They should at least include the column names. 
 
-In ```sync_data.h5``` the columns are gzip-compressed. Text columns are stored as strings (a missing value becomes an empty string), date and time columns as integers that are converted back to their type on load (the ```dtypes``` attribute), and missing numbers as NaN. A sensor made of several tables, such as the inclinometer (```INS```, ```IMU```, ```INL2```) or the IMU (```barometer```, ```accelerometer```, ```gyroscope```, ```magnetometer```), is a group with one subgroup per table.
+The analysis files (AZEL, EKF, PPK) store their tables in the same format.
 
 ---
 

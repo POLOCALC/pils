@@ -1012,7 +1012,7 @@ class DJIDrone:
         """GPS/RTK table as the per-message decoder builds it.
 
         Adds ``msg_type`` and, where the record has a valid UTC date and
-        time, ``datetime`` (``%Y-%m-%d %H:%M:%S``) and ``timestamp`` (s).
+        time, ``datetime`` (UTC) and ``timestamp`` (s).
         """
         date, time = pl.col(f"{name}:date"), pl.col(f"{name}:time")
         year, month, day = date // 10000, (date % 10000) // 100, date % 100
@@ -1039,9 +1039,7 @@ class DJIDrone:
         fields = [c for c in df.columns if c != "tick"]
         df = df.with_columns(
             pl.lit(msg_type, dtype=pl.Int64).alias("msg_type"),
-            pl.when(valid)
-            .then(moment.dt.strftime("%Y-%m-%d %H:%M:%S"))
-            .alias("datetime"),
+            pl.when(valid).then(moment.dt.cast_time_unit("us")).alias("datetime"),
             pl.when(valid)
             .then(moment.dt.epoch("s").cast(pl.Float64))
             .alias("timestamp"),

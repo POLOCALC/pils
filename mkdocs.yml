@@ -86,6 +86,7 @@ nav:
       - api/utilities/index.md
       - Tools: api/utilities/tools.md
       - Decoders: api/utilities/decoders.md
+      - HDF5 and Units: api/utilities/hdf5.md
   - User Guide:
     - user-guide/index.md
     - Directory Structure: user-guide/directory-structure.md

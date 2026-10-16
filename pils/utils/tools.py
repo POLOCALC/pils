@@ -225,3 +225,31 @@ def get_logpath_from_datapath(datapath: str | Path) -> Path:
 def fahrenheit_to_celsius(temp: float) -> float:
     """Convert temperature from Fahrenheit to Celsius."""
     return (temp - 32) * 5 / 9
+
+
+def standardize_datetimes(df: pl.DataFrame) -> pl.DataFrame:
+    """Datetime columns as ``Datetime("us", "UTC")``.
+
+    Naive datetimes are taken as UTC (the payload and drone loaders build
+    them from UTC epochs); aware ones are converted to UTC.
+
+    Parameters
+    ----------
+    df : pl.DataFrame
+        Any table.
+
+    Returns
+    -------
+    pl.DataFrame
+        The table with its datetime columns in microseconds, UTC.
+    """
+    exprs = []
+    for name, dtype in df.schema.items():
+        if isinstance(dtype, pl.Datetime):
+            col = pl.col(name).dt.cast_time_unit("us")
+            if dtype.time_zone is None:
+                col = col.dt.replace_time_zone("UTC")
+            elif dtype.time_zone != "UTC":
+                col = col.dt.convert_time_zone("UTC")
+            exprs.append(col)
+    return df.with_columns(exprs) if exprs else df

@@ -184,23 +184,48 @@ This two-stage approach allows synchronization even when Inclinometer and GPS do
 
 ## Resampling
 
-With `common_time=True` every source is linearly interpolated to the
-reference time base at its target rate, with NaN outside the source's time
-range.
+With `common_time=True` every source is resampled on the reference time base
+at its rate, by the same rules:
 
+- **Time**: `timestamp` (UNIX seconds) is the only time column. Date and
+  time columns, text columns and the other clocks (`unix_time_ms`,
+  `timestamp_us`, `timestamp_ns`, `monotonic_ns`, `datetime_relative`) and
+  `msg_type` are dropped; they stay in the raw data.
+- **Missing values** are null: outside the time range of a source, and where
+  the source has no value.
+- **States, flags and counts** hold the last value and keep their type, so
+  that a status bit field is never averaged. A column is one by its name
+  (any `:`-separated part, any case): it contains `status`, `flag`,
+  `flg`, `state`, `mode`, `sats`, or starts with `num` or `svn`, or is
+  `isflying` or `week`; booleans too. Examples: `insStatus`, `RTK:pos_flg_0`,
+  `GPS:numSV`, `Motor:Status:RFront`.
 - **Angle columns** are interpolated the short way across the wrap: from
   179° to −179° the midpoint is −180°, not 0°. A column is an angle by its
   name (the part after the last `:`): `yaw`, `roll`, `pitch` and `heading`,
   with or without `gimbal`, `Abs` and `(deg)` (degrees), with `_rad`
   (radians), or with `Raw` (0.1°). The result keeps the range of the input,
   [−180°, 180°) or [0°, 360°).
-- **Drone records** (DJI `.dat`, see [DJI Drone](dji-drone.md)) take the
-  drone GPS offset, since they are on the same clock. `Flight.sync`
-  synchronizes `IMU_ATTI(0)`, the flight controller attitude, by default, as
-  `drone_IMU_ATTI(0)`; pass `drone_records=[...]` or `drone_records="all"` for
-  others. Their integer columns (counts, flags, states) hold the last value
-  instead of being interpolated. The rate is `target_rate["drone_records"]`,
-  or the drone rate.
+- **Everything else** is interpolated linearly, as Float64.
+
+| Table | Source | Rate key (default in `pils package`) |
+|-------|--------|--------------------------------------|
+| `drone` | drone GPS/RTK table | `drone` (100 Hz) |
+| `litchi` | Litchi log | `litchi` (100 Hz; the drone rate if not given) |
+| `inclinometer` | inclinometer INS table | `inclinometer` (100 Hz) |
+| `adc`, `lm76`, `imu_<sensor>` | payload sensors | `payload` (100 Hz) |
+| `drone_<record>` | DJI `.dat` records | `drone_records` (the drone rate) |
+| `reference_gps` | payload GPS, the reference | `reference_gps` (100 Hz) |
+| `camera` | camera | its own frame rate |
+
+`flight.sync_rates` keeps the rates used; `pils package` saves them in the
+synchronized revision (`user_target_rate`). The raw payload GPS, at its own
+2 Hz, is in `raw_data`.
+
+**Drone records** (DJI `.dat`, see [DJI Drone](dji-drone.md)) take the
+drone GPS offset, since they are on the same clock. `Flight.sync`
+synchronizes `IMU_ATTI(0)`, the flight controller attitude, by default, as
+`drone_IMU_ATTI(0)`; pass `drone_records=[...]` or `drone_records="all"` for
+others.
 
 ```python
 flight.sync(target_rate={"drone": 100.0}, drone_records=["IMU_ATTI(0)", "Motor"])
