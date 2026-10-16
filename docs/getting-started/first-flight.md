@@ -146,27 +146,24 @@ print(f"Loaded sensors: {list(flight.raw_data.keys())}")
 ### Access GPS Data
 
 ```python
-# Get GPS sensor object
-gps = flight['gps']
-
-# Access data
-gps_df = gps.data
+# Payload GPS table (column names: see the Data Schema page)
+gps_df = flight.raw_data.payload_data.gps
 print(f"GPS points: {gps_df.height}")
 print(f"Columns: {gps_df.columns}")
 ```
 
 **Output:**
 ```
-GPS points: 3500
-Columns: ['timestamp', 'latitude', 'longitude', 'altitude', 'fix_quality', 
-          'num_satellites', 'hdop', 'velocity_north', 'velocity_east']
+GPS points: 1687
+Columns: ['timestamp', 'unix_time_ms', 'ecef_x_m', 'ecef_y_m', 'ecef_z_m', ...,
+          'lat_deg', 'lon_deg', 'h_ell_m', 'h_msl_m', 'h_acc_m', 'v_acc_m', ...]
 ```
 
 ### Access IMU Data
 
 ```python
 # One table per sub-sensor that has data
-imu = flight['imu']
+imu = flight.raw_data.payload_data.imu
 
 print(f"Accelerometer samples: {imu['accelerometer'].height}")
 print(f"Gyroscope samples: {imu['gyroscope'].height}")
@@ -189,78 +186,77 @@ Barometer samples: 131848
 ### Using Flight.sync() (Recommended)
 
 ```python
-# Synchronize all loaded sensors to a common time base
-synced_df = flight.sync(target_rate_hz=10.0)
+# Synchronize all loaded sources on the payload GPS time base
+synced = flight.sync(target_rate={"drone": 10.0, "payload": 10.0})
 
-print(f"Synchronized data: {synced_df.shape}")
-print(f"Columns: {synced_df.columns}")
-print(f"Time range: {synced_df['timestamp'].min():.1f}s - {synced_df['timestamp'].max():.1f}s")
-
-# Synchronized data is stored in flight.sync_data
-print(f"\nFirst few rows:")
-print(synced_df.head())
+# One table per source, all on the same timestamps
+print({name: df.shape for name, df in synced.items()})
+print(synced["drone"].select("timestamp", "lat_deg", "lon_deg", "h_ell_m").head())
+print(flight.sync_offsets)  # seconds added to each source's clock
 ```
 
 **Output:**
 ```
-Synchronized data: (3500, 25)
-Columns: ['timestamp', 'gps_latitude', 'gps_longitude', 'gps_altitude', 
-          'drone_latitude', 'drone_longitude', 'accel_ax', 'accel_ay', 'accel_az', ...]
-Time range: 0.0s - 350.0s
-
-First few rows:
-┌───────────┬──────────────┬───────────────┬──────────────┬────────┐
-│ timestamp │ gps_latitude │ gps_longitude │ gps_altitude │ ...    │
-│ ---       │ ---          │ ---           │ ---          │        │
-│ f64       │ f64          │ f64           │ f64          │        │
-╞═══════════╪══════════════╪═══════════════╪══════════════╪════════╡
-│ 0.0       │ 40.7128      │ -74.006       │ 10.5         │ ...    │
-│ 0.1       │ 40.71281     │ -74.00601     │ 10.52        │ ...    │
-│ 0.2       │ 40.71282     │ -74.00602     │ 10.55        │ ...    │
-└───────────┴──────────────┴───────────────┴──────────────┴────────┘
+{'drone': (8431, 25), 'litchi': (8431, 19), 'inclinometer': (8431, 20), 'adc': (8431, 2), ...}
+┌──────────────┬────────────┬────────────┬──────────┐
+│ timestamp    ┆ lat_deg    ┆ lon_deg    ┆ h_ell_m  │
+│ ---          ┆ ---        ┆ ---        ┆ ---      │
+│ f64          ┆ f64        ┆ f64        ┆ f64      │
+╞══════════════╪════════════╪════════════╪══════════╡
+│ 1.7652e9     ┆ null       ┆ null       ┆ null     │
+│ ...          ┆ ...        ┆ ...        ┆ ...      │
+└──────────────┴────────────┴────────────┴──────────┘
+{'drone_gps': 0.196, 'litchi_gps': -0.187, 'inclinometer': 0.306}
 ```
+
+Values are null where a source has no data (before take-off, after landing).
+See [Time Synchronization](../user-guide/synchronization.md) for the rules.
 
 ### Manual Synchronization (Advanced)
 
 ```python
-from pils.synchronizer import CorrelationSynchronizer
+from pils.synchronizer import Synchronizer
 
-# Create synchronizer
-sync = CorrelationSynchronizer()
+payload = flight.raw_data.payload_data
+sync = Synchronizer()
 
-# Add reference GPS (from sensor payload)
-sync.add_gps_reference(gps_df)
+# Reference GPS (from the sensor payload)
+sync.add_gps_reference(payload.gps)
 
-# Add drone GPS
-if 'data' in flight.drone_data:
-    sync.add_drone_gps(flight.drone_data['data'])
+# Drone RTK positions
+sync.add_drone_gps(
+    flight.raw_data.drone_data.drone,
+    lat_col="rtk_lat_deg",
+    lon_col="rtk_lon_deg",
+    alt_col="rtk_h_ell_m",
+)
 
-# Add other sensors
-sync.add_payload_sensor('adc', flight['adc'].data)
+# Other sensors
+sync.add_payload_sensor("adc", payload.adc)
 
-# Compute synchronization
-result = sync.synchronize(target_rate_hz=10.0)
-
-print(f"Synchronized: {result.shape}")
+result = sync.synchronize(target_rate={"drone": 10.0, "payload": 10.0})
+print(sync.get_offset_summary())
 ```
 
 ---
 
 ## Step 7: Export Data
 
-### Export to HDF5
+### Save the Flight
 
-By default the data are saved into the ```proc\``` folder, but is possible also to define a new folder 
+`Flight.save` writes the raw data and, if the flight is synchronized, a new
+synchronized revision, as Parquet tables with a manifest (see
+[Directory Structure](../user-guide/directory-structure.md)).
+`pils package` saves to `<flight>/proc/flight/`.
 
 ```python
 from pathlib import Path
 
 output_dir = Path("./output")
-output_dir.mkdir(exist_ok=True)
 
-# Save complete flight (includes sync_data if available)
-flight.to_hdf5(output_dir / f"{flight.flight_name}.h5")
-print(f"Saved raw data and synchronized data to HDF5")
+# raw/ and sync/rev_YYYYMMDD_hhmmss/
+revision = flight.save(output_dir / "flight")
+print(f"Saved synchronized revision {revision}")
 ```
 
 ### Export Individual DataFrames
@@ -276,13 +272,16 @@ gps_df.write_parquet(output_dir / "gps.parquet")
 gps_df.write_json(output_dir / "gps.json")
 ```
 
-### Reload from HDF5
+### Reload
 
 ```python
-# Later, reload the flight
-reloaded = Flight.from_hdf5(output_dir / f"{flight.flight_name}.h5")
-print(f"Reloaded: {reloaded.flight_name}")
+# Later, reload the flight (latest synchronized revision)
+reloaded = Flight.load(output_dir / "flight")
+print(list(reloaded.sync_data))
 ```
+
+Flights saved in HDF5 by earlier versions still load with
+`Flight.from_hdf5(path)`; their columns are renamed to the schema.
 
 ---
 
@@ -314,30 +313,29 @@ flight.add_sensor_data(['gps', 'imu', 'adc'])
 
 # Analyze GPS
 print("\nGPS Analysis:")
-gps_df = flight['gps'].data
-rtk_fixed = gps_df.filter(pl.col('fix_quality') == 4)
+gps_df = flight.raw_data.payload_data.gps
+accurate = gps_df.filter(pl.col('h_acc_m') < 2.0)
 print(f"  Total points: {gps_df.height}")
-print(f"  RTK Fixed: {rtk_fixed.height} ({rtk_fixed.height/gps_df.height:.1%})")
+print(f"  Accuracy < 2 m: {accurate.height} ({accurate.height/gps_df.height:.1%})")
 
 # Analyze IMU
 print("\nIMU Analysis:")
-imu = flight['imu']
-accel = imu.accelerometer
+imu = flight.raw_data.payload_data.imu
+accel = imu['accelerometer']
 print(f"  Samples: {accel.height}")
 print(f"  Duration: {(accel['timestamp'].max() - accel['timestamp'].min()):.1f} seconds")
 
 # Synchronize all data
 print("\nSynchronization:")
-synced_df = flight.sync(target_rate_hz=10.0)
-print(f"  Synchronized: {synced_df.shape}")
-print(f"  Columns: {len(synced_df.columns)}")
+synced = flight.sync(target_rate={"drone": 10.0, "payload": 10.0})
+print(f"  Synchronized tables: {list(synced)}")
+print(f"  Drone: {synced['drone'].shape}")
 
-# Export
-print("\nExporting...")
-flight.to_hdf5(OUTPUT / f"{FLIGHT_ID}.h5")  # Includes sync_data
-gps_df.write_parquet(OUTPUT / "gps.parquet")
-synced_df.write_parquet(OUTPUT / "synchronized.parquet")
-print(f"  Saved to {OUTPUT}")
+# Save
+print("\nSaving...")
+revision = flight.save(OUTPUT / FLIGHT_ID)  # raw/ and sync/<revision>/
+gps_df.write_csv(OUTPUT / "gps.csv")
+print(f"  Saved revision {revision} to {OUTPUT / FLIGHT_ID}")
 
 print("\nDone!")
 ```

@@ -62,35 +62,42 @@ PILS can perform automatic decoding of the ```.DAT``` file created by the DJI Ma
 
     #### Decoded records
 
-    GPS and RTK make the drone table (`flight.raw_data.drone_data.drone`). The
-    other records are in `flight.raw_data.drone_data.records`, one table per
-    record with `tick` and UTC `timestamp`, and are saved in the flight HDF5
-    under `raw_data/drone_data/dat_records/`. `flight.sync()` puts
-    `IMU_ATTI(0)` (or the records you choose) on the payload time base as
-    `drone_IMU_ATTI(0)`, see
-    [Synchronization](synchronization.md#resampling). Names follow DatCon's
-    CSV columns. Every field was compared with DatCon 4.3.0's CSV of the same
-    flight, tick by tick, unless marked otherwise.
+    The RTK solution is the drone table (`flight.raw_data.drone_data.drone`):
+    its own rows, timestamped with the tick → UTC fit. The other records,
+    including the main GNSS receiver (`gps`), are in
+    `flight.raw_data.drone_data.records`, one table per record with `tick`
+    and UTC `timestamp`. No value is interpolated between records: each table
+    keeps the rows of its record. `Flight.save` writes them in
+    `raw/drone/records/`. `flight.sync()` puts `imu_atti_0` (or the records
+    you choose) on the payload time base as `drone_imu_atti_0`, see
+    [Synchronization](synchronization.md#resampling).
 
-    | Record | Type | Rate | Content |
+    The decoder (`DJIDrone`) names the fields as DatCon's CSV columns
+    (`RTK:lat_p`, `IMU_ATTI(0):gyroZ`); `Flight` renames them to the schema
+    (`rtk_lat_deg`, `gyro_z_deg_s` in table `imu_atti_0`), see
+    [Data Schema](data-schema.md#reference). Every field was compared with
+    DatCon 4.3.0's CSV of the same flight, tick by tick, unless marked
+    otherwise.
+
+    | Record (table) | Type | Rate | Content |
     |--------|------|------|---------|
-    | GPS | 2096 | 5 Hz | Main GNSS receiver (drone table) |
-    | RTK | 53234 | 5 Hz | RTK solution (drone table) |
-    | `IMU_ATTI(0..2)` | 2048-2050 | 200 Hz | Three IMUs: quaternion and DatCon's roll/pitch/yaw, accelerometer (g), gyroscope (deg/s), velocities, magnetometer, barometric and fused altitude, IMU temperature, fused position |
-    | `GPS(1)`, `GPS(2)` | 2097, 2098 | 5 Hz | Other GNSS receivers, GPS layout (DatCon does not export them) |
-    | `Motor` | 10090 | 25 Hz | Per motor (RFront, LFront, LSide, LBack, RBack, RSide): speed (rpm), ESC voltage and temperature, current (not in DatCon's CSV), PPM in/out (%), status |
-    | `MotorCtrl` | 1307 | 260 Hz | PWM command per motor (%) |
-    | `BatteryInfo` | 1710 | 50 Hz | Voltages (V), currents (A), capacity, temperature (°C) |
-    | `Controller` | 1000 | 50 Hz | Stick inputs, flight mode, motor state, limits |
-    | `AirSpeed` | 10100 | 5 Hz | Wind speed estimate (`windX`/`windY` not in DatCon's CSV) |
-    | `osd_data` | 12 | 20 Hz | Relative height, VPS height, flight time |
+    | RTK (drone table) | 53234 | 5 Hz | RTK solution |
+    | GPS (`gps`) | 2096 | 5 Hz | Main GNSS receiver |
+    | `IMU_ATTI(0..2)` (`imu_atti_0..2`) | 2048-2050 | 200 Hz | Three IMUs: quaternion and DatCon's roll/pitch/yaw, accelerometer (g), gyroscope (deg/s), velocities, magnetometer, barometric and fused altitude, IMU temperature, fused position |
+    | `GPS(1)`, `GPS(2)` (`gps_1`, `gps_2`) | 2097, 2098 | 5 Hz | Other GNSS receivers, GPS layout (DatCon does not export them) |
+    | `Motor` (`motor`) | 10090 | 25 Hz | Per motor (RFront, LFront, LSide, LBack, RBack, RSide): speed (rpm), ESC voltage and temperature, current (not in DatCon's CSV), PPM in/out (%), status |
+    | `MotorCtrl` (`motor_ctrl`) | 1307 | 260 Hz | PWM command per motor (%) |
+    | `BatteryInfo` (`battery_info`) | 1710 | 50 Hz | Voltages (V), currents (A), capacity, temperature (°C) |
+    | `Controller` (`controller`) | 1000 | 50 Hz | Stick inputs, flight mode, motor state, limits |
+    | `AirSpeed` (`air_speed`) | 10100 | 5 Hz | Wind speed estimate (`windX`/`windY` not in DatCon's CSV) |
+    | `osd_data` (`osd`) | 12 | 20 Hz | Relative height, VPS height, flight time |
 
     The camera gimbal attitude is not in the flight controller log; it comes
     from the Litchi log (`flight.raw_data.drone_data.litchi`, ~10 Hz):
-    `gimbalPitch`, `gimbalRoll` and `gimbalYaw` in degrees (the raw values
-    are in 0.1°), with the yaw relative to the aircraft, and `gimbalYawAbs`
-    = aircraft `yaw(deg)` + `gimbalYaw`, the gimbal heading from north in
-    [-180, 180).
+    `gimbal_pitch_deg`, `gimbal_roll_deg` and `gimbal_yaw_deg` (Litchi logs
+    them in 0.1°), with the yaw relative to the aircraft, and
+    `gimbal_heading_deg` = aircraft `yaw_deg` + `gimbal_yaw_deg`, the gimbal
+    heading from north in [-180, 180).
 
     `BatteryInfo` is in physical units; DatCon's `:D` columns have the raw
     counts (mV, mA, 0.1 °C). Motor PPM is the pulse width in µs / 19.2.

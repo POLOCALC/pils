@@ -40,9 +40,9 @@ flight_YYYYMMDD_hhmm/
 │   ├── YYYYMMDD_hhmmss_drone.dat
 │   └── YYYYMMDD_hhmmss_litchi.csv
 └── proc
-    ├── sync_data.h5
-    ├── package_manifest.json
-    └── analyzed_data (azel/, power/, ppk/, ...)
+    ├── flight/                 # raw/ and sync/rev_*/
+    ├── azel/, power/, ekf/, ppk/
+    └── package_manifest.json
 
 
 ```
@@ -52,103 +52,81 @@ This structure is designed to work with both available loaders in PILS, [PathLoa
 
 ## Output Structure
 
-
-### HDF5 RAw and Synchronyzed Output
-
-The ```Flight```container should be considered _immutable_ at least for the ```raw_data``` and ```metadata```. Indeed, those are read from the multiple files and stored for conveninece in a single ```.h5``` file. This file should contain only a single set of _processed_ data. This is the synchronized data which should save all the data in a single dataframe following the recipe given in the [Synchronizer](../api/core/synchronizer.md) section. The resulting dataset should have associated metadata, such as _columnnames_ or _synchronizationmethod_ (or any useful, such as the timing reference).
+Every product in ```proc/``` is stored the same way (`pils.store`): one
+directory per revision, written once, with Parquet tables and a
+`manifest.json`. Column names, units and the storage format are described in
+[Data Schema and Storage](data-schema.md).
 
 ```
-sync_data.h5
-├── metadata/                           # [attrs] flight_info_*, flight_metadata_*
-├── raw_data/                           # [attrs] saved_at, pils_version
-│   ├── drone_data/
-│   │   ├── drone                       # DJI GPS/RTK table (or BlackSquare)
-│   │   ├── litchi                      # Litchi log (if present)
-│   │   └── dat_records/                # DJI .dat records
-│   │       ├── IMU_ATTI(0)
+rev_YYYYMMDD_hhmmss/
+├── manifest.json        # schema version, code (pils version, git commit,
+│                        # uncommitted changes), tables (rows, dtypes, units),
+│                        # the run's metadata
+├── <table>.parquet      # one file per table; a "/" in a name is a folder
+└── ...                  # other files of the run (plots, CSV)
+```
+
+The manifest is written last: a revision with a manifest is complete and is
+never changed. A new run adds a new revision; older ones are kept.
+
+### Flight: raw and synchronized data
+
+`Flight.save(directory)` writes the loaded data and, if the flight is
+synchronized, a new synchronized revision; `Flight.load(directory)` reads them
+back (the latest revision by default).
+
+```
+proc/flight/
+├── raw/                                # replaced at each save
+│   ├── manifest.json                   # flight info, loaders, code version
+│   ├── drone/
+│   │   ├── drone.parquet               # DJI RTK solution (or BlackSquare)
+│   │   ├── litchi.parquet              # Litchi log (if present)
+│   │   └── records/                    # DJI .dat records
+│   │       ├── gps.parquet             # main GNSS receiver
+│   │       ├── imu_atti_0.parquet
 │   │       └── ...
-│   └── payload_data/
-│       ├── gps
-│       ├── adc
-│       ├── lm76
-│       ├── inclinometer/               # one table per message
-│       │   ├── INS
-│       │   ├── IMU
-│       │   └── INL2
-│       └── imu/                        # one table per sensor
-│           ├── barometer
-│           └── ...
-└── sync_data/                          # one revision per synchronization
-    └── rev_YYYYMMDD_hhmmss/            # [attrs] created_at, pils_version,
-        │                               #   raw_data_saved_at, user_* (run,
-        │                               #   rates, offsets, ...)
-        ├── drone
-        ├── litchi
-        ├── inclinometer
-        ├── adc, lm76, imu_<sensor>
-        ├── drone_IMU_ATTI(0)
-        └── reference_gps
+│   └── payload/
+│       ├── gps.parquet, adc.parquet, lm76.parquet
+│       ├── inclinometer/               # ins, imu, inl2
+│       └── imu/                        # barometer, accelerometer, ...
+└── sync/
+    └── rev_YYYYMMDD_hhmmss/            # one per synchronization
+        ├── manifest.json               # time offsets, rates, raw_saved_at,
+        │                               #   the run (package version, ...)
+        ├── drone.parquet, litchi.parquet, inclinometer.parquet
+        ├── adc.parquet, lm76.parquet, imu_<sensor>.parquet
+        ├── drone_imu_atti_0.parquet
+        └── reference_gps.parquet
 ```
 
-Every table is a group (see `pils.utils.hdf5.write_table`):
-
-```
-<table>/                                # [attrs] columns, dtypes, units (JSON),
-├── <column>                            #   n_rows, format
-├── ...                                 # one gzip-compressed dataset per column
-└── _nulls/<column>                     # null mask, for columns with nulls
-```
-
-- Numbers and booleans are stored as they are, text as UTF-8, dates and times
-  as integers converted back to their type on load (`dtypes`).
-- Nulls come back as nulls (the `_nulls` masks); a NaN stays a NaN.
-- `units` gives the unit of each column whose unit is known (see
-  `pils.utils.column_units`); e.g. `{"timestamp": "s", "RTK:lat_p": "deg"}`.
 - Every table has `timestamp` in UNIX seconds (UTC). In the raw data the
   datetime columns are `Datetime("us", "UTC")`; the synchronized tables have
   `timestamp` as their only time column (see
   [Synchronization](synchronization.md#resampling)).
+- `raw/` is replaced at each save; `raw_saved_at` in a synchronized revision's
+  manifest tells which raw data it was made from.
+- A synchronized revision of a packaged flight is about 45 MB.
 
-`raw_data` is replaced at each save, while synchronized revisions are added;
-`raw_data_saved_at` on a revision tells which raw data it was made from. Each
-revision of a packaged flight adds about 40 MB; older revisions are not
-removed.
+### Analyses
 
-### HDF5 Analysis Output
-
-Each product of the analysis should be stored in a ```.h5``` file. Each analysis will have its dedicated folder. Inside the folder, there will be a single ```.h5```file and a series of folders (one per revision) that include the auxilliary results of the data analysis (plots, CSV files etc.).
+Each analysis has its folder, with one revision directory per run, possibly
+grouped by telescope or target:
 
 ```
 proc/
-    └──analysis_name
-        ├── analysis_result.h5
-        └── rev_YYYYMMDD_hhmmss
-            ├── rev_YYYYMMDD_hhmmss_file.png
-            └── rev_YYYYMMDD_hhmmss_file.csv
+├── azel/<TELESCOPE>/rev_YYYYMMDD_hhmmss/
+│   ├── manifest.json
+│   ├── azel_data.parquet               # timestamp, az_deg, el_deg, srange_m, e/n/u_m
+│   └── rev_..._azel_<telescope>_<YYYYMMDD_hhmm>.csv
+├── power/<TELESCOPE>_<wafer slot>/rev_*/   # power_data.parquet, plots
+├── ekf/rev_*/                          # ekf_data.parquet
+└── ppk/rev_*/                          # position, statistics + RTKLIB files
 ```
 
-The structure of the ```.h5``` file is the following:
-
-```
-analysis_result.h5                       
-    ├── rev_YYYYMMDD_hhmmss/
-    │   ├── metadata
-    │   └── dataset
-    └── rev_20231101_140000/
-        ├── metadata
-        └── Group
-            ├── group_metadata
-            ├── data_1
-            |   ├── metadata
-            |   └── dataset
-            └── data_2
-                ├── metadata
-                └── dataset
-```
-
-**metadata** are assigned using ```.attrs``` and are mandatory for each dataset. They should at least include the column names. 
-
-The analysis files (AZEL, EKF, PPK) store their tables in the same format.
+Results saved in HDF5 by earlier versions (`sync_data.h5`,
+`*_solution.h5`) are converted with `pils migrate <flight>/proc`; the HDF5
+files are kept.
 
 ---
 

@@ -86,10 +86,11 @@ nav:
       - api/utilities/index.md
       - Tools: api/utilities/tools.md
       - Decoders: api/utilities/decoders.md
-      - HDF5 and Units: api/utilities/hdf5.md
+      - Storage: api/utilities/storage.md
   - User Guide:
     - user-guide/index.md
     - Directory Structure: user-guide/directory-structure.md
+    - Data Schema: user-guide/data-schema.md
     - Time Synchronization: user-guide/synchronization.md
     - Drone: user-guide/dji-drone.md
   - Development:

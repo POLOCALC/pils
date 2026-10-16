@@ -81,12 +81,12 @@ flight = Flight(flight_info)
 ```python
 # Drone data
 flight.add_drone_data()
-drone_df = flight.drone_data['data']
+drone_df = flight.raw_data.drone_data.drone  # rtk_lat_deg, rtk_lon_deg, ...
 
 # Sensors
 flight.add_sensor_data(['gps', 'imu'])
-gps_df = flight['gps'].data
-accel_df = flight['imu']['accelerometer']
+gps_df = flight.raw_data.payload_data.gps  # lat_deg, lon_deg, h_ell_m, ...
+accel_df = flight.raw_data.payload_data.imu['accelerometer']
 ```
 
 ### Analysis
@@ -96,15 +96,18 @@ from pils.synchronizer import Synchronizer
 
 sync = Synchronizer()
 sync.add_gps_reference(gps_df)
-sync.add_drone_gps(drone_df)
-result = sync.synchronize()
+sync.add_drone_gps(
+    drone_df, lat_col="rtk_lat_deg", lon_col="rtk_lon_deg", alt_col="rtk_h_ell_m"
+)
+result = sync.synchronize(target_rate={"drone": 10.0})
 ```
 
 ### Export
 
 ```python
-# Complete flight to HDF5
-flight.to_hdf5("flight.h5")
+# Complete flight: raw/ and sync/rev_*/ (Parquet + manifest)
+flight.save("output/flight")
+flight = Flight.load("output/flight")
 
 # Individual DataFrame
 gps_df.write_parquet("gps.parquet")

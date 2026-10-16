@@ -7,7 +7,7 @@ described in [Directory Structure](../../user-guide/directory-structure.md):
    on the payload are skipped) and the drone data;
 2. synchronize on the payload GPS (common time base, RTK drone data, the same
    rates as the power analysis);
-3. save raw and synchronized data in `proc/sync_data.h5`;
+3. save the raw and synchronized data in `proc/flight/` (`Flight.save`);
 4. compute AZEL for each telescope and write the telescope's AZEL file;
 5. optionally, the expected power on telescope detectors;
 6. write `proc/package_manifest.json` with what was produced.
@@ -27,6 +27,9 @@ pils package flight_20251208_1927 --dry-run
 
 # Write somewhere else: <output-dir>/<flight>/proc/
 pils package flight_20251208_1927 --output-dir ~/packages
+
+# Convert results saved in HDF5 by earlier versions (the HDF5 files are kept)
+pils migrate /mnt/data/POLOCALC/campaigns/202511/20251206/flight_20251206_1833/proc --dry-run
 ```
 
 ```python
@@ -43,20 +46,27 @@ packager.flight    # the loaded and synchronized Flight
 
 ```
 flight_YYYYMMDD_hhmm/proc/
-├── sync_data.h5                    # metadata, raw_data, sync_data/rev_*
-├── azel/
-│   ├── azel_solution.h5            # <TELESCOPE>/rev_*/azel_data
-│   └── rev_YYYYMMDD_hhmmss/
-│       └── rev_YYYYMMDD_hhmmss_azel_<telescope>_<YYYYMMDD_hhmm>.csv
-├── power/                          # only with --power
+├── flight/
+│   ├── raw/                        # loaded data, replaced at each run
+│   └── sync/rev_YYYYMMDD_hhmmss/   # synchronized data
+├── azel/<TELESCOPE>/rev_YYYYMMDD_hhmmss/
+│   ├── manifest.json
+│   ├── azel_data.parquet           # timestamp, az_deg, el_deg, srange_m, e/n/u_m
+│   └── rev_YYYYMMDD_hhmmss_azel_<telescope>_<YYYYMMDD_hhmm>.csv
+├── power/<TELESCOPE>_<wafer slot>/rev_*/   # only with --power
 └── package_manifest.json
 ```
 
-The AZEL file has the columns `timestamp, az, el, srange` (UNIX seconds,
-degrees, metres). Each run adds new revisions and keeps the earlier ones. The
-synchronized revision records the packaging run (`user_package_version`) and
-the sync settings, and each AZEL revision records the synchronized revision it
-used (`sync_revision`).
+Every revision is a write-once directory with Parquet tables and a
+`manifest.json` (see [Data Schema and Storage](../../user-guide/data-schema.md)).
+Each run adds new revisions and keeps the earlier ones.
+
+The AZEL file for the telescopes keeps its own header, `timestamp, az, el,
+srange` (UNIX seconds, degrees, metres). The synchronized revision's manifest
+records the packaging run (`package_version`), the sync settings, the time
+offsets and the rates; each AZEL revision records the synchronized revision
+it used (`sync_revision`). `package_manifest.json` records the code that ran
+(pils version and git commit).
 
 ## Steps that are skipped or fail
 
