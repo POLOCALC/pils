@@ -227,9 +227,8 @@ class AZELAnalysis:
             Broadcast DJI base position dict with keys 'lat', 'lon', 'alt'.
             Values in WGS84 degrees (lat, lon) and meters (alt).
         drone_timezone_hours : float, optional
-            Timezone offset for drone timestamps in hours.
-            Only applied to raw_data; sync_data is assumed UTC.
-            Default is 0.0 (UTC).
+            Not used: the drone timestamps are UTC (kept for compatibility,
+            and recorded in the metadata).
         save_data : bool, optional
             Whether to save the data and create new version.
             Default is False.
@@ -346,41 +345,24 @@ class AZELAnalysis:
         logger.info(f"Using drone format: {format_type}, data source: {data_source}")
         logger.info(f"Loaded drone data with {drone_df.height} rows")
 
-        # 3. Set column names based on data source
+        # 3. Positions (schema names, see pils.schema): the synchronized
+        # table has lat_deg/lon_deg/h_ell_m, the raw DJI table the RTK ones
         if data_source == "sync_data":
-            # sync_data uses standardized column names (as of coordinate standardization feature)
-            lat_col = "latitude"
-            lon_col = "longitude"
-            alt_col = "altitude"
-            timestamp_col = "timestamp"
-        else:  # raw_data
-            # raw_data uses original DJI column names
-            if "RTKdata:Lat_P" in drone_df.columns:
-                lat_col = "RTKdata:Lat_P"
-                lon_col = "RTKdata:Lon_P"
-                alt_col = "RTKdata:Hmsl_P"
-            elif "RTK:lat_p" in drone_df.columns:
-                lat_col = "RTK:lat_p"
-                lon_col = "RTK:lon_p"
-                alt_col = "RTK:hmsl_p"
-            else:
-                raise ValueError(
-                    "No RTK position columns found. Expected RTKdata:Lat_P or RTK:lat_p"
-                )
-            timestamp_col = None  # Will use GPS Date/Time conversion for raw_data
+            lat_col, lon_col, alt_col = "lat_deg", "lon_deg", "h_ell_m"
+        else:
+            lat_col, lon_col, alt_col = "rtk_lat_deg", "rtk_lon_deg", "rtk_h_ell_m"
+        timestamp_col = "timestamp"
 
-        # Validate required columns exist
-        required_cols = [lat_col, lon_col, alt_col]
-        if data_source == "sync_data":
-            required_cols.append(timestamp_col)
-
+        required_cols = [lat_col, lon_col, alt_col, timestamp_col]
         missing_cols = [col for col in required_cols if col not in drone_df.columns]
         if missing_cols:
             raise ValueError(f"Missing required columns: {missing_cols}")
 
-        # Filter valid position data (remove rows where lat=0 or NaN)
+        # Valid positions (lat=0 or missing are not)
         valid_rtk = drone_df.filter(
-            (pl.col(lat_col) != 0) & pl.col(lat_col).is_not_null()
+            (pl.col(lat_col) != 0)
+            & pl.col(lat_col).is_not_null()
+            & pl.col(timestamp_col).is_not_null()
         )
 
         if valid_rtk.height == 0:
@@ -388,58 +370,7 @@ class AZELAnalysis:
             return None
 
         logger.info(f"Filtered to {valid_rtk.height} valid position samples")
-
-        # 4. Extract timestamps
-        if data_source == "sync_data":
-            # sync_data already has UTC timestamps in the correct column
-            timestamps_ctime = valid_rtk[timestamp_col].to_list()
-            logger.info(
-                f"Extracted {len(timestamps_ctime)} UTC timestamps from sync_data"
-            )
-        else:
-            # raw_data: Convert GPS Date/Time to Unix timestamp
-            # Support both CSV format (GPS:Date) and DAT format (GPS:date or RTK:date)
-            date_col = None
-            time_col = None
-
-            if "GPS:Date" in valid_rtk.columns:
-                date_col = "GPS:Date"
-                time_col = "GPS:Time"
-            elif "GPS:date" in valid_rtk.columns:
-                date_col = "GPS:date"
-                time_col = "GPS:time"
-            elif "RTK:date" in valid_rtk.columns:
-                date_col = "RTK:date"
-                time_col = "RTK:time"
-            else:
-                raise ValueError(
-                    "No GPS date/time columns found. Expected GPS:Date or GPS:date or RTK:date"
-                )
-
-            # Convert GPS Date (YYYYMMDD int) and Time (HHMMSS int) to Unix timestamp
-            timestamps_ctime = []
-            timezone_correction = datetime.timedelta(hours=drone_timezone_hours)
-
-            for row in valid_rtk.select([date_col, time_col]).iter_rows():
-                date_int = int(row[0])
-                time_int = int(row[1])
-
-                # Format as strings with zero padding
-                ymd_str = f"{date_int:08d}"  # Ensure 8 digits YYYYMMDD
-                hms_str = f"{time_int:06d}"  # Ensure 6 digits HHMMSS
-
-                timestamp_str = ymd_str + hms_str
-
-                # Parse datetime and apply timezone correction
-                dt = datetime.datetime.strptime(timestamp_str, "%Y%m%d%H%M%S")
-                dt_corrected = dt - timezone_correction
-
-                # Convert to Unix timestamp
-                timestamps_ctime.append(dt_corrected.timestamp())
-
-            logger.info(
-                f"Converted {len(timestamps_ctime)} timestamps with timezone offset {drone_timezone_hours}h"
-            )
+        timestamps_ctime = valid_rtk[timestamp_col].to_list()
 
         # 4. Load EMLID reference data
         emlid = Emlid(self.flight)
@@ -505,33 +436,33 @@ class AZELAnalysis:
         azel_data = pl.DataFrame(
             {
                 "timestamp": np.asarray(timestamps_ctime),
-                "az": azimuth,
-                "el": elevation,
-                "srange": slant_range,
-                "E": e_corrected,
-                "N": n_corrected,
-                "U": u_corrected,
+                "az_deg": azimuth,
+                "el_deg": elevation,
+                "srange_m": slant_range,
+                "e_m": e_corrected,
+                "n_m": n_corrected,
+                "u_m": u_corrected,
             }
         ).with_columns(
             [
                 pl.col("timestamp").cast(pl.Float64),
-                pl.col("az").cast(pl.Float64),
-                pl.col("el").cast(pl.Float64),
-                pl.col("srange").cast(pl.Float64),
-                pl.col("E").cast(pl.Float64),
-                pl.col("N").cast(pl.Float64),
-                pl.col("U").cast(pl.Float64),
+                pl.col("az_deg").cast(pl.Float64),
+                pl.col("el_deg").cast(pl.Float64),
+                pl.col("srange_m").cast(pl.Float64),
+                pl.col("e_m").cast(pl.Float64),
+                pl.col("n_m").cast(pl.Float64),
+                pl.col("u_m").cast(pl.Float64),
             ]
         )
 
         mask_expr = (
             (~pl.col("timestamp").is_nan())
-            & (~pl.col("az").is_nan())
-            & (~pl.col("el").is_nan())
-            & (~pl.col("srange").is_nan())
-            & (~pl.col("E").is_nan())
-            & (~pl.col("N").is_nan())
-            & (~pl.col("U").is_nan())
+            & (~pl.col("az_deg").is_nan())
+            & (~pl.col("el_deg").is_nan())
+            & (~pl.col("srange_m").is_nan())
+            & (~pl.col("e_m").is_nan())
+            & (~pl.col("n_m").is_nan())
+            & (~pl.col("u_m").is_nan())
         )
         azel_data = azel_data.filter(mask_expr)
 

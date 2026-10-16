@@ -242,9 +242,9 @@ class TestPayloadFiles:
         flight.raw_data.payload_data.gps = pl.DataFrame(
             {
                 "timestamp": t,
-                "posllh_lat": np.full(t.size, -22.96),
-                "posllh_lon": np.full(t.size, -67.78),
-                "posllh_height": np.full(t.size, 5200.0),
+                "lat_deg": np.full(t.size, -22.96),
+                "lon_deg": np.full(t.size, -67.78),
+                "h_ell_m": np.full(t.size, 5200.0),
             }
         )
         synced = flight.sync(target_rate={"payload": 10.0})

@@ -463,17 +463,17 @@ class TestRunAnalysis:
         # Create drone data DataFrame (CSV format columns)
         drone_df = pl.DataFrame(
             {
-                "RTKdata:Lat_P": [40.0001, 40.0002, 0.0, 40.0004, 40.0005],
-                "RTKdata:Lon_P": [
+                "rtk_lat_deg": [40.0001, 40.0002, 0.0, 40.0004, 40.0005],
+                "rtk_lon_deg": [
                     -105.0001,
                     -105.0002,
                     -105.0003,
                     -105.0004,
                     -105.0005,
                 ],
-                "RTKdata:Hmsl_P": [1010.0, 1011.0, 1012.0, 1013.0, 1014.0],
-                "GPS:Date": [20260218, 20260218, 20260218, 20260218, 20260218],
-                "GPS:Time": [120000, 120001, 120002, 120003, 120004],
+                "rtk_h_ell_m": [1010.0, 1011.0, 1012.0, 1013.0, 1014.0],
+                # 2026-02-18 12:00:00 UTC
+                "timestamp": [1771416000.0 + i for i in range(5)],
             }
         )
         return drone_df
@@ -639,15 +639,15 @@ class TestRunAnalysis:
         df = result.azel_data
 
         # Check required columns exist
-        required_columns = ["timestamp", "az", "el", "srange"]
+        required_columns = ["timestamp", "az_deg", "el_deg", "srange_m"]
         for col in required_columns:
             assert col in df.columns, f"Missing column: {col}"
 
         # Check column types are Float64
         assert df["timestamp"].dtype == pl.Float64
-        assert df["az"].dtype == pl.Float64
-        assert df["el"].dtype == pl.Float64
-        assert df["srange"].dtype == pl.Float64
+        assert df["az_deg"].dtype == pl.Float64
+        assert df["el_deg"].dtype == pl.Float64
+        assert df["srange_m"].dtype == pl.Float64
 
     def test_run_analysis_handles_no_valid_data(
         self, tmp_path, mock_campaign_with_emlid
@@ -670,11 +670,10 @@ class TestRunAnalysis:
         # All lat values are 0 (invalid)
         invalid_drone_df = pl.DataFrame(
             {
-                "RTKdata:Lat_P": [0.0, 0.0, 0.0],
-                "RTKdata:Lon_P": [-105.0, -105.0, -105.0],
-                "RTKdata:Hmsl_P": [1000.0, 1000.0, 1000.0],
-                "GPS:Date": [20260218, 20260218, 20260218],
-                "GPS:Time": [120000, 120001, 120002],
+                "rtk_lat_deg": [0.0, 0.0, 0.0],
+                "rtk_lon_deg": [-105.0, -105.0, -105.0],
+                "rtk_h_ell_m": [1000.0, 1000.0, 1000.0],
+                "timestamp": [1771416000.0, 1771416001.0, 1771416002.0],
             }
         )
 
@@ -695,36 +694,23 @@ class TestRunAnalysis:
         # Should return None when no valid data
         assert result is None
 
-    def test_run_analysis_timezone_correction(self, mock_flight_with_drone_data):
-        """Test that timezone correction is applied to timestamps."""
+    def test_run_analysis_timestamps_are_utc(self, mock_flight_with_drone_data):
+        """The drone timestamps are UTC: drone_timezone_hours is not applied."""
         from pils.analyze.azel import AZELAnalysis
 
         azel = AZELAnalysis(mock_flight_with_drone_data)
-
         dji_broadcast = {"lat": 40.0, "lon": -105.0, "alt": 1000.0}
-
-        # Run with UTC (0 hours offset)
-        result_utc = azel.run_analysis(
-            telescope_name="SATP1",
-            dji_broadcast_geod=dji_broadcast,
-            drone_timezone_hours=0.0,
-        )
-
-        # Run with +1 hour offset
-        result_tz = azel.run_analysis(
-            telescope_name="SATP1",
-            dji_broadcast_geod=dji_broadcast,
-            drone_timezone_hours=1.0,
-        )
-
-        assert result_utc is not None
-        assert result_tz is not None
-
-        # Timestamps should differ by 3600 seconds (1 hour)
-        ts_utc = result_utc.azel_data["timestamp"][0]
-        ts_tz = result_tz.azel_data["timestamp"][0]
-
-        assert abs(ts_utc - ts_tz) == pytest.approx(3600.0, abs=1.0)
+        results = [
+            azel.run_analysis(
+                telescope_name="SATP1",
+                dji_broadcast_geod=dji_broadcast,
+                drone_timezone_hours=hours,
+            )
+            for hours in (0.0, 1.0)
+        ]
+        assert all(r is not None for r in results)
+        assert results[0].azel_data["timestamp"][0] == 1771416000.0
+        assert results[1].azel_data["timestamp"][0] == 1771416000.0
 
 
 class TestHDF5Persistence:
@@ -1025,9 +1011,9 @@ class TestDataSourceSelection:
         flight.sync_data = {
             "drone": {
                 "timestamp": [1000.0, 2000.0, 3000.0],
-                "latitude": [40.0001, 40.0002, 40.0003],
-                "longitude": [-105.0001, -105.0002, -105.0003],
-                "altitude": [1000.0, 1001.0, 1002.0],
+                "lat_deg": [40.0001, 40.0002, 40.0003],
+                "lon_deg": [-105.0001, -105.0002, -105.0003],
+                "h_ell_m": [1000.0, 1001.0, 1002.0],
             }
         }
 
@@ -1109,8 +1095,8 @@ class TestDataSourceSelection:
             },
             "litchi": {
                 "timestamp": [1000.5, 2000.5],
-                "latitude": [40.0001, 40.0002],
-                "longitude": [-105.0001, -105.0002],
+                "lat_deg": [40.0001, 40.0002],
+                "lon_deg": [-105.0001, -105.0002],
                 "altitude(m)": [1000.0, 1001.0],
             },
         }
@@ -1123,7 +1109,7 @@ class TestDataSourceSelection:
 
         # Verify litchi data accessible
         assert "litchi" in azel.flight.sync_data
-        assert "latitude" in azel.flight.sync_data["litchi"]
+        assert "lat_deg" in azel.flight.sync_data["litchi"]
 
     def test_drone_model_detection_dji(self, mock_flight_with_sync_data):
         """Test that DJI drone model is detected correctly."""
@@ -1265,8 +1251,8 @@ class TestColumnMapping:
         flight.sync_data = {
             "litchi": {
                 "timestamp": [1000.0, 2000.0, 3000.0],
-                "latitude": [40.0001, 40.0002, 40.0003],
-                "longitude": [-105.0001, -105.0002, -105.0003],
+                "lat_deg": [40.0001, 40.0002, 40.0003],
+                "lon_deg": [-105.0001, -105.0002, -105.0003],
                 "altitude(m)": [1000.0, 1001.0, 1002.0],
             }
         }
@@ -1276,8 +1262,8 @@ class TestColumnMapping:
         # Verify expected columns exist in litchi data
         litchi_data = pl.DataFrame(flight.sync_data["litchi"])
         assert "timestamp" in litchi_data.columns
-        assert "latitude" in litchi_data.columns
-        assert "longitude" in litchi_data.columns
+        assert "lat_deg" in litchi_data.columns
+        assert "lon_deg" in litchi_data.columns
         assert "altitude(m)" in litchi_data.columns
 
     def test_timestamp_direct_extraction(self, tmp_path):
@@ -1399,9 +1385,9 @@ class TestRTKCorrectionByDroneFormat:
             "drone": pl.DataFrame(
                 {
                     "timestamp": [1000.0, 2000.0, 3000.0],
-                    "latitude": [40.0001, 40.0002, 40.0003],
-                    "longitude": [-105.0001, -105.0002, -105.0003],
-                    "altitude": [1000.0, 1001.0, 1002.0],
+                    "lat_deg": [40.0001, 40.0002, 40.0003],
+                    "lon_deg": [-105.0001, -105.0002, -105.0003],
+                    "h_ell_m": [1000.0, 1001.0, 1002.0],
                 }
             )
         }
@@ -1439,9 +1425,9 @@ class TestRTKCorrectionByDroneFormat:
             "drone": pl.DataFrame(
                 {
                     "timestamp": [1000.0, 2000.0, 3000.0],
-                    "latitude": [40.0001, 40.0002, 40.0003],
-                    "longitude": [-105.0001, -105.0002, -105.0003],
-                    "altitude": [1000.0, 1001.0, 1002.0],
+                    "lat_deg": [40.0001, 40.0002, 40.0003],
+                    "lon_deg": [-105.0001, -105.0002, -105.0003],
+                    "h_ell_m": [1000.0, 1001.0, 1002.0],
                 }
             )
         }
@@ -1479,9 +1465,9 @@ class TestRTKCorrectionByDroneFormat:
             "drone": pl.DataFrame(
                 {
                     "timestamp": [1000.0, 2000.0, 3000.0],
-                    "latitude": [40.0001, 40.0002, 40.0003],
-                    "longitude": [-105.0001, -105.0002, -105.0003],
-                    "altitude": [1000.0, 1001.0, 1002.0],
+                    "lat_deg": [40.0001, 40.0002, 40.0003],
+                    "lon_deg": [-105.0001, -105.0002, -105.0003],
+                    "h_ell_m": [1000.0, 1001.0, 1002.0],
                 }
             )
         }
@@ -1517,9 +1503,9 @@ class TestRTKCorrectionByDroneFormat:
             "drone": pl.DataFrame(
                 {
                     "timestamp": [1000.0, 2000.0, 3000.0],
-                    "latitude": [40.0001, 40.0002, 40.0003],
-                    "longitude": [-105.0001, -105.0002, -105.0003],
-                    "altitude": [1000.0, 1001.0, 1002.0],
+                    "lat_deg": [40.0001, 40.0002, 40.0003],
+                    "lon_deg": [-105.0001, -105.0002, -105.0003],
+                    "h_ell_m": [1000.0, 1001.0, 1002.0],
                 }
             )
         }
@@ -1850,9 +1836,9 @@ class TestAdditionalMetadata:
             "drone": pl.DataFrame(
                 {
                     "timestamp": [1000.0, 2000.0],
-                    "latitude": [40.0001, 40.0002],
-                    "longitude": [-105.0001, -105.0002],
-                    "altitude": [1000.0, 1001.0],
+                    "lat_deg": [40.0001, 40.0002],
+                    "lon_deg": [-105.0001, -105.0002],
+                    "h_ell_m": [1000.0, 1001.0],
                 }
             )
         }

@@ -54,8 +54,14 @@ SYNC_RATES = {
     "payload": 100.0,
     "reference_gps": 100.0,
 }
-# Columns of the AZEL file handed to the telescopes
-AZEL_CSV_COLUMNS = ("timestamp", "az", "el", "srange")
+# Columns of the AZEL file handed to the telescopes: its own names (an
+# external format), from the AZEL table's
+AZEL_CSV_COLUMNS = {
+    "timestamp": "timestamp",
+    "az_deg": "az",
+    "el_deg": "el",
+    "srange_m": "srange",
+}
 
 SYNC_FILE = "sync_data.h5"
 MANIFEST_FILE = "package_manifest.json"
@@ -362,8 +368,11 @@ class FlightPackager:
         folder.mkdir(parents=True, exist_ok=True)
         stem = self.flight_name.removeprefix("flight_")
         path = folder / f"{version_name}_azel_{telescope.lower()}_{stem}.csv"
-        columns = [c for c in AZEL_CSV_COLUMNS if c in data.columns]
-        data.select(columns).write_csv(path)
+        data.select(
+            pl.col(column).alias(name)
+            for column, name in AZEL_CSV_COLUMNS.items()
+            if column in data.columns
+        ).write_csv(path)
         return path
 
     def _power(

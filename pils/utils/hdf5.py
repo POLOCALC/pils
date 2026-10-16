@@ -124,7 +124,7 @@ def write_table(
       stored value is 0, NaN or ""), so they come back as nulls;
     - gzip-compressed;
     - attributes: ``columns`` and ``dtypes`` (JSON), ``n_rows``,
-      ``units`` (JSON, see :func:`pils.utils.column_units.table_units`) and
+      ``units`` (JSON, see :func:`pils.schema.unit_of`) and
       ``format``.
 
     Columns of other types (lists, structs, objects) are skipped with a
@@ -141,7 +141,7 @@ def write_table(
     units : dict[str, str], optional
         Units by column; by default the known units of the columns.
     """
-    from pils.utils.column_units import table_units
+    from pils.schema import table_units
 
     if name in parent:
         del parent[name]

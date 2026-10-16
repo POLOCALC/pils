@@ -200,9 +200,9 @@ def test_raw_and_sync_provenance(tmp_path):
     flight.raw_data.payload_data.gps = pl.DataFrame(
         {
             "timestamp": np.arange(0.0, 20.0),
-            "posllh_lat": np.full(20, 45.0),
-            "posllh_lon": np.full(20, 10.0),
-            "posllh_height": np.full(20, 100.0),
+            "lat_deg": np.full(20, 45.0),
+            "lon_deg": np.full(20, 10.0),
+            "h_ell_m": np.full(20, 100.0),
         }
     )
     synced = flight.sync()
