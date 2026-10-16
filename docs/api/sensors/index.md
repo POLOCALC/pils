@@ -52,7 +52,7 @@ Sensors are registered in `pils/sensors/sensors.py`:
 ```python
 sensor_config = {
     'gps': {'class': GPS, 'load_method': 'load_data'},
-    'imu': {'class': IMU, 'load_method': 'load_data'},
+    'imu': {'class': IMU, 'load_method': 'load_all'},
     'camera': {'class': Camera, 'load_method': None},
     'adc': {'class': ADC, 'load_method': 'load_data'},
     'inclinometer': {'class': Inclinometer, 'load_method': 'load_data'},
@@ -71,8 +71,8 @@ gps_df = flight['gps'].data
 rtk_fixes = gps_df.filter(pl.col('fix_quality') == 4)
 
 # IMU (multiple sub-sensors)
-accel_df = flight['imu'].accelerometer
-gyro_df = flight['imu'].gyroscope
+accel_df = flight['imu']['accelerometer']
+gyro_df = flight['imu']['gyroscope']
 
 # ADC
 adc_df = flight['adc'].data
