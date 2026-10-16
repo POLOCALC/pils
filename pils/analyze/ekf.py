@@ -67,6 +67,29 @@ EKF_OUTPUT_SCHEMA = pa.schema(
 )
 
 
+# Output columns of the Rust binary renamed to the schema (pils.schema)
+EKF_OUTPUT_NAMES = {
+    "timestamp_s": "timestamp",
+    "timestamp_monotonic_ns": "monotonic_ns",
+}
+
+
+def _schema_output(df: pl.DataFrame) -> pl.DataFrame:
+    """EKF output with the schema's names: ``timestamp`` (UNIX s, UTC)."""
+    return df.rename({k: v for k, v in EKF_OUTPUT_NAMES.items() if k in df.columns})
+
+
+def _with_required(df: pl.DataFrame, required: list[str]) -> pl.DataFrame:
+    """Accept the schema's lower-case names (``pqr_p_rad_s``) for ``required``."""
+    lower = {c.lower(): c for c in required}
+    renames = {
+        c: lower[c]
+        for c in df.columns
+        if c in lower and lower[c] != c and lower[c] not in df.columns
+    }
+    return df.rename(renames) if renames else df
+
+
 @dataclass
 class EKFVersion:
     """EKF analysis version container.
@@ -232,7 +255,9 @@ class EKFAnalysis:
         imu_df : pl.DataFrame
             Polars DataFrame with IMU data. Expected columns:
             monotonic_ns, timestamp_ns, pqr_P_rad_s, pqr_Q_rad_s,
-            pqr_R_rad_s, acc_X_m_s2, acc_Y_m_s2, acc_Z_m_s2.
+            pqr_R_rad_s, acc_X_m_s2, acc_Y_m_s2, acc_Z_m_s2 (or their
+            schema names, as in ``flight.raw_data.payload_data.inclinometer
+            ["imu"]``: pqr_p_rad_s, ..., acc_x_m_s2, ...).
 
         Returns
         -------
@@ -268,6 +293,7 @@ class EKFAnalysis:
             "acc_Y_m_s2",
             "acc_Z_m_s2",
         ]
+        imu_df = _with_required(imu_df, required_cols)
         missing = [col for col in required_cols if col not in imu_df.columns]
         if missing:
             raise ValueError(f"IMU DataFrame missing required columns: {missing}")
@@ -456,8 +482,8 @@ class EKFAnalysis:
         Returns
         -------
         pl.DataFrame
-            DataFrame with EKF output columns matching EKF_OUTPUT_SCHEMA:
-            timestamp_s, timestamp_monotonic_ns, roll_deg, pitch_deg,
+            DataFrame with the EKF output (EKF_OUTPUT_SCHEMA) in the schema's
+            names: timestamp (UNIX s), monotonic_ns, roll_deg, pitch_deg,
             yaw_deg, euler_cov_0_0 through euler_cov_2_2.
 
         Raises
@@ -470,7 +496,7 @@ class EKFAnalysis:
         >>> result = EKFAnalysis._send_ipc_to_rust(...)
         >>> ekf_data = EKFAnalysis._load_ekf_output(result.stdout)
         >>> print(ekf_data.columns)
-        ['timestamp_s', 'timestamp_monotonic_ns', 'roll_deg', ...]
+        ['timestamp', 'monotonic_ns', 'roll_deg', ...]
         """
         _ARROW_MAGIC = b"ARROW1\x00\x00"
 
@@ -487,7 +513,7 @@ class EKFAnalysis:
             payload = ipc_bytes[8 : 8 + payload_len]
             if payload[:8] == _ARROW_MAGIC:
                 reader = pa.ipc.open_file(io.BytesIO(payload))
-                return pl.from_arrow(reader.read_all())
+                return _schema_output(pl.from_arrow(reader.read_all()))  # type: ignore[arg-type]
 
         # ── Fallback: scan for Arrow magic bytes ──────────────────────────────
         # Handles any stdout prepended before the IPC payload (e.g. stray
@@ -506,7 +532,7 @@ class EKFAnalysis:
             )
 
         reader = pa.ipc.open_file(io.BytesIO(ipc_bytes[idx:]))
-        return pl.from_arrow(reader.read_all())
+        return _schema_output(pl.from_arrow(reader.read_all()))  # type: ignore[arg-type]
 
     def run_analysis(
         self,
