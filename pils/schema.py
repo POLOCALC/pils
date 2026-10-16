@@ -104,8 +104,20 @@ INCLINOMETER = {
     "roll": Field("roll_deg"),
     "pitch": Field("pitch_deg"),
     "yaw": Field("yaw_deg"),
-    # Kernel-100
+    # Kernel-100 (gyro in deg/s: matches the derivative of its angles; the
+    # accelerometer reads ~0.08 at rest, unit not known)
     "Temper": Field("temperature_c"),
+    "GyroX": Field("gyro_x_deg_s"),
+    "GyroY": Field("gyro_y_deg_s"),
+    "GyroZ": Field("gyro_z_deg_s"),
+    "AccX": Field("acc_x"),
+    "AccY": Field("acc_y"),
+    "AccZ": Field("acc_z"),
+    "Vinp": Field("supply_v"),
+    "USW": Field("usw_status"),
+    "Type": Field("message"),
+    "Counter": Field("counter"),
+    "counter_timestamp": Field("counter_time_s"),
 }
 
 LITCHI = {
@@ -306,6 +318,11 @@ _UNITS = (
     ("_hpa", "hPa"),
     ("_rpm", "rpm"),
     ("_pct", "%"),
+    ("_ghz", "GHz"),
+    ("_dbi", "dBi"),
+    ("_sr", "sr"),
+    ("_arcmin", "arcmin"),
+    ("_dbhz", "dB-Hz"),
     ("_dbm", "dBm"),
     ("_db", "dB"),
     ("_pw", "pW"),

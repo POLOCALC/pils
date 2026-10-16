@@ -146,11 +146,14 @@ def _package(args: argparse.Namespace) -> int:
 
 
 def _migrate(args: argparse.Namespace) -> int:
-    from pils.migrate import migrate_proc
+    from pils.migrate import migrate_lab, migrate_proc
 
     failed = 0
     for proc in args.proc_dirs:
-        done = migrate_proc(proc, dry_run=args.dry_run)
+        # A flight's proc/ or a lab item's proc/
+        done = migrate_proc(proc, dry_run=args.dry_run) + migrate_lab(
+            proc, dry_run=args.dry_run
+        )
         print(
             f"{proc}: {len(done)} revision(s)" + (" to convert" if args.dry_run else "")
         )
@@ -158,6 +161,18 @@ def _migrate(args: argparse.Namespace) -> int:
             print(f"  {item}")
         failed += any(item.startswith("FAILED") for item in done)
     return 1 if failed else 0
+
+
+def _prune(args: argparse.Namespace) -> int:
+    from pils.store import prune_versions
+
+    for root in args.proc_dirs:
+        removed = prune_versions(root, args.keep, dry_run=args.dry_run)
+        verb = "to delete" if args.dry_run else "deleted"
+        print(f"{root}: {len(removed)} revision(s) {verb}")
+        for path in removed:
+            print(f"  {path}")
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -249,10 +264,20 @@ def build_parser() -> argparse.ArgumentParser:
     migrate = sub.add_parser(
         "migrate", help="Convert HDF5 results in proc/ to the Parquet layout"
     )
-    migrate.add_argument("proc_dirs", nargs="+", help="Flight proc/ folders")
+    migrate.add_argument(
+        "proc_dirs", nargs="+", help="proc/ folders of flights or lab items"
+    )
     migrate.add_argument(
         "--dry-run", action="store_true", help="List what would be converted"
     )
+    prune = sub.add_parser(
+        "prune", help="Delete old revisions, keeping the newest of each analysis"
+    )
+    prune.add_argument("proc_dirs", nargs="+", help="proc/ folders (searched)")
+    prune.add_argument(
+        "--keep", type=int, default=3, help="Revisions to keep in each (default 3)"
+    )
+    prune.add_argument("--dry-run", action="store_true", help="Only list them")
     return parser
 
 
@@ -264,6 +289,8 @@ def main(argv: list[str] | None = None) -> int:
         return _package(args)
     if args.command == "migrate":
         return _migrate(args)
+    if args.command == "prune":
+        return _prune(args)
     return _power(args)
 
 

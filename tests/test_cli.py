@@ -27,4 +27,4 @@ def test_lab_vna_dry_run_and_save(tmp_path, capsys):
 
     out = tmp_path / "out"
     assert main(["lab", "vna", str(folder), "--output-dir", str(out), "--no-plot"]) == 0
-    assert (out / "proc" / "vna" / "vna_solution.h5").is_file()
+    assert list((out / "proc" / "vna").glob("*/rev_*/summary.parquet"))

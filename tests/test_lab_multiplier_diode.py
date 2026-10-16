@@ -151,9 +151,11 @@ def test_run_corrects_and_saves_to_both_items(lab):
         / "output_power"
         / "proc"
         / "multiplier_diode"
-        / "multiplier_diode_solution.h5"
     )
-    assert mul_results.is_file()
+    # <stem>/<rev>/ with the tables and a manifest (pils.store)
+    saved = list(mul_results.glob("*/rev_*/manifest.json"))
+    assert len(saved) == 1
+    assert (saved[0].parent / "responsivity.parquet").is_file()
 
 
 def test_missing_components(lab, tmp_path):

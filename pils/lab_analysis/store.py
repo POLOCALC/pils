@@ -2,7 +2,8 @@
 
 The lab tree is ``<root>/<band>/<category>/<item name>/<test_type>/``. For
 each quantity the store returns a standard table, read from the latest PILS
-analysis run when there is one, otherwise from the processed files written
+analysis run when there is one (``proc/<analysis>/<stem>/rev_*/``, or a
+legacy ``<analysis>_solution.h5``), otherwise from the processed files written
 before PILS had lab analyses (``*.csv``, ``*_processed.*``).
 """
 
@@ -131,18 +132,9 @@ class LabStore:
     def _latest_run(
         self, folder: Path, analysis: str
     ) -> tuple[dict[str, pl.DataFrame], dict[str, Any]] | None:
-        path = folder / "proc" / analysis / f"{analysis}_solution.h5"
-        if not path.is_file():
-            return None
-        import h5py
+        from pils.lab_analysis.base import latest_run
 
-        with h5py.File(path, "r") as f:
-            stems = sorted(f.keys())
-        for stem in reversed(stems):  # latest measurement first
-            versions = hdf5.list_versions(path, parent=stem)
-            if versions:
-                return hdf5.load_version(path, versions[-1], parent=stem)
-        return None
+        return latest_run(folder / "proc" / analysis, analysis)
 
     @staticmethod
     def _legacy_file(folder: Path, *patterns: str) -> Path:

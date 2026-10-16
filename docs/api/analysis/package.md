@@ -30,6 +30,10 @@ pils package flight_20251208_1927 --output-dir ~/packages
 
 # Convert results saved in HDF5 by earlier versions (the HDF5 files are kept)
 pils migrate /mnt/data/POLOCALC/campaigns/202511/20251206/flight_20251206_1833/proc --dry-run
+
+# Delete old revisions, keeping the newest 3 of each analysis (and the
+# synchronized revisions the kept ones were made from)
+pils prune /mnt/data/POLOCALC/campaigns/202511/20251208/flight_20251208_1927/proc --keep 3 --dry-run
 ```
 
 ```python
