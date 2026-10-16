@@ -1,5 +1,4 @@
 import datetime
-import re
 import struct
 from pathlib import Path
 from typing import Any
@@ -298,16 +297,18 @@ MESSAGE_DEFINITIONS = {
             ("velN", "f", 20, lambda x: x / 100.0),
             ("velE", "f", 24, lambda x: x / 100.0),
             ("velD", "f", 28, lambda x: x / 100.0),
-            ("hdop", "f", 32),
-            ("pdop", "f", 36),
-            ("hacc", "f", 40),
-            ("sacc", "f", 44),
+            # DOPs and accuracies are stored x100 (checked against DatCon 4.3.0,
+            # except hacc, which DatCon does not export)
+            ("hdop", "f", 32, lambda x: x / 100.0),
+            ("pdop", "f", 36, lambda x: x / 100.0),
+            ("hacc", "f", 40, lambda x: x / 100.0),
+            ("sacc", "f", 44, lambda x: x / 100.0),
             ("numGPS", "I", 56),
             ("numGLN", "I", 60),
             ("numSV", "H", 64),
         ],
     },
-    53234: {  # RTK data
+    53234: {  # RTK data; layout checked against DatCon 4.3.0's RTKdata columns
         "name": "RTK",
         "payload_size": 72,
         "fields": [
@@ -316,27 +317,318 @@ MESSAGE_DEFINITIONS = {
             ("lon_p", "d", 8),
             ("lat_p", "d", 16),
             ("hmsl_p", "f", 24),
-            ("lon_s", "i", 28),
-            ("lat_s", "i", 32),
-            ("hmsl_s", "i", 36),
-            ("vel_n", "f", 40),
-            ("vel_e", "f", 44),
-            ("vel_d", "f", 48),
-            ("yaw", "h", 50),
-            ("svn_s", "B", 52),
-            ("svn_p", "B", 53),
-            ("hdop", "f", 54),
-            ("pitch", "f", 58),
-            ("pos_flg_0", "B", 62),
-            ("pos_flg_1", "B", 63),
-            ("pos_flg_2", "B", 64),
-            ("pos_flg_3", "B", 65),
-            ("pos_flg_4", "B", 66),
-            ("pos_flg_5", "B", 67),
-            ("gps_state", "H", 68),
+            ("lon_s", "i", 28, lambda x: x / 1.0e7),
+            ("lat_s", "i", 32, lambda x: x / 1.0e7),
+            ("hmsl_s", "i", 36, lambda x: x / 1000.0),
+            ("vel_n", "f", 40, lambda x: x / 100.0),
+            ("vel_e", "f", 44, lambda x: x / 100.0),
+            ("vel_d", "f", 48, lambda x: x / 100.0),
+            ("yaw", "h", 52),
+            ("svn_s", "B", 54),
+            ("svn_p", "B", 55),
+            ("hdop", "f", 56, lambda x: x / 100.0),
+            ("pitch", "f", 60),
+            ("pos_flg_0", "B", 64),
+            ("pos_flg_1", "B", 65),
+            ("pos_flg_2", "B", 66),
+            ("pos_flg_3", "B", 67),
+            ("pos_flg_4", "B", 68),
+            ("pos_flg_5", "B", 69),
+            ("gps_state", "H", 70),
         ],
     },
 }
+
+
+# Record layouts beyond GPS/RTK, from DatCon's V3 record classes
+# (https://github.com/BudWalkerJava/DatCon, src/DatConRecs) and checked against
+# DatCon's CSV of the same flight, tick by tick. Names follow DatCon's columns.
+# Fields: (name, struct format, byte offset in the payload, optional conversion)
+_IMU_FIELDS = [
+    ("longitude", "d", 0, np.degrees),
+    ("latitude", "d", 8, np.degrees),
+    ("press", "f", 16),  # barometric altitude (m)
+    ("accelX", "f", 20),  # g
+    ("accelY", "f", 24),
+    ("accelZ", "f", 28),
+    ("gyroX", "f", 32, np.degrees),  # deg/s
+    ("gyroY", "f", 36, np.degrees),
+    ("gyroZ", "f", 40, np.degrees),
+    ("alti", "f", 44),  # fused altitude (m)
+    ("quatW", "f", 48),
+    ("quatX", "f", 52),
+    ("quatY", "f", 56),
+    ("quatZ", "f", 60),
+    ("agX", "f", 64),
+    ("agY", "f", 68),
+    ("agZ", "f", 72),
+    ("velN", "f", 76),  # m/s
+    ("velE", "f", 80),
+    ("velD", "f", 84),
+    ("gbX", "f", 88),  # gyro biases
+    ("gbY", "f", 92),
+    ("gbZ", "f", 96),
+    ("magX", "h", 100),
+    ("magY", "h", 102),
+    ("magZ", "h", 104),
+    ("temperature", "h", 106, lambda x: x / 100.0),  # deg C
+    ("numSats", "B", 116),
+]
+_GPS_FIELDS = MESSAGE_DEFINITIONS[2096]["fields"]
+_MOTORS = ["RFront", "LFront", "LSide", "LBack", "RBack", "RSide"]  # hexacopter
+
+DAT_RECORDS: dict[int, dict[str, Any]] = {
+    2048: {"name": "IMU_ATTI(0)", "fields": _IMU_FIELDS, "euler": True},
+    2049: {"name": "IMU_ATTI(1)", "fields": _IMU_FIELDS, "euler": True},
+    2050: {"name": "IMU_ATTI(2)", "fields": _IMU_FIELDS, "euler": True},
+    2097: {"name": "GPS(1)", "fields": _GPS_FIELDS},
+    2098: {"name": "GPS(2)", "fields": _GPS_FIELDS},
+    12: {
+        "name": "osd_data",
+        "fields": [
+            ("relativeHeight", "h", 16, lambda x: x / 10.0),  # m
+            ("vpsHeight", "B", 41, lambda x: x / 10.0),  # m
+            ("flightTime", "h", 42, lambda x: x * 100.0),  # ms
+        ],
+    },
+    1000: {
+        "name": "Controller",
+        "fields": [
+            ("ctrl_tick", "I", 0),
+            ("ctrl_pitch", "h", 4),
+            ("ctrl_roll", "h", 6),
+            ("ctrl_yaw", "h", 8),
+            ("ctrl_thr", "h", 10),
+            ("mode_switch", "B", 13),
+            ("motor_state", "B", 14),
+            ("sig_level", "B", 15),
+            ("max_height", "H", 18),
+            ("max_radius", "H", 20),
+            ("vert_vel_err", "f", 44),
+        ],
+    },
+    1710: {  # physical units; DatCon's CSV has the raw counts (mV, mA, 0.1 C)
+        "name": "BatteryInfo",
+        "fields": [
+            ("ad_v", "H", 0, lambda x: x / 1000.0),  # V
+            ("r_time", "H", 2),  # s
+            ("ave_I", "f", 4, lambda x: x / 1000.0),  # A
+            ("vol_t", "f", 8),
+            ("pack_ve", "i", 12, lambda x: x / 1000.0),  # V
+            ("I", "i", 16, lambda x: -x / 1000.0),  # A
+            ("r_cap", "H", 20),
+            ("cap_per", "B", 22),  # %
+            ("temp", "h", 23, lambda x: x / 10.0),  # deg C
+            ("l_cell", "H", 26),
+            ("f_cap", "I", 32),
+        ],
+    },
+    10100: {
+        "name": "AirSpeed",
+        "fields": [
+            ("air_vbx", "f", 0),
+            ("air_vby", "f", 4),
+            ("comp_alti", "f", 8),
+            ("windSpeed", "f", 12),  # m/s
+            ("windX", "f", 16),  # not in DatCon's CSV (it gives windN/windE)
+            ("windY", "f", 20),
+            ("MotorSpd", "f", 24),
+        ],
+    },
+    1307: {
+        "name": "MotorCtrl",
+        "fields": [
+            (f"PWM:{pos}", "H", 2 * i, lambda x: x / 100.0)  # %
+            for i, pos in enumerate(_MOTORS)
+        ],
+    },
+    10090: {
+        "name": "Motor",
+        "fields": [
+            field
+            for i, pos in enumerate(_MOTORS)
+            for field in (
+                (f"Status:{pos}", "B", 23 * i),
+                (f"Current:{pos}", "h", 23 * i + 1, lambda x: x / 100.0),  # A
+                (f"Speed:{pos}", "h", 23 * i + 3),  # rpm
+                (f"Volts:{pos}", "h", 23 * i + 5, lambda x: x / 10.0),
+                (f"EscTemp:{pos}", "h", 23 * i + 7),  # deg C
+                (f"PPMrecv:{pos}", "h", 23 * i + 9, lambda x: x / 19.2),  # %
+                (f"V_out:{pos}", "h", 23 * i + 11, lambda x: x / 10.0),
+                (f"PPMsend:{pos}", "H", 23 * i + 19, lambda x: x / 19.2),  # %
+            )
+        ],
+    },
+}
+
+_NUMPY_FORMATS = {
+    "d": "<f8",
+    "f": "<f4",
+    "i": "<i4",
+    "I": "<u4",
+    "h": "<i2",
+    "H": "<u2",
+    "b": "i1",
+    "B": "u1",
+}
+_CRC_TABLE_NP = np.array(CRC_TABLE, dtype=np.uint16)
+_HEADER_SIZE = 10  # 0x55, length, 2 bytes, type (uint16), tick (uint32)
+
+
+def scan_records(data: bytes) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Find the records of a DJI V3 .dat file.
+
+    A record is ``0x55``, its length, two bytes, the message type (uint16),
+    the tick (uint32), the payload XOR-ed with the tick's low byte, and a
+    CRC-16 of everything before it. Every ``0x55`` byte is a candidate start;
+    candidates whose checksum matches are kept, and ones that fall inside an
+    accepted record are dropped (the byte also occurs inside payloads).
+
+    Parameters
+    ----------
+    data : bytes
+        Contents of the .dat file.
+
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray, np.ndarray]
+        The file as uint8, and the start and length of each record.
+    """
+    arr = np.frombuffer(data, dtype=np.uint8)
+    candidates = np.flatnonzero(arr == 0x55)
+    candidates = candidates[candidates + _HEADER_SIZE + 2 <= arr.size]
+    lengths = arr[candidates + 1].astype(np.int64)
+    fits = (lengths >= _HEADER_SIZE + 2) & (candidates + lengths <= arr.size)
+    candidates, lengths = candidates[fits], lengths[fits]
+
+    valid = np.zeros(candidates.size, dtype=bool)
+    for length in np.unique(lengths):
+        rows = np.flatnonzero(lengths == length)
+        # Bounded memory: the body of up to 200k records at a time
+        for chunk in np.array_split(rows, rows.size // 200_000 + 1):
+            starts = candidates[chunk]
+            body = arr[starts[:, None] + np.arange(length - 2)]
+            crc = np.full(starts.size, 0x3692, dtype=np.uint16)
+            for column in body.T:
+                crc = _CRC_TABLE_NP[(column ^ crc) & 0xFF] ^ (crc >> 8)
+            stored = arr[starts + length - 2].astype(np.uint16) | (
+                arr[starts + length - 1].astype(np.uint16) << 8
+            )
+            valid[chunk] = crc == stored
+    candidates, lengths = candidates[valid], lengths[valid]
+
+    keep = np.zeros(candidates.size, dtype=bool)
+    next_free = 0
+    for i, (start, length) in enumerate(
+        zip(candidates.tolist(), lengths.tolist(), strict=True)
+    ):
+        if start >= next_free:
+            keep[i] = True
+            next_free = start + length
+    return arr, candidates[keep], lengths[keep]
+
+
+def unwrap_ticks(ticks: np.ndarray, wrap_threshold: float = 1e8) -> np.ndarray:
+    """Unwrap the uint32 ticks of all records, in file order.
+
+    All record types share the flight controller clock, but records of
+    different types are written slightly out of tick order, so only large
+    jumps count: a drop of more than 2^31 is a wrap (+2^32) and a rise of
+    more than 2^31 is a record from before the wrap written after it (-2^32).
+    A drop of more than ``wrap_threshold`` to below ``wrap_threshold`` that is
+    not a wrap is a clock reset, as in :meth:`DJIDrone._unwrap_tick`.
+    """
+    ticks = ticks.astype(np.int64)
+    if ticks.size < 2:
+        return ticks
+    diff = np.diff(ticks)
+    steps = np.zeros(ticks.size, dtype=np.int64)
+    steps[1:] += np.where(diff < -(2**31), 2**32, 0)
+    steps[1:] -= np.where(diff > 2**31, 2**32, 0)
+    resets = np.flatnonzero(
+        (diff < -wrap_threshold) & (diff >= -(2**31)) & (ticks[1:] < wrap_threshold)
+    )
+    steps[resets + 1] += ticks[resets]
+    return ticks + np.cumsum(steps)
+
+
+def decode_records(
+    arr: np.ndarray,
+    starts: np.ndarray,
+    lengths: np.ndarray,
+    ticks: np.ndarray,
+    name: str,
+    fields: list[tuple],
+) -> pl.DataFrame:
+    """Decode records of one type (all at once) into ``name:field`` columns.
+
+    Parameters
+    ----------
+    arr : np.ndarray
+        The file as uint8.
+    starts, lengths, ticks : np.ndarray
+        Start, length and (unwrapped) tick of the records of this type.
+    name : str
+        Record name, the column prefix.
+    fields : list of tuple
+        ``(field, struct format, offset[, conversion])``.
+    """
+    size = max(f[2] + np.dtype(_NUMPY_FORMATS[f[1]]).itemsize for f in fields)
+    ok = lengths - _HEADER_SIZE - 2 >= size
+    starts, ticks = starts[ok], ticks[ok]
+    key = arr[starts + 6]  # low byte of the tick
+    payload = arr[starts[:, None] + _HEADER_SIZE + np.arange(size)] ^ key[:, None]
+    view = np.ascontiguousarray(payload).view(
+        np.dtype(
+            {
+                "names": [f[0] for f in fields],
+                "formats": [_NUMPY_FORMATS[f[1]] for f in fields],
+                "offsets": [f[2] for f in fields],
+                "itemsize": size,
+            }
+        )
+    )[:, 0]
+    columns: dict[str, Any] = {}
+    # Corrupt or unused float fields can hold signalling-NaN bit patterns
+    with np.errstate(invalid="ignore"):
+        for field in fields:
+            values = view[field[0]]
+            if len(field) > 3 and callable(field[3]):
+                values = field[3](values.astype(np.float64))
+            elif values.dtype.kind in "iu":
+                values = values.astype(np.int64)
+            else:
+                values = values.astype(np.float64)
+            columns[f"{name}:{field[0]}"] = values
+    columns["tick"] = ticks
+    return pl.DataFrame(columns)
+
+
+def add_euler_angles(df: pl.DataFrame, name: str) -> pl.DataFrame:
+    """Roll, pitch and yaw (degrees) from the IMU quaternion, as DatCon.
+
+    DatCon's convention: ``roll = asin(2(wx + yz))`` and
+    ``pitch = atan2(2(wy - xz), 1 - 2(x^2 + y^2))``, with the gimbal-lock
+    branches of its ``Quaternion.toEuler``.
+    """
+    w, x, y, z = (df[f"{name}:quat{c}"].to_numpy() for c in "WXYZ")
+    unit = w * w + x * x + y * y + z * z
+    test = w * x + y * z
+    with np.errstate(invalid="ignore", divide="ignore"):
+        yaw = np.arctan2(2 * (w * z - x * y), 1 - 2 * (z * z + x * x))
+        roll = np.arcsin(np.clip(2 * test / unit, -1, 1))
+        pitch = np.arctan2(2 * (w * y - x * z), 1 - 2 * (y * y + x * x))
+    north, south = test > 0.499 * unit, test < -0.499 * unit
+    yaw = np.where(
+        north, 2 * np.arctan2(y, w), np.where(south, -2 * np.arctan2(y, w), yaw)
+    )
+    pitch = np.where(north, np.pi / 2, np.where(south, -np.pi / 2, pitch))
+    roll = np.where(north | south, 0.0, roll)
+    return df.with_columns(
+        pl.Series(f"{name}:roll", np.degrees(roll)),
+        pl.Series(f"{name}:pitch", np.degrees(pitch)),
+        pl.Series(f"{name}:yaw", np.degrees(yaw)),
+    )
 
 
 class DJIDrone:
@@ -372,6 +664,10 @@ class DJIDrone:
         )
         self.source_format: str | None = None  # Track if data came from CSV or DAT
         self.aligned_df: pl.DataFrame | None = None  # Store aligned DataFrame
+        # Other .dat records (IMU attitude, motors, battery, ...), one table each
+        self.records: dict[str, pl.DataFrame] = {}
+        # timestamp = slope * tick + intercept, from the GPS records
+        self.tick_to_time: tuple[float, float] | None = None
 
     def load_data(
         self,
@@ -449,6 +745,7 @@ class DJIDrone:
                 aligned = self.align_datfile(polars_interpolation=polars_interpolation)
                 if aligned is not None:
                     self.data = aligned
+                self._timestamp_records()
 
         else:
             if self.source_format == "DAT" and align:
@@ -621,6 +918,11 @@ class DJIDrone:
     def _load_from_dat(self) -> None:
         """Load and decode drone data from DJI DAT file.
 
+        GPS and RTK go to :attr:`data` (aligned into the drone table by
+        :meth:`align_datfile`); the other decoded records (IMU attitude,
+        motors, battery, controller, ...; see ``DAT_RECORDS``) go to
+        :attr:`records`, one table per record.
+
         Raises
         ------
         FileNotFoundError
@@ -633,58 +935,131 @@ class DJIDrone:
             with open(self.path, "rb") as f:
                 file_data = f.read()
 
-            # Split messages using regex - much faster than manual parsing
-            messages = re.split(b"(?=\\x55)", file_data)
+            arr, starts, lengths = scan_records(file_data)
+            types = arr[starts + 4].astype(np.int64) | (
+                arr[starts + 5].astype(np.int64) << 8
+            )
+            raw_ticks = (
+                arr[starts + 6].astype(np.int64)
+                | arr[starts + 7].astype(np.int64) << 8
+                | arr[starts + 8].astype(np.int64) << 16
+                | arr[starts + 9].astype(np.int64) << 24
+            )
+            ticks = unwrap_ticks(raw_ticks)
+            logger.info(f"Found {starts.size} valid records in DAT file")
 
-            # Convert messages to records, organizing by message type
-            records_by_type = {}  # {message_name: [records]}
-
-            for msg_data in messages:
-                if len(msg_data) < 12:
+            for msg_type, msg_def in MESSAGE_DEFINITIONS.items():
+                sel = types == msg_type
+                if not sel.any():
                     continue
-
-                # Decode message and collect records
-                decoded = self._parse_and_decode_message(msg_data)
-                if len(decoded) == 0:
-                    continue
-
-                # Organize records by message type name
-                for record in decoded:
-                    msg_type_id = record.get("msg_type")
-                    if msg_type_id in MESSAGE_DEFINITIONS:
-                        msg_name = MESSAGE_DEFINITIONS[msg_type_id]["name"]
-                        if msg_name not in records_by_type:
-                            records_by_type[msg_name] = []
-                        records_by_type[msg_name].append(record)
-
-            # Convert to DataFrames and store in dictionary
-            for msg_name, records in records_by_type.items():
-                df = pl.DataFrame(records)
+                df = self._gps_table(
+                    decode_records(
+                        arr,
+                        starts[sel],
+                        lengths[sel],
+                        ticks[sel],
+                        msg_def["name"],
+                        msg_def["fields"],
+                    ),
+                    msg_type,
+                    msg_def["name"],
+                )
                 # Unwrap tick values if they decrease significantly
                 df = df.slice(0, df.height - 10)
                 df = self._unwrap_tick(df)
-                if msg_name == "GPS":
+                if msg_def["name"] == "GPS":
                     lon_mean = df["GPS:longitude"].mean()
                     lon_std = df["GPS:longitude"].std()
                     # Handle potential None values from mean/std
                     if lon_mean is not None and lon_std is not None:
-                        lon_mean_f = float(lon_mean)
-                        lon_std_f = float(lon_std)
+                        lon_mean_f = float(lon_mean)  # type: ignore[arg-type]
+                        lon_std_f = float(lon_std)  # type: ignore[arg-type]
                         df = df.filter(
                             pl.col("GPS:longitude").is_between(
                                 lon_mean_f - 2 * lon_std_f,
                                 lon_mean_f + 2 * lon_std_f,
                             )
                         )
-                self.data[msg_name] = df
-                logger.info(f"Loaded {len(records)} {msg_name} messages from DAT file")
+                self.data[msg_def["name"]] = df  # type: ignore[index]
+                logger.info(f"Loaded {df.height} {msg_def['name']} messages")
 
-            if not records_by_type:
+            for msg_type, record in DAT_RECORDS.items():
+                sel = types == msg_type
+                if not sel.any():
+                    continue
+                df = decode_records(
+                    arr,
+                    starts[sel],
+                    lengths[sel],
+                    ticks[sel],
+                    record["name"],
+                    record["fields"],
+                )
+                if record.get("euler"):
+                    df = add_euler_angles(df, record["name"])
+                self.records[record["name"]] = df.sort("tick")
+                logger.info(f"Loaded {df.height} {record['name']} records")
+
+            if not self.data:
                 logger.warning("No messages could be decoded")
 
         except Exception as e:
             logger.error(f"Failed to load DAT file: {e}")
             raise
+
+    @staticmethod
+    def _gps_table(df: pl.DataFrame, msg_type: int, name: str) -> pl.DataFrame:
+        """GPS/RTK table as the per-message decoder builds it.
+
+        Adds ``msg_type`` and, where the record has a valid UTC date and
+        time, ``datetime`` (``%Y-%m-%d %H:%M:%S``) and ``timestamp`` (s).
+        """
+        date, time = pl.col(f"{name}:date"), pl.col(f"{name}:time")
+        year, month, day = date // 10000, (date % 10000) // 100, date % 100
+        valid = (
+            (date != 0)
+            & (time != 0)
+            & (year >= 2000)
+            & month.is_between(1, 12)
+            & day.is_between(1, 31)
+            & (time // 10000 < 24)
+            & ((time % 10000) // 100 < 60)
+            & (time % 100 < 60)
+        )
+        # Placeholder components where invalid, so the datetime cannot fail
+        moment = pl.datetime(
+            pl.when(valid).then(year).otherwise(2000),
+            pl.when(valid).then(month).otherwise(1),
+            pl.when(valid).then(day).otherwise(1),
+            pl.when(valid).then(time // 10000).otherwise(0),
+            pl.when(valid).then((time % 10000) // 100).otherwise(0),
+            pl.when(valid).then(time % 100).otherwise(0),
+            time_zone="UTC",
+        )
+        fields = [c for c in df.columns if c != "tick"]
+        df = df.with_columns(
+            pl.lit(msg_type, dtype=pl.Int64).alias("msg_type"),
+            pl.when(valid)
+            .then(moment.dt.strftime("%Y-%m-%d %H:%M:%S"))
+            .alias("datetime"),
+            pl.when(valid)
+            .then(moment.dt.epoch("s").cast(pl.Float64))
+            .alias("timestamp"),
+        ).select(["msg_type", *fields, "tick", "datetime", "timestamp"])
+        # Without any valid date (RTK) the record has no datetime columns
+        return df.drop(
+            [c for c in ("datetime", "timestamp") if df[c].null_count() == df.height]
+        )
+
+    def _timestamp_records(self) -> None:
+        """UTC timestamps for :attr:`records`, from the GPS tick-time fit."""
+        if self.tick_to_time is None:
+            return
+        slope, intercept = self.tick_to_time
+        for name, df in self.records.items():
+            self.records[name] = df.with_columns(
+                (pl.col("tick") * slope + intercept).alias("timestamp")
+            )
 
     def _parse_and_decode_message(self, msg_data: bytes) -> list[dict[str, Any]]:
         """Parse and decode a single message.
@@ -969,6 +1344,7 @@ class DJIDrone:
         )
 
         self.sync_params = (float(m), time_offset)
+        self.tick_to_time = (float(m), float(c - time_offset))
         return time_offset
 
     def _parse_gps_datetime(self, payload: bytes) -> datetime.datetime | None:
