@@ -12,6 +12,8 @@ All notable changes to PILS are documented here.
 - DJI .dat: IMU attitude (three IMUs, with roll/pitch/yaw), motors, motor
   PWM, battery, controller, wind and the other GNSS receivers, in
   `flight.raw_data.drone_data.records` and the flight HDF5
+- Litchi: `gimbalRoll` and `gimbalYaw` in degrees (as `gimbalPitch`), and
+  `gimbalYawAbs`, the gimbal heading from north
 - MkDocs documentation with Material theme
 - Comprehensive API reference
 - Data format specifications

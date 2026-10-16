@@ -82,7 +82,12 @@ PILS can perform automatic decoding of the ```.DAT``` file created by the DJI Ma
     | `AirSpeed` | 10100 | 5 Hz | Wind speed estimate (`windX`/`windY` not in DatCon's CSV) |
     | `osd_data` | 12 | 20 Hz | Relative height, VPS height, flight time |
 
-    The camera gimbal attitude is not in the flight controller log.
+    The camera gimbal attitude is not in the flight controller log; it comes
+    from the Litchi log (`flight.raw_data.drone_data.litchi`, ~10 Hz):
+    `gimbalPitch`, `gimbalRoll` and `gimbalYaw` in degrees (the raw values
+    are in 0.1°), with the yaw relative to the aircraft, and `gimbalYawAbs`
+    = aircraft `yaw(deg)` + `gimbalYaw`, the gimbal heading from north in
+    [-180, 180).
 
     `BatteryInfo` is in physical units; DatCon's `:D` columns have the raw
     counts (mV, mA, 0.1 °C). Motor PPM is the pulse width in µs / 19.2.
