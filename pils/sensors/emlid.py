@@ -212,7 +212,6 @@ class Emlid:
         >>> emlid_base = ref_data['base']['emlid'].row(0, named=True)
         >>> dji_base = ref_data['base']['dji'].row(0, named=True)
         """
-
         # Load EMLID data with Polars
         df = pl.read_csv(
             self.emlid_path,

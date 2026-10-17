@@ -55,7 +55,8 @@ class RTKLIBReport:
             stat_analyzer: Existing STATAnalyzer instance
             plotter: Existing PPKPlotter instance
 
-        Examples:
+        Examples
+        --------
             >>> # From files
             >>> report = RTKLIBReport(pos_file='solution.pos', stat_file='solution.pos.stat')
             >>> # From existing analyzers
@@ -99,10 +100,12 @@ class RTKLIBReport:
             output_dir: Directory for report output
             plot_dir: Subdirectory name for plot assets
 
-        Returns:
+        Returns
+        -------
             Path to generated report file
 
-        Examples:
+        Examples
+        --------
             >>> report = RTKLIBReport(pos_file='solution.pos', stat_file='solution.pos.stat')
             >>> report_path = report.generate('my_report', plot_dir='figures')
             >>> print(f"Report saved to: {report_path}")

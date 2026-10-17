@@ -58,9 +58,11 @@ class TelescopeBeam:
 
     @property
     def gain_dbi(self) -> float:
+        """Gain (dBi) of the detector beam, from its solid angle."""
         return detector_gain_dbi(self.solid_angle_sr)
 
     def as_metadata(self) -> dict[str, Any]:
+        """Return the telescope detector settings, for the metadata."""
         return {
             "telescope": self.telescope,
             "wafer_slot": self.wafer_slot,

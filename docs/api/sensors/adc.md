@@ -1,18 +1,11 @@
 # ADC
 
+::: pils.sensors.adc
+    options:
+      show_root_heading: false
+      members: false
+
 ::: pils.sensors.adc.ADC
-
-## File formats
-
-- ASCII: time (µs) and ADS1015 counts per line (converted to mV with the
-  gain of `config.yml`).
-- Binary, 20-byte records: time (s), reading time (µs), amplitude (mV).
-- Binary, 12-byte records (April 2024): time (s), amplitude (V, converted
-  to mV).
-- 2022 and 2023: pickle files, see below.
-
-The binary layout is detected from the data; a record cut at the end and
-preallocated zeros are dropped.
 
 ::: pils.sensors.adc.detect_struct_layout
 
@@ -20,6 +13,7 @@ preallocated zeros are dropped.
 
 ::: pils.sensors.legacy
     options:
+      show_root_heading: false
       members:
         - read_legacy_adc
         - read_legacy_inclinometer

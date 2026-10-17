@@ -47,16 +47,19 @@ class STATAnalyzer:
         - Rejection counts
         - Lock status
 
-        Returns:
+        Returns
+        -------
             DataFrame with the names of :mod:`pils.schema`: timestamp
             (UNIX s, UTC, from the GPS week and time of week), gps_week,
             tow_s, satellite, frequency, az_deg, el_deg, resid_code_m,
             resid_phase_m, snr_dbhz, slip, lock, reject, constellation
 
-        Raises:
+        Raises
+        ------
             FileNotFoundError: If .stat file doesn't exist
 
-        Examples:
+        Examples
+        --------
             >>> analyzer = STATAnalyzer('rtk.pos.stat')
             >>> df = analyzer.parse()
             >>> gps_stats = df.filter(pl.col('satellite').str.starts_with('G'))
@@ -114,9 +117,10 @@ class STATAnalyzer:
         return self.df
 
     def get_satellite_stats(self):
-        """Aggregates residuals and SNR per satellite.
+        """Aggregate residuals and SNR per satellite.
 
-        Returns:
+        Returns
+        -------
             DataFrame with per-satellite statistics including:
             - avg_snr_dbhz: Mean signal-to-noise ratio
             - avg_resid_phase_m: Mean absolute phase residual
@@ -125,7 +129,8 @@ class STATAnalyzer:
             - total_slips: Total cycle slips detected
             - total_rejects: Total rejected observations
 
-        Examples:
+        Examples
+        --------
             >>> analyzer = STATAnalyzer('solution.pos.stat')
             >>> analyzer.parse()
             >>> sat_stats = analyzer.get_satellite_stats()
@@ -158,7 +163,7 @@ class STATAnalyzer:
         )
 
     def get_global_stats(self):
-        """Aggregates residuals and SNR per frequency band.
+        """Aggregate residuals and SNR per frequency band.
 
         Returns
         -------

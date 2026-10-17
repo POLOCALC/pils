@@ -341,7 +341,7 @@ _UNITS = (
 
 
 def unit_of(column: str) -> str | None:
-    """Unit of a column, from its name.
+    """Return the unit of a column, from its name.
 
     Examples
     --------
@@ -364,7 +364,7 @@ def table_units(columns: list[str]) -> dict[str, str]:
 
 
 def snake_case(name: str) -> str:
-    """Generic ``snake_case`` for a column not in the schema.
+    """Convert a column not in the schema to generic ``snake_case``.
 
     Examples
     --------
@@ -391,7 +391,7 @@ def _record_fields(record: str) -> dict[str, Field]:
 def canonical(
     df: pl.DataFrame, kind: str | None = None, record: str | None = None
 ) -> pl.DataFrame:
-    """A table with the schema's column names and units.
+    """Rename a table to the schema's column names and units.
 
     Parameters
     ----------
@@ -456,7 +456,7 @@ _TABLE_TITLES = {
 
 
 def markdown_reference() -> str:
-    """The renamed columns of every source, as Markdown tables.
+    """Describe the renamed columns of every source as Markdown tables.
 
     ``docs/user-guide/data-schema.md`` includes this text; a test checks
     that it is up to date.

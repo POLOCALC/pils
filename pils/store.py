@@ -53,7 +53,7 @@ def new_version_name(now: datetime.datetime | None = None) -> str:
 
 @lru_cache(maxsize=1)
 def code_version() -> dict[str, Any]:
-    """The running pils: package version, git commit, uncommitted changes."""
+    """Describe the running pils: package version, git commit, uncommitted changes."""
     from importlib.metadata import PackageNotFoundError, version
 
     try:
@@ -284,7 +284,7 @@ def save_version(
 
 
 def list_versions(root: str | Path, parent: str | None = None) -> list[str]:
-    """Saved revisions (with a manifest), oldest first."""
+    """List the saved revisions (with a manifest), oldest first."""
     container = _container(root, parent)
     if not container.is_dir():
         return []
@@ -313,7 +313,7 @@ def load_version(
 
 
 def read_manifest(directory: str | Path) -> dict[str, Any]:
-    """The manifest of a saved directory."""
+    """Read the manifest of a saved directory."""
     return json.loads((Path(directory) / MANIFEST).read_text())
 
 

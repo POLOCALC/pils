@@ -74,6 +74,13 @@ All notable changes to PILS are documented here.
 - Data format specifications
 - Development guides
 
+### Changed
+- Docstrings follow PEP 257 and numpydoc everywhere in `pils/`, checked by
+  ruff (`D` rules, numpy convention). File formats, packaging steps and
+  settings are documented in the code (module docstrings, attribute
+  docstrings for constants) and the pages include them; the docs render the
+  Sphinx roles of the docstrings as links
+
 ### Fixed
 - Payload files of every campaign load: `pils package --dry-run` packs 274
   of the 275 flights of 2022-2025 (was 156; flight_20251208_1404 has no

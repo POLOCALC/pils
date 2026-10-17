@@ -57,7 +57,6 @@ class StoutLoader:
         Initializes the loader and attempts to connect to stout campaign service.
         Falls back to filesystem queries if stout import fails.
         """
-
         self.campaign_service = None
         self.base_data_path = None
         self.use_stout = True

@@ -1,3 +1,5 @@
+"""DJI drone logs: DatCon CSV exports and the binary .dat flight records."""
+
 import datetime
 import struct
 from pathlib import Path
@@ -273,6 +275,7 @@ CRC_TABLE = [
 
 
 def calc_checksum(memory: bytes, start: int, plength: int) -> int:
+    """Compute the CRC16 of a DJI .dat record (seed 0x3692)."""
     v = 0x3692  # P3
 
     for i in range(plength):
@@ -637,7 +640,8 @@ class DJIDrone:
     Handles loading and processing of DJI drone flight logs from both
     CSV exports and encrypted DAT binary files.
 
-    Attributes:
+    Attributes
+    ----------
         path: Path to drone data file
         data: Loaded drone data (DataFrame or dict of DataFrames)
         sync_params: Synchronization parameters (slope, intercept)
@@ -678,7 +682,7 @@ class DJIDrone:
         polars_interpolation: bool = True,
         align: bool = True,
     ) -> None:
-        """ "Load and filter drone data from a CSV or DAT file.
+        """Load and filter drone data from a CSV or DAT file.
 
         The function:
         - Loads only specified columns (for CSV).
@@ -1047,7 +1051,7 @@ class DJIDrone:
         )
 
     def _split_receivers(self) -> None:
-        """The drone table and the main GNSS receiver, each with its own rows.
+        """Split the drone table and the main GNSS receiver, each with its own rows.
 
         :attr:`data` becomes the RTK solution (or the main GNSS receiver if
         the drone has no RTK) and the main receiver goes to
@@ -1320,6 +1324,7 @@ class DJIDrone:
         return df.with_columns(pl.Series("tick", unwrapped))
 
     def get_tick_offset(self) -> float:
+        """Fit the .dat tick to GPS time and return the offset (s)."""
         # Ensure self.data is a dict for DAT format
         assert isinstance(self.data, dict), "Expected dict for DAT format"
 

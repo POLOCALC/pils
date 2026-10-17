@@ -25,7 +25,7 @@ def payload_items(payload: dict[str, Any], category: str) -> list[Item]:
 
 
 def payload_item(payload: dict[str, Any], category: str) -> Item:
-    """The single item of a category in a payload."""
+    """Return the single item of a category in a payload."""
     items = payload_items(payload, category)
     if len(items) > 1:
         names = [i.get("name") for i in items]
@@ -136,6 +136,7 @@ class RFChain:
         return power_dbm, coupler_out_err * db_to_linear(self.coupler_to_radiated_db)
 
     def as_metadata(self) -> dict[str, Any]:
+        """Return the RF chain and its derived losses, for the metadata."""
         return asdict(self) | {
             "mismatch_loss_db": self.mismatch_loss_db,
             "coupler_to_radiated_db": self.coupler_to_radiated_db,

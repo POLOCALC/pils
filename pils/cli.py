@@ -201,6 +201,7 @@ def _prune(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build the ``pils`` command-line parser."""
     parser = argparse.ArgumentParser(prog="pils", description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -333,6 +334,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the ``pils`` command; return the exit status."""
     args = build_parser().parse_args(argv)
     if args.command == "lab":
         return _lab(args)

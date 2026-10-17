@@ -112,6 +112,7 @@ class ObsProfile:
     arc_s: float = 0.0
 
     def as_dict(self) -> dict[str, Any]:
+        """Return the profile as a dict, for the metadata."""
         return {
             "interval_s": self.interval_s,
             "start": str(self.start),
@@ -265,6 +266,7 @@ class Candidate:
     note: str = ""
 
     def row(self) -> dict[str, Any]:
+        """Return the candidate as a row of the trials table."""
         return {
             "name": self.name,
             **{f"set_{k}": v for k, v in self.overrides.items()},
@@ -279,8 +281,10 @@ class Candidate:
 
 
 def snr_masks(rover: ObsProfile, template: str = "") -> list[tuple[str, int | None]]:
-    """SNR masks to try: the template's (if on), one from the rover's L1 SNR
-    (median of GPS and Galileo minus 5 dB-Hz, within 20-35), and none.
+    """List the SNR masks to try.
+
+    The template's (if on), one from the rover's L1 SNR (median of GPS and
+    Galileo minus 5 dB-Hz, within 20-35), and none.
 
     Returns (label, mask in dB-Hz or None for off).
     """
@@ -370,13 +374,13 @@ MAX_BASE_OFFSET_M = 50.0
 
 
 def config_value(text: str, key: str) -> str | None:
-    """A setting of an RTKLIB config text (without its comment)."""
+    """Return a setting of an RTKLIB config text (without its comment)."""
     match = re.search(rf"^{re.escape(key)}\s*=([^#\n]*)", text, re.MULTILINE)
     return match.group(1).strip() if match else None
 
 
 def base_position_check(text: str, base: ObsProfile) -> tuple[dict[str, str], str]:
-    """Overrides if the template's base position does not match the base data.
+    """Check the template's base position against the base data.
 
     Returns the overrides (``ant2-postype=single``: the average of the base's
     own solutions) and a note, or ``({}, note)`` if the position is fine or
@@ -411,7 +415,7 @@ def base_position_check(text: str, base: ObsProfile) -> tuple[dict[str, str], st
 
 
 def apply_overrides(template: str, overrides: dict[str, str]) -> str:
-    """The template config text with some settings replaced (or added)."""
+    """Return the template config text with some settings replaced (or added)."""
     lines = template.splitlines()
     done = set()
     for i, line in enumerate(lines):
@@ -452,7 +456,7 @@ def run_rnx2rtkp(
 
 
 def read_pos(pos: Path) -> pl.DataFrame:
-    """A .pos file as a table (schema names, UTC timestamp)."""
+    """Read a .pos file as a table (schema names, UTC timestamp)."""
     from pils.analyze.ppkdata.PPK.pos_analyzer import POSAnalyzer
 
     if not pos.exists() or pos.stat().st_size == 0:
@@ -554,9 +558,11 @@ class TuningResult:
     data_note: str = ""
 
     def table(self) -> pl.DataFrame:
+        """Return the trials as a table, one row per candidate."""
         return pl.DataFrame([c.row() for c in self.trials])
 
     def metadata(self) -> dict[str, Any]:
+        """Return the tuning summary for the PPK revision's manifest."""
         return {
             "tuning_validation": self.validation,
             "tuning_base_position": self.base_note,

@@ -68,7 +68,7 @@ def read_pickles(path: str | Path) -> Iterator[Any]:
 
 
 def legacy_files(folder: str | Path, sensor: str) -> list[Path]:
-    """The ``*_<SENSOR>.pck`` or ``*_<SENSOR>_<n>.pck`` files, in order."""
+    """List the ``*_<SENSOR>.pck`` or ``*_<SENSOR>_<n>.pck`` files, in order."""
     folder = Path(folder)
     files = sorted(folder.glob(f"*_{sensor}.pck")) + sorted(
         folder.glob(f"*_{sensor}_*.pck"),
@@ -83,7 +83,7 @@ CLOCK_JUMP_S = 60.0
 
 
 def undo_clock_jumps(times: np.ndarray) -> np.ndarray:
-    """Times of one recording with the payload clock's jumps removed.
+    """Remove the payload clock's jumps from the times of one recording.
 
     The 2022 payload computer started with the clock it had saved (days
     behind) and jumped forward when the network set it, during the
@@ -101,7 +101,7 @@ def undo_clock_jumps(times: np.ndarray) -> np.ndarray:
 
 
 def _records(files: list[Path], tag: str) -> list[list[Any]]:
-    """Records of the files, each file's clock jumps removed."""
+    """Read the records of the files, each file's clock jumps removed."""
     records = []
     for path in files:
         found = [

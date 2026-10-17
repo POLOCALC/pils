@@ -1,3 +1,15 @@
+"""Litchi flight logs (``*_litchi.csv``): drone position and gimbal attitude.
+
+Notes
+-----
+Litchi logs the drone position and the gimbal pitch, roll and yaw at about
+10 Hz on the phone's clock. ``Flight.sync`` aligns the log to the reference
+GPS by its track, and the inclinometer to the gimbal pitch. A log that does
+not match the drone track (the 2022 folders hold logs of April 2025, and
+several February 2023 flights share one file) is left out of the sync and
+reported by ``pils package`` (``sync litchi``).
+"""
+
 from pathlib import Path
 
 import polars as pl
