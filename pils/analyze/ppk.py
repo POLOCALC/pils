@@ -541,9 +541,10 @@ class PPKAnalysis:
         first, last = self._get_rinex_bounds(obs)
         if first is None or last is None:
             return False
-        return (first - start).total_seconds() <= 2 and (
-            end - last
-        ).total_seconds() <= 2
+        return (
+            bool((first - start).total_seconds() <= 2)
+            and bool(end - last).total_seconds() <= 2
+        )
 
     def _base_candidates(self) -> list[Path]:
         """Raw u-blox base recordings: the day's, then the campaign's."""
@@ -622,6 +623,8 @@ class PPKAnalysis:
             ):
                 self.flight.add_drone_data()
                 drone = self.flight.raw_data.drone_data.drone
+            if not isinstance(drone, pl.DataFrame):
+                return None
             track = drone.select(
                 "timestamp",
                 pl.col("rtk_lat_deg").alias("lat_deg"),
