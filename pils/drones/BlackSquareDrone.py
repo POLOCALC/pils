@@ -1,3 +1,5 @@
+"""BlackSquare (ArduPilot) drone logs."""
+
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -243,7 +245,6 @@ class BlackSquareDrone:
         path : Union[str, Path]
             Path to ArduPilot log file.
         """
-
         self.path = path
 
         self.data = None

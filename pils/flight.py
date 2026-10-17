@@ -1,3 +1,5 @@
+"""Flight: load, synchronize, save and load the data of one flight."""
+
 import glob
 import json
 import logging
@@ -55,7 +57,7 @@ def _get_package_version() -> str:
 
 
 def _standardize(data: Any, kind: str | None = None) -> Any:
-    """A loaded table, or dict of tables, in the schema (:mod:`pils.schema`).
+    """Rename a loaded table, or dict of tables, to the schema (:mod:`pils.schema`).
 
     Columns get the schema's names and units, datetimes are UTC microseconds,
     and the tables of a dict get ``snake_case`` names.
@@ -77,9 +79,12 @@ _LEGACY_SYNC_COORDINATES = {
 }
 _SYNC_KINDS = {"drone": "dji", "reference_gps": "gps"}
 
-# The payload GPS is the sync reference if it covers at least this fraction
-# of the drone GPS time; else (stopped early, another session) the drone GPS
 MIN_REFERENCE_COVERAGE = 0.5
+"""Minimum fraction of the drone GPS time covered by the payload GPS.
+
+The payload GPS is the sync reference when it covers at least this fraction;
+otherwise (missing, stopped early, another session) the drone GPS is.
+"""
 
 
 def _valid_positions(frame: pl.DataFrame, lat_col: str, lon_col: str) -> pl.DataFrame:
@@ -103,7 +108,7 @@ def _time_coverage(times: pl.Series, reference: pl.Series) -> float:
 
 
 def _legacy_sync_table(key: str, df: pl.DataFrame) -> tuple[str, pl.DataFrame]:
-    """A synchronized table from a file written before the schema, renamed."""
+    """Rename a synchronized table from a file written before the schema."""
     df = df.rename(
         {k: v for k, v in _LEGACY_SYNC_COORDINATES.items() if k in df.columns}
     )
@@ -201,9 +206,11 @@ def _deserialize_from_hdf5(value: Any, hint: str | None = None) -> Any:
 
 class Flight:
     """
-    This class provides a hierarchical structure to store and access drone flight data
-    and sensor payloads. Data is stored in RAM for fast access using both attribute
-    and dictionary-style notation.
+    Data of one flight: drone, payload sensors and synchronized tables.
+
+    A hierarchical structure to store and access drone flight data and sensor
+    payloads. Data is stored in RAM for fast access using both attribute and
+    dictionary-style notation.
 
     Attributes
     ----------
@@ -341,7 +348,6 @@ class Flight:
         >>> # Load only metadata and raw data
         >>> flight = Flight.from_hdf5('flight_001.h5', sync_version=False)
         """
-
         filepath = Path(filepath)
 
         if not filepath.exists():
@@ -457,7 +463,6 @@ class Flight:
         flight : Flight
             Flight object to populate
         """
-
         # Load drone data
         if "drone_data" in raw_group:
             drone_group = raw_group["drone_data"]
@@ -715,7 +720,6 @@ class Flight:
         >>> # Alternative: use dictionary access
         >>> drone_data = flight['raw_data']['drone_data']['drone']
         """
-
         # Resolve drone folder
         if not isinstance(self.flight_info, dict):
             raise ValueError(
@@ -934,7 +938,6 @@ class Flight:
         >>> # Load camera video data without computing angles
         >>> flight.add_camera_data(use_photogrammetry=False, get_sony_angles=False)
         """
-
         self.__use_photogrammetry = use_photogrammetry
         if use_photogrammetry:
             self.__camera_data_type = "photogrammetry"
@@ -1011,7 +1014,6 @@ class Flight:
         >>> # Synchronization is stored in flight.sync_data as a dict of DataFrames
         >>> print(list(flight.sync_data.keys()))
         """
-
         # The payload GPS is the reference timebase; without it (not
         # recorded, or empty) the drone GPS is
         gps_data = None
@@ -1526,7 +1528,6 @@ class Flight:
         h5file : h5py.File
             Open HDF5 file handle
         """
-
         if "raw_data" not in h5file:
             raw_data_group = h5file.create_group("raw_data")
         else:

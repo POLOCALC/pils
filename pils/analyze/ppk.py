@@ -262,7 +262,6 @@ class PPKAnalysis:
         >>> print(ppk.ppk_dir)
         /path/to/flight/proc/ppk
         """
-
         # Validate input type
         if not isinstance(flight, Flight):
             raise TypeError(
@@ -497,7 +496,7 @@ class PPKAnalysis:
         return self.versions[latest_name]
 
     def _parse_rinex_epoch_line(self, line):
-        """Helper to parse a RINEX 3 epoch line (> Y M D h m s)."""
+        """Parse a RINEX 3 epoch line (> Y M D h m s)."""
         try:
             parts = line.strip().split()
             # Format: > 2026 01 21 14 00 00.0000000
@@ -508,8 +507,8 @@ class PPKAnalysis:
             return None
 
     def _get_rinex_bounds(self, rinex_file):
-        """
-        Reads the FIRST and LAST observation timestamps.
+        """Read the first and last observation times of a RINEX file.
+
         Returns tuple (start_dt, end_dt).
         """
         start_dt = None
@@ -537,7 +536,7 @@ class PPKAnalysis:
         return start_dt, last_dt
 
     def _covers(self, obs: Path, start: datetime, end: datetime) -> bool:
-        """True if a RINEX file spans [start, end] (to within 2 s)."""
+        """Check that a RINEX file spans [start, end] (to within 2 s)."""
         first, last = self._get_rinex_bounds(obs)
         if first is None or last is None:
             return False
@@ -567,8 +566,10 @@ class PPKAnalysis:
     def _convert_base(
         self, obs_path: Path, nav_path: Path, start_rover: datetime, end_rover: datetime
     ) -> None:
-        """Base RINEX for the rover's span (+-10 min), from the first base
-        recording that covers it.
+        """Convert the base recording covering the rover's span to RINEX.
+
+        The span is the rover's +-10 min; the first base recording that
+        covers it is used.
 
         Raises
         ------
@@ -614,7 +615,7 @@ class PPKAnalysis:
         )
 
     def _reference_track(self) -> pl.DataFrame | None:
-        """The drone's RTK track (UTC), to validate tuned configurations."""
+        """Return the drone's RTK track (UTC), to validate tuned configurations."""
         try:
             drone = getattr(self.flight.raw_data.drone_data, "drone", None)
             if (
@@ -637,6 +638,7 @@ class PPKAnalysis:
             return None
 
     def check_overlap(self, rover_obs, base_obs):
+        """Print the time overlap of the rover and base observations."""
         print("--- 1. Time Overlap Analysis ---")
 
         # Get Bounds
@@ -753,7 +755,6 @@ class PPKAnalysis:
         >>> # Force re-run
         >>> v3 = ppk.run_analysis(..., force=True)
         """
-
         config_path = Path(config_path)
         if not config_path.exists():
             raise FileNotFoundError(f"Config file not found: {config_path}")
@@ -1224,7 +1225,7 @@ class PPKAnalysis:
 
     @classmethod
     def from_hdf5(cls, flight: Flight) -> PPKAnalysis:
-        """Same as :meth:`load` (kept for older code)."""
+        """Load the PPK results, as :meth:`load` (kept for older code)."""
         return cls.load(flight)
 
     def list_versions(self) -> list[str]:

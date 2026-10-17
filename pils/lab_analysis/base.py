@@ -49,6 +49,7 @@ class LabVersion:
     metadata: dict[str, Any]
 
     def __getitem__(self, table: str) -> pl.DataFrame:
+        """Return a table of the run by name."""
         return self.tables[table]
 
 
@@ -98,7 +99,7 @@ class LabAnalysis:
         return self.results_dir / self.measurement.stem / version_name
 
     def list_versions(self) -> list[str]:
-        """Runs of this measurement, oldest first (saved and legacy HDF5)."""
+        """List the runs of this measurement, oldest first (saved and legacy HDF5)."""
         stem = self.measurement.stem
         return sorted(
             set(result_store.list_versions(self.results_dir, parent=stem))
@@ -113,7 +114,7 @@ class LabAnalysis:
         return LabVersion(version_name, tables, metadata)
 
     def get_latest_version(self) -> LabVersion | None:
-        """The most recent run, or None."""
+        """Return the most recent run, or None."""
         versions = self.list_versions()
         return self.get_version(versions[-1]) if versions else None
 

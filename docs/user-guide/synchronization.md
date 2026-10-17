@@ -199,8 +199,9 @@ used) depends on the inclinometer:
 
 #### Without a payload GPS
 
-The payload GPS is the reference when it covers at least half of the drone
-GPS time (`MIN_REFERENCE_COVERAGE`). Otherwise the drone GPS (RTK solution
+The payload GPS is the reference when it covers at least
+[`MIN_REFERENCE_COVERAGE`][pils.flight.MIN_REFERENCE_COVERAGE] of the drone
+GPS time. Otherwise the drone GPS (RTK solution
 for DJI drones) is the reference (`flight.sync_reference == "drone_gps"`,
 saved as `reference` in the revision's manifest): the drone offset is zero
 (`method: "reference"`), there is no `reference_gps` table, and the payload

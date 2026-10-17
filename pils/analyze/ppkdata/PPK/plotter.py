@@ -1,3 +1,5 @@
+"""Plots of an RTKLIB solution (.pos) and its statistics."""
+
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
@@ -35,7 +37,8 @@ class PPKPlotter:
             pos_analyzer: POSAnalyzer instance with parsed position data
             stat_analyzer: STATAnalyzer instance with parsed statistics
 
-        Examples:
+        Examples
+        --------
             >>> pos_analyzer = POSAnalyzer('solution.pos')
             >>> pos_analyzer.parse()
             >>> plotter = PPKPlotter(pos_analyzer=pos_analyzer)
@@ -49,7 +52,8 @@ class PPKPlotter:
         Args:
             save_path: Output file path
 
-        Examples:
+        Examples
+        --------
             >>> plotter = PPKPlotter(stat_analyzer=stat_analyzer)
             >>> plotter.plot_skyplot_snr('skyplot.png')
         """
@@ -115,12 +119,13 @@ class PPKPlotter:
             plt.show()
 
     def plot_trajectory_q(self, save_path=None):
-        """Plots trajectory (Lon vs Lat) colored by Q status.
+        """Plot the trajectory (Lon vs Lat) colored by Q status.
 
         Args:
             save_path: Output file path
 
-        Examples:
+        Examples
+        --------
             >>> plotter = PPKPlotter(pos_analyzer=pos_analyzer)
             >>> plotter.plot_trajectory_q('trajectory.png')
         """
@@ -164,7 +169,8 @@ class PPKPlotter:
         Args:
             save_path: Output file path
 
-        Examples:
+        Examples
+        --------
             >>> plotter = PPKPlotter(pos_analyzer=pos_analyzer)
             >>> plotter.plot_ratio_time('ratio_time.png')
         """
@@ -203,7 +209,8 @@ class PPKPlotter:
         Args:
             save_path: Output file path
 
-        Examples:
+        Examples
+        --------
             >>> plotter = PPKPlotter(stat_analyzer=stat_analyzer)
             >>> plotter.plot_snr_vs_elevation('snr_elevation.png')
         """
@@ -252,7 +259,8 @@ class PPKPlotter:
         Args:
             save_path: Output file path
 
-        Examples:
+        Examples
+        --------
             >>> plotter = PPKPlotter(pos_analyzer=pos_analyzer)
             >>> plotter.plot_enu_time_series('enu_timeseries.png')
         """
@@ -315,7 +323,8 @@ class PPKPlotter:
         Args:
             save_path: Output file path
 
-        Examples:
+        Examples
+        --------
             >>> plotter = PPKPlotter(stat_analyzer=stat_analyzer)
             >>> plotter.plot_residual_distribution_dual('residuals.png')
         """
@@ -374,7 +383,8 @@ class PPKPlotter:
         Args:
             save_path: Output file path
 
-        Examples:
+        Examples
+        --------
             >>> plotter = PPKPlotter(stat_analyzer=stat_analyzer)
             >>> plotter.plot_avg_snr_time_series('avg_snr_time.png')
         """
@@ -441,7 +451,8 @@ class PPKPlotter:
             const: Constellation code ('G', 'R', 'E', 'C')
             save_path: Output file path
 
-        Examples:
+        Examples
+        --------
             >>> plotter = PPKPlotter(stat_analyzer=stat_analyzer)
             >>> plotter.plot_stat_constellation_hists_dual('G', 'gps_histograms.png')
         """
@@ -503,7 +514,8 @@ class PPKPlotter:
             const: Constellation code
             save_path: Output file path
 
-        Examples:
+        Examples
+        --------
             >>> plotter = PPKPlotter(stat_analyzer=stat_analyzer)
             >>> plotter.plot_constellation_snr_time_series('E', 'galileo_snr_time.png')
         """
@@ -557,7 +569,8 @@ class PPKPlotter:
             const: Constellation code
             save_path: Output file path
 
-        Examples:
+        Examples
+        --------
             >>> plotter = PPKPlotter(stat_analyzer=stat_analyzer)
             >>> plotter.plot_sat_residual_bar('C', 'beidou_residuals.png')
         """

@@ -1,6 +1,4 @@
-"""
-Utility functions for file handling, log parsing, and data processing.
-"""
+"""Utility functions for file handling, log parsing, and data processing."""
 
 import datetime
 import re
@@ -13,7 +11,8 @@ def read_log_time(
     keyphrase: str, logfile: str | Path
 ) -> tuple[datetime.datetime | None, datetime.date | None]:
     """
-    Read a log file and find the line containing the given keyphrase.
+    Read the time stamp of the first log line containing a keyphrase.
+
     Return the timestamp extracted from this line.
 
     Parameters

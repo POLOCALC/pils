@@ -50,7 +50,8 @@ class POSAnalyzer:
         a table with the names of :mod:`pils.schema`, plus ENU offsets from
         the mean position.
 
-        Returns:
+        Returns
+        -------
             DataFrame with columns: datetime (UTC), timestamp (UNIX s, UTC),
             lat_deg, lon_deg, h_ell_m (h_msl_m if RTKLIB wrote geodetic
             heights), quality (1 fix, 2 float, 3 sbas, 4 dgps, 5 single,
@@ -58,10 +59,12 @@ class POSAnalyzer:
             u_m. The time system of the file (GPST, UTC or JST, from its
             header) is converted to UTC.
 
-        Raises:
+        Raises
+        ------
             FileNotFoundError: If .pos file doesn't exist
 
-        Examples:
+        Examples
+        --------
             >>> analyzer = POSAnalyzer('rtk.pos')
             >>> df = analyzer.parse()
             >>> fix_epochs = df.filter(pl.col('quality') == 1)
@@ -142,12 +145,13 @@ class POSAnalyzer:
         return time_system, height
 
     def _compute_enu(self):
-        """Converts Lat/Lon/Height to ENU offsets relative to the mean position.
+        """Convert Lat/Lon/Height to ENU offsets relative to the mean position.
 
         Internal method that transforms geodetic coordinates to local
         East-North-Up frame for position analysis.
 
-        Examples:
+        Examples
+        --------
             >>> analyzer = POSAnalyzer('solution.pos')
             >>> df = analyzer.parse()
             >>> # ENU columns automatically computed after parse()
@@ -210,7 +214,8 @@ class POSAnalyzer:
     def get_statistics(self):
         """Calculate position statistics (fix rate, avg ratio, etc.).
 
-        Returns:
+        Returns
+        -------
             Dictionary with processing quality metrics:
             - total_epochs: Total number of position solutions
             - fix_epochs: Number of fixed ambiguity solutions
@@ -220,7 +225,8 @@ class POSAnalyzer:
             - avg_ratio: Average ambiguity ratio
             - max_ratio: Maximum ambiguity ratio
 
-        Examples:
+        Examples
+        --------
             >>> analyzer = POSAnalyzer('solution.pos')
             >>> analyzer.parse()
             >>> stats = analyzer.get_statistics()

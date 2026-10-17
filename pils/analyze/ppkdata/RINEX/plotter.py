@@ -1,5 +1,5 @@
-"""
-RINEX Quality Plotter v5
+"""RINEX Quality Plotter v5.
+
 Feature-Complete Visualization engine for RINEXAnalyzer.
 """
 
@@ -66,7 +66,8 @@ class RINEXPlotter:
         Args:
             save_path: Output file path (PNG format)
 
-        Examples:
+        Examples
+        --------
             >>> analyzer = RINEXAnalyzer('file.obs')
             >>> analyzer.parse_obs_file()
             >>> plotter = RINEXPlotter(analyzer)
@@ -144,7 +145,8 @@ class RINEXPlotter:
             pool: Frequency pool - 'single' (L1) or 'dual' (L2)
             save_path: Output file path (PNG format)
 
-        Examples:
+        Examples
+        --------
             >>> plotter.plot_skyplot_snr('single', 'skyplot_L1.png')
             >>> plotter.plot_skyplot_snr('dual', 'skyplot_L2.png')
         """
@@ -211,7 +213,8 @@ class RINEXPlotter:
             pool: Frequency pool - 'single' or 'dual'
             save_path: Output file path
 
-        Examples:
+        Examples
+        --------
             >>> analyzer = RINEXAnalyzer('file.obs')
             >>> analyzer.parse_obs_file()
             >>> analyzer.compute_satellite_azel()
@@ -317,7 +320,8 @@ class RINEXPlotter:
             freq_band: Frequency band (e.g., 'L1', 'L2')
             save_path: Output file path
 
-        Examples:
+        Examples
+        --------
             >>> plotter = RINEXPlotter(analyzer)
             >>> plotter.plot_snr_time_series(['G01', 'G05', 'G12'], 'L1', 'snr_gps.png')
         """
@@ -359,7 +363,8 @@ class RINEXPlotter:
             freq_band: Frequency band
             save_path: Output file path
 
-        Examples:
+        Examples
+        --------
             >>> plotter = RINEXPlotter(analyzer)
             >>> plotter.plot_multipath_time_series(['E01', 'E11'], 'E1', 'mp_galileo.png')
         """
@@ -397,7 +402,8 @@ class RINEXPlotter:
             bands: List of frequency bands
             save_path: Output file path
 
-        Examples:
+        Examples
+        --------
             >>> plotter = RINEXPlotter(analyzer)
             >>> plotter.plot_constellation_histograms('G', ['L1', 'L2'], 'gps_hist.png')
         """
@@ -436,7 +442,8 @@ class RINEXPlotter:
             const: Constellation code
             save_path: Output file path
 
-        Examples:
+        Examples
+        --------
             >>> plotter = RINEXPlotter(analyzer)
             >>> plotter.plot_sat_avg_snr_bar('R', 'glonass_snr_bars.png')
         """
@@ -491,7 +498,8 @@ class RINEXPlotter:
         Args:
             save_path: Output file path
 
-        Examples:
+        Examples
+        --------
             >>> plotter = RINEXPlotter(analyzer)
             >>> plotter.plot_cycle_slips('cycle_slips.png')
         """
@@ -544,6 +552,7 @@ class RINEXPlotter:
             plt.close()
 
     def plot_global_l1_l2_comparison_hist(self, save_path=None):
+        """Plot histograms of the L1 and L2 SNR of all constellations."""
         snr = self.analyzer.get_snr()
         l1 = snr.filter(pl.col("frequency").is_in(RTKLIB_bands["single"]))[
             "value"
@@ -565,7 +574,7 @@ class RINEXPlotter:
             plt.close()
 
     def plot_good_satellites_trend(self, epoch_df, save_path=None):
-        """Plots the number of 'Good' satellites per epoch over time."""
+        """Plot the number of 'Good' satellites per epoch over time."""
         if epoch_df.is_empty():
             return
 
@@ -610,7 +619,7 @@ class RINEXPlotter:
             plt.show()
 
     def plot_band_comparison(self, save_path=None):
-        """Grouped bar chart comparing Primary (L1) vs Secondary (L2) SNR for all constellations."""
+        """Plot the Primary (L1) and Secondary (L2) SNR of all constellations."""
         summary = self.analyzer.get_global_frequency_summary()
         if summary.is_empty():
             return

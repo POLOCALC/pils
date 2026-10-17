@@ -1,3 +1,5 @@
+"""Payload camera: video, photos and their time stamps."""
+
 import logging
 from pathlib import Path
 

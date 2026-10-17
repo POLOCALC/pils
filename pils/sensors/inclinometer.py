@@ -1,3 +1,22 @@
+"""Payload inclinometer: Kernel-100, InertialSense IMX-5, 2022 payload.
+
+Notes
+-----
+The type comes from ``*_config.yml`` or, without it, from the file names:
+
+| Type | Files | Clock |
+|------|-------|-------|
+| ``imx5`` | ``*_INC_ins.csv``, ``*_INC_imu.csv``, ``*_INC_inl2.csv`` | payload computer |
+| ``kernel`` | ``*_INC.bin``, ``*_INC_<hhmmss>.bin`` (Kernel-100 messages) | log start + sample counter |
+| ``legacy`` | ``*_INC*.pck`` (2022; the 2023 files are empty) | payload computer |
+
+The clock decides how the inclinometer is synchronized (see
+``pils.synchronizer.Synchronizer.add_inclinometer``). CSV lines cut by a
+power loss (an incomplete last line, NUL bytes) are dropped
+(:func:`read_csv_tolerant`); a Kernel file without messages raises
+``ValueError``.
+"""
+
 import glob
 import io
 import os
@@ -62,7 +81,7 @@ def read_csv_tolerant(path: str | Path) -> pl.DataFrame:
 
 def decode_inclino(inclino_path: str | Path) -> dict[str, list[Any]]:
     """
-    Decodes inclinometer data from a binary file and returns the decoded messages as a dictionary.
+    Decode the Kernel-100 messages of a binary inclinometer file.
 
     Parameters
     ----------
@@ -86,7 +105,6 @@ def decode_inclino(inclino_path: str | Path) -> dict[str, list[Any]]:
     >>> data.keys()
     dict_keys(['Roll', 'Pitch', 'Heading', 'Counter'])
     """
-
     with open(inclino_path, "rb") as fd:
         data = fd.read()
 
@@ -181,7 +199,8 @@ def detect_inclinometer_type_from_config(dirpath: Path) -> str | None:
 
 def detect_inclinometer_type_from_files(dirpath: Path) -> str:
     """
-    Detect the type of inclinometer data available in a directory by file patterns.
+    Detect the type of inclinometer data in a directory from the file names.
+
     This is a fallback when config detection fails.
 
     Parameters
@@ -227,6 +246,13 @@ class LegacyInclinometer:
         self.data: pl.DataFrame | None = None
 
     def load_data(self) -> None:
+        """Load the pickle files of the folder.
+
+        Raises
+        ------
+        FileNotFoundError
+            If the folder has no ``*_INC*.pck`` file.
+        """
         from .legacy import read_legacy_inclinometer
 
         data = read_legacy_inclinometer(self.path)
@@ -388,9 +414,7 @@ class IMX5Inclinometer:
 
 
 class KernelInclinometer:
-    """
-    Decoder for Kernel-100 inclinometer data (binary format).
-    """
+    """Decoder for Kernel-100 inclinometer data (binary format)."""
 
     def __init__(self, path: Path, logpath: str | None = None) -> None:
         """
@@ -538,8 +562,10 @@ class KernelInclinometer:
 
 class Inclinometer:
     """
-    Unified inclinometer class that auto-detects and loads either
-    Kernel-100 (binary) or IMX-5 (CSV) inclinometer data.
+    Inclinometer of any payload: Kernel-100, IMX-5 or 2022 pickle files.
+
+    The type is detected (see the module) and the matching decoder loads the
+    data.
 
     Parameters
     ----------

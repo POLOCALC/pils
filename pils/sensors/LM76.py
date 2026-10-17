@@ -1,3 +1,5 @@
+"""LM76 temperature sensor of the payload."""
+
 import glob
 import os
 from pathlib import Path
@@ -10,6 +12,8 @@ from ..utils.tools import get_logpath_from_datapath
 
 
 class LM76:
+    """LM76 temperature sensor of the payload (``*TMP*.csv``)."""
+
     def __init__(self, path: Path, logpath: Path | None = None) -> None:
         """
         Initialize LM76 temperature sensor.
@@ -22,7 +26,6 @@ class LM76:
             Path to the log file. If None, the logpath is inferred from the
             data file path. Defaults to None.
         """
-
         self.path = path
         self.data_path = None
         self.data = None
@@ -55,7 +58,6 @@ class LM76:
             file is found or if the config does not contain an LM76 sensor
             section.
         """
-
         # Look for config file in the same directory as the ADC file
         lm76_dir = os.path.dirname(self.path)
         config_files = glob.glob(os.path.join(lm76_dir, "*_config.yml"))

@@ -1,5 +1,5 @@
-"""
-RINEX Quality Analyzer v5 - Polars Core (Feature Complete)
+"""RINEX Quality Analyzer v5 - Polars Core (Feature Complete).
+
 High-performance GNSS analysis with 100% geodetic logic fidelity.
 """
 
@@ -96,10 +96,12 @@ class RINEXAnalyzer:
             snr_only: If True, only parse SNR observations
             sample_rate: Epoch sampling rate (1 = all epochs)
 
-        Returns:
+        Returns
+        -------
             Polars DataFrame with parsed observations
 
-        Examples:
+        Examples
+        --------
             >>> analyzer = RINEXAnalyzer('file.obs')
             >>> df = analyzer.parse(sample_rate=30)  # Every 30s
             >>> print(df.shape)
@@ -337,7 +339,8 @@ class RINEXAnalyzer:
         Uses broadcast ephemeris to calculate satellite positions and
         compute azimuth/elevation angles from receiver position.
 
-        Examples:
+        Examples
+        --------
             >>> analyzer = RINEXAnalyzer('file.obs', navpath='file.nav')
             >>> analyzer.parse_obs_file()
             >>> analyzer.parse_nav_file()
@@ -479,7 +482,8 @@ class RINEXAnalyzer:
         Creates simulated satellite tracks for visualization when
         precise ephemeris is not available.
 
-        Examples:
+        Examples
+        --------
             >>> analyzer = RINEXAnalyzer('file.obs')  # No nav file
             >>> analyzer.parse_obs_file()
             >>> analyzer._mock_azel()
@@ -507,10 +511,12 @@ class RINEXAnalyzer:
     def get_snr(self):
         """Extract SNR observations from parsed data.
 
-        Returns:
+        Returns
+        -------
             DataFrame containing only SNR ('S') observations
 
-        Examples:
+        Examples
+        --------
             >>> analyzer = RINEXAnalyzer('file.obs')
             >>> analyzer.parse_obs_file()
             >>> snr_df = analyzer.get_snr()
@@ -521,10 +527,12 @@ class RINEXAnalyzer:
     def get_snr_statistics(self):
         """Calculate SNR statistics per satellite and frequency.
 
-        Returns:
+        Returns
+        -------
             DataFrame with mean, std, and count grouped by satellite and frequency
 
-        Examples:
+        Examples
+        --------
             >>> analyzer = RINEXAnalyzer('file.obs')
             >>> analyzer.parse_obs_file()
             >>> stats = analyzer.get_snr_statistics()
@@ -549,11 +557,13 @@ class RINEXAnalyzer:
         Calculates mean/std SNR, multipath RMS, satellite count,
         and observation count for each frequency band.
 
-        Returns:
+        Returns
+        -------
             DataFrame with columns: frequency, mean, std, mean_MP_RMS,
             n_satellites, count
 
-        Examples:
+        Examples
+        --------
             >>> analyzer = RINEXAnalyzer('file.obs')
             >>> analyzer.parse()
             >>> summary = analyzer.get_global_frequency_summary()
@@ -590,10 +600,12 @@ class RINEXAnalyzer:
         Implements RTKLIB multipath algorithm using dual-frequency
         data to isolate multipath effects from other errors.
 
-        Returns:
+        Returns
+        -------
             DataFrame with multipath estimates (MP) for each observation
 
-        Examples:
+        Examples
+        --------
             >>> analyzer = RINEXAnalyzer('file.obs')
             >>> analyzer.parse_obs_file()
             >>> mp_df = analyzer.estimate_multipath()
@@ -777,10 +789,12 @@ class RINEXAnalyzer:
     def get_multipath_rms(self):
         """Calculate RMS multipath per satellite and frequency.
 
-        Returns:
+        Returns
+        -------
             DataFrame with MP_RMS values grouped by satellite, constellation, frequency
 
-        Examples:
+        Examples
+        --------
             >>> analyzer = RINEXAnalyzer('file.obs')
             >>> analyzer.parse_obs_file()
             >>> mp_rms = analyzer.get_multipath_rms()
@@ -803,10 +817,12 @@ class RINEXAnalyzer:
             threshold_gf: Geometry-free jump threshold in meters (default: 0.08)
             threshold_mw: Melbourne-Wübbena jump threshold in cycles (default: 2.5)
 
-        Returns:
+        Returns
+        -------
             DataFrame with detected slips including time, satellite, and type
 
-        Examples:
+        Examples
+        --------
             >>> analyzer = RINEXAnalyzer('file.obs')
             >>> analyzer.parse_obs_file()
             >>> slips = analyzer.detect_cycle_slips(threshold_gf=0.1, threshold_mw=3.0)
@@ -902,10 +918,12 @@ class RINEXAnalyzer:
         Computes ratio of actual observations to expected observations
         assuming dual-frequency tracking for all satellites.
 
-        Returns:
+        Returns
+        -------
             Completeness percentage (0-100)
 
-        Examples:
+        Examples
+        --------
             >>> analyzer = RINEXAnalyzer('file.obs')
             >>> analyzer.parse_obs_file()
             >>> completeness = analyzer.get_completeness_metrics()
@@ -927,10 +945,12 @@ class RINEXAnalyzer:
         Identifies periods where expected observations are missing
         based on median epoch interval.
 
-        Returns:
+        Returns
+        -------
             Dictionary with max_gap, n_gaps, and expected_interval
 
-        Examples:
+        Examples
+        --------
             >>> analyzer = RINEXAnalyzer('file.obs')
             >>> analyzer.parse_obs_file()
             >>> gaps = analyzer.get_gap_metrics()
@@ -956,10 +976,12 @@ class RINEXAnalyzer:
     def get_integrity_metrics(self):
         """Calculate cycle slip rates for data integrity assessment.
 
-        Returns:
+        Returns
+        -------
             Dictionary with slip_rate (per satellite per hour) and total_slips
 
-        Examples:
+        Examples
+        --------
             >>> analyzer = RINEXAnalyzer('file.obs')
             >>> analyzer.parse_obs_file()
             >>> integrity = analyzer.get_integrity_metrics()
@@ -990,10 +1012,12 @@ class RINEXAnalyzer:
         Evaluates azimuth quadrant coverage and elevation spread
         for current satellite constellation.
 
-        Returns:
+        Returns
+        -------
             Dictionary with quadrants, el_spread, and diversity_score
 
-        Examples:
+        Examples
+        --------
             >>> analyzer = RINEXAnalyzer('file.obs')
             >>> analyzer.parse_obs_file()
             >>> analyzer.compute_satellite_azel()
@@ -1044,7 +1068,7 @@ class RINEXAnalyzer:
         }
 
     def get_per_sat_quality_scores(self):
-        """Calculates quality scores for each satellite based on % of 'Good' epochs."""
+        """Calculate quality scores for each satellite from the % of 'Good' epochs."""
         # This is now handled within assess_data_quality for efficiency and consistency
         res = self.assess_data_quality()
         return res["sat_scores"]
@@ -1058,7 +1082,8 @@ class RINEXAnalyzer:
         3. Elevation span (0-90°)
         4. Azimuth balance
 
-        Returns:
+        Returns
+        -------
             Dictionary containing:
             - score: Overall quality score (0-100)
             - status_icon: Visual status indicator
@@ -1067,7 +1092,8 @@ class RINEXAnalyzer:
             - sat_scores: Per-satellite quality ratings
             - epoch_df: Time-series quality metrics
 
-        Examples:
+        Examples
+        --------
             >>> quality = analyzer.assess_data_quality()
             >>> print(f"Score: {quality['score']:.1f}/100")
             >>> for flag in quality['red_flags']:
@@ -1365,10 +1391,12 @@ class RINEXAnalyzer:
     def get_time_span(self):
         """Get observation time span.
 
-        Returns:
+        Returns
+        -------
             Tuple of (start_datetime, end_datetime)
 
-        Examples:
+        Examples
+        --------
             >>> analyzer = RINEXAnalyzer('file.obs')
             >>> analyzer.parse_obs_file()
             >>> start, end = analyzer.get_time_span()

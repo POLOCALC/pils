@@ -257,7 +257,6 @@ class AZELAnalysis:
         >>> # Shows: timestamp, az, el, srange columns
         >>> print(version.metadata['weather'])  # 'clear'
         """
-
         logger.info("Starting AZEL analysis...")
 
         # 1. Determine data source (sync_data preferred, fallback to raw_data)

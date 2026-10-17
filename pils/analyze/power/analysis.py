@@ -116,7 +116,7 @@ class PowerAnalysis:
     # -- versions -----------------------------------------------------------
 
     def list_versions(self, telescope: str, wafer_slot: str) -> list[str]:
-        """Runs for a telescope and wafer slot, oldest first."""
+        """List the runs for a telescope and wafer slot, oldest first."""
         return result_store.list_versions(
             self.power_dir, parent=self.target_name(telescope, wafer_slot)
         )
@@ -124,6 +124,7 @@ class PowerAnalysis:
     def get_version(
         self, telescope: str, wafer_slot: str, version_name: str
     ) -> PowerVersion:
+        """Load a saved run of a telescope and wafer slot."""
         tables, metadata = result_store.load_version(
             self.power_dir,
             version_name,
@@ -134,6 +135,7 @@ class PowerAnalysis:
     def get_latest_version(
         self, telescope: str, wafer_slot: str
     ) -> PowerVersion | None:
+        """Load the most recent run of a telescope and wafer slot, or None."""
         versions = self.list_versions(telescope, wafer_slot)
         return (
             self.get_version(telescope, wafer_slot, versions[-1]) if versions else None

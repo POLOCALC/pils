@@ -18,6 +18,43 @@ Every run adds new revisions; earlier ones are kept. Steps that do not apply
 coordinates) are skipped; a step that fails is recorded and the remaining
 steps still run, except that nothing runs without synchronized data.
 
+The steps, in order:
+
+1. load the payload sensors (:data:`PAYLOAD_SENSORS`, in any file format of
+   2022-2025, see ``pils.sensors``) and the drone data;
+2. synchronize on the payload GPS, or on the drone GPS when no payload GPS
+   covers the flight (``pils.flight.MIN_REFERENCE_COVERAGE``), at
+   :data:`SYNC_RATES`, and report every time offset;
+3. save the raw and synchronized data in ``proc/flight/`` (``Flight.save``);
+4. compute AZEL for each telescope and write the telescope's AZEL file;
+5. optionally, the expected power on telescope detectors;
+6. write ``proc/package_manifest.json`` with what was produced.
+
+Notes
+-----
+Every step is ``done``, ``skipped`` or ``failed`` (:class:`StepResult`);
+``pils package`` exits with 1 if a step of any flight failed.
+
+| Step | Status | Meaning |
+|------|--------|---------|
+| ``load <sensor>`` | skipped | no file for the sensor, or a file without data (the reason is given) |
+| ``load drone`` | failed | no drone log (e.g. an empty ``drone/`` folder) |
+| ``load`` | done | with "synchronized to the drone GPS": no payload GPS |
+| ``load`` | failed | no payload GPS and no drone GPS: nothing to synchronize on |
+| ``sync`` | failed | the synchronization raised (the error is given) |
+| ``offsets`` | done | the reference and every offset, with correlation ``r`` and method |
+| ``sync drone`` | failed | no time offset between the drone and the payload GPS |
+| ``sync litchi`` | skipped | the Litchi log does not match the drone track (another flight's log) |
+| ``sync inclinometer`` | skipped | an inclinometer with its own clock (Kernel) and no Litchi pitch to align it |
+| ``save flight`` | skipped | dry run |
+| ``azel <TELESCOPE>`` | skipped | no campaign coordinates file, or the telescope is not in it |
+
+The ``offsets`` line gives each offset's method: ``reference`` (the
+reference itself), ``payload_clock`` (an inclinometer on the payload clock
+without a Litchi pitch keeps its time), and for the payload clock
+``inclinometer``, ``imu_gyro`` or ``none``. A correlation below about 0.9
+deserves a look.
+
 Examples
 --------
 >>> from pils.analyze.package import FlightPackager
@@ -43,12 +80,12 @@ from pils.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-# Payload sensors tried in order; the GPS is the synchronization reference
 PAYLOAD_SENSORS = ("gps", "adc", "inclinometer", "lm76", "imu")
-# Telescopes surveyed in the campaign coordinates file
+"""Payload sensors tried in order; those without files are skipped."""
+
 DEFAULT_TELESCOPES = ("SATP1", "SATP2", "SATP3")
-# Same rates as the power analysis, so it reuses this synchronization
-# Rates in Hz of the synchronized tables (drone records follow the drone)
+"""Telescopes surveyed in the campaign coordinates file."""
+
 SYNC_RATES = {
     "drone": 100.0,
     "litchi": 100.0,
@@ -56,6 +93,10 @@ SYNC_RATES = {
     "payload": 100.0,
     "reference_gps": 100.0,
 }
+"""Rates (Hz) of the synchronized tables; drone records follow the drone.
+
+The same as the power analysis, so that it reuses this synchronization.
+"""
 # Columns of the AZEL file handed to the telescopes: its own names (an
 # external format), from the AZEL table's
 AZEL_CSV_COLUMNS = {
@@ -107,6 +148,7 @@ class PackageResult:
         return all(step.status != "failed" for step in self.steps)
 
     def add(self, name: str, status: str, detail: str = "", outputs=()) -> None:
+        """Record a step and log it (a warning if it failed)."""
         self.steps.append(StepResult(name, status, detail, [str(p) for p in outputs]))
         log = logger.warning if status == "failed" else logger.info
         log(f"{self.flight_name} | {name}: {status} {detail}".rstrip())
@@ -121,6 +163,7 @@ class PackageResult:
         return "\n".join(lines)
 
     def to_dict(self) -> dict[str, Any]:
+        """Return the result as a dict (with ``ok``), for JSON."""
         return {**asdict(self), "ok": self.ok}
 
 
@@ -210,7 +253,7 @@ class FlightPackager:
     def from_flight(
         cls, flight: str | Path | dict[str, Any], output_dir: str | Path | None = None
     ) -> "FlightPackager":
-        """Packager for a flight name (STOUT), a flight folder or a flight dict."""
+        """Create the packager of a flight name (STOUT), folder or flight dict."""
         return cls(resolve_flight(flight), output_dir=output_dir)
 
     # -- steps --------------------------------------------------------------
@@ -420,7 +463,7 @@ class FlightPackager:
     def _write_azel_csv(
         self, folder: Path, version_name: str, telescope: str, data: pl.DataFrame
     ) -> Path:
-        """The AZEL file for the telescope, in the version's folder."""
+        """Write the AZEL file for the telescope in the version's folder."""
         folder.mkdir(parents=True, exist_ok=True)
         stem = self.flight_name.removeprefix("flight_")
         path = folder / f"{version_name}_azel_{telescope.lower()}_{stem}.csv"

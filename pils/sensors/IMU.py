@@ -1,3 +1,5 @@
+"""Payload IMU: accelerometer, gyroscope, barometer and magnetometer files."""
+
 import io
 import logging
 from pathlib import Path

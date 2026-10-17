@@ -1,19 +1,12 @@
 # Flight Packaging
 
-One command takes a flight from its raw files to the products in `proc/`
-described in [Directory Structure](../../user-guide/directory-structure.md):
+The products in `proc/` are described in
+[Directory Structure](../../user-guide/directory-structure.md).
 
-1. load the payload sensors (GPS, ADC, inclinometer, LM76, IMU; the ones not
-   on the payload are skipped) and the drone data, in any of the file
-   formats of 2022-2025 (see
-   [Raw files by campaign](../../user-guide/directory-structure.md#raw-files-by-campaign));
-2. synchronize on the payload GPS, or on the drone GPS when there is no
-   payload GPS covering the flight (common time base, RTK drone data, the
-   same rates as the power analysis), and report every time offset;
-3. save the raw and synchronized data in `proc/flight/` (`Flight.save`);
-4. compute AZEL for each telescope and write the telescope's AZEL file;
-5. optionally, the expected power on telescope detectors;
-6. write `proc/package_manifest.json` with what was produced.
+::: pils.analyze.package
+    options:
+      show_root_heading: false
+      members: false
 
 ```bash
 # Flights already in STOUT
@@ -65,9 +58,7 @@ flight_20251208_2005 (rev_20261017_181502)
 ```
 
 `--dry-run` loads and synchronizes without writing; it is the quickest
-check of a flight or of a whole campaign (a flight takes 5-60 s). On the
-archive (275 flights, 2022-2025) it packs 274: flight_20251208_1404 has an
-empty `drone/` folder and no payload data.
+check of a flight or of a whole campaign (a flight takes 5-60 s).
 
 ## Output
 
@@ -98,40 +89,13 @@ offsets and the rates; each AZEL revision records the synchronized revision
 it used (`sync_revision`). `package_manifest.json` records the code that ran
 (pils version and git commit).
 
-## Steps that are skipped or fail
+## Settings
 
-Every step is reported as `done`, `skipped` or `failed`, and the command exits
-with 1 if any flight has a failed step.
+::: pils.analyze.package.PAYLOAD_SENSORS
 
-| Step | Status | Meaning |
-|------|--------|---------|
-| `load <sensor>` | skipped | no file for the sensor, or a file without data (the reason is given) |
-| `load drone` | failed | no drone log (e.g. an empty `drone/` folder) |
-| `load` | done | with "synchronized to the drone GPS": no payload GPS |
-| `load` | failed | no payload GPS and no drone GPS: nothing to synchronize on |
-| `sync` | failed | the synchronization raised (the error is given) |
-| `offsets` | done | the reference and every offset, with correlation `r` and method |
-| `sync drone` | failed | no time offset between the drone and the payload GPS |
-| `sync litchi` | skipped | the Litchi log does not match the drone track (another flight's log) |
-| `sync inclinometer` | skipped | an inclinometer with its own clock (Kernel) and no Litchi pitch to align it |
-| `azel <TELESCOPE>` | skipped | no campaign coordinates file, or the telescope is not in it |
+::: pils.analyze.package.SYNC_RATES
 
-- The payload GPS is the reference if it covers at least half of the drone
-  GPS time; otherwise (missing, empty, stopped early, recorded at another
-  time) the drone GPS is. The payload sensors then keep the payload
-  computer's time. See
-  [Time Synchronization](../../user-guide/synchronization.md#without-a-payload-gps).
-- Payload sensors with empty files are left out of the sync instead of
-  stopping it.
-- Positions at latitude and longitude 0 (no solution) are not used.
-- Offset methods: `reference` (the reference itself), `payload_clock` (an
-  inclinometer on the payload clock without a Litchi pitch: its time is
-  kept), `inclinometer`, `imu_gyro` and `none` for the payload clock (see
-  [Payload clock](../../user-guide/synchronization.md#step-4-payload-clock)).
-  A correlation below about 0.9 deserves a look (e.g.
-  flight_20240430_2148, `r=0.57`: a payload GPS with many epochs without a
-  fix).
-- A failed AZEL or power step does not stop the others.
+::: pils.flight.MIN_REFERENCE_COVERAGE
 
 ## Inputs
 

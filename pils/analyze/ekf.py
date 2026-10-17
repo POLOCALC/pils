@@ -588,7 +588,6 @@ class EKFAnalysis:
         >>> print(version.ekf_data.head())
         >>> # Shows: timestamp, quaternion, Euler angle columns
         """
-
         logger.info("Starting EKF analysis...")
 
         # 1. Validate input DataFrames
@@ -705,7 +704,7 @@ class EKFAnalysis:
         )
 
     def list_versions(self) -> list[str]:
-        """Saved EKF versions, oldest first.
+        """List the saved EKF versions, oldest first.
 
         Examples
         --------

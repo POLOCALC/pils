@@ -1,3 +1,21 @@
+"""ADC readings of the payload detector (ADS1015/ADS1115).
+
+Notes
+-----
+The format is detected from the data; amplitudes are in mV after loading
+(``amplitude_mv`` in the schema) whatever the file stores.
+
+| Payload | File | Content |
+|---------|------|---------|
+| 2025 | ``*_ADC.bin``, ASCII | time (us) and ADS1015 counts per line; mV with the gain of ``config.yml`` |
+| December 2024 | ``*_ADC.bin``, 20-byte records | time (s), reading time (us), amplitude (mV) |
+| April 2024 | ``*_ADC.bin``, 12-byte records | time (s), amplitude (V) |
+| 2022, 2023 | ``*_ADC*.pck`` | see ``pils.sensors.legacy`` |
+
+A record cut at the end of a binary file (power loss) and preallocated
+zeros are dropped. Times are those of the payload computer's clock.
+"""
+
 import glob
 import os
 from pathlib import Path
@@ -48,7 +66,7 @@ def detect_struct_layout(data: bytes) -> str:
 
 def decode_adc_file_struct(adc_path: str | Path) -> pl.DataFrame:
     """
-    Decodes the old ADC file written in a structured binary format and returns its content as a polars DataFrame.
+    Decode a binary ADC file (fixed-size records) into a DataFrame.
 
     Parameters
     ----------
@@ -63,7 +81,6 @@ def decode_adc_file_struct(adc_path: str | Path) -> pl.DataFrame:
         it took to take the measurement, amplitude is the measurement itself, and
         datetime is the converted timestamp in datetime format.
     """
-
     with open(adc_path, "rb") as f:
         data = f.read()
 
@@ -89,7 +106,7 @@ def decode_adc_file_struct(adc_path: str | Path) -> pl.DataFrame:
 
 def decode_adc_file_ascii(adc_path: str | Path, gain_config: int = 16) -> pl.DataFrame:
     """
-    Decodes the last version of ADC file written in ASCII format and returns its content as a polars DataFrame.
+    Decode an ASCII ADC file (time and counts per line) into a DataFrame.
 
     Parameters
     ----------
@@ -104,7 +121,6 @@ def decode_adc_file_ascii(adc_path: str | Path, gain_config: int = 16) -> pl.Dat
         DataFrame containing tuples of (timestamp, value) where timestamp is the
         time in seconds since the epoch and value is the corresponding measurement.
     """
-
     gain = ADS1015_VALUE_GAIN[gain_config]  # Need to be tracked from the config file
 
     timestamps = []
@@ -152,6 +168,8 @@ def decode_adc_file_ascii(adc_path: str | Path, gain_config: int = 16) -> pl.Dat
 
 
 class ADC:
+    """ADC sensor of the payload; the file format is detected (see the module)."""
+
     def __init__(
         self, path: Path, logpath: str | None = None, gain_config: int | None = None
     ) -> None:
@@ -209,7 +227,6 @@ class ADC:
         int
             Gain configuration value (defaults to 16 if not found).
         """
-
         # Look for config file in the same directory as the ADC file
         adc_dir = os.path.dirname(self.data_path)
         config_files = glob.glob(os.path.join(adc_dir, "*_config.yml"))

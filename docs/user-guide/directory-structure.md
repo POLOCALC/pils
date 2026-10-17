@@ -61,41 +61,14 @@ This structure is designed to work with both available loaders in PILS, [PathLoa
 
 ## Raw files by campaign
 
-The payload changed between campaigns. Every format below is read by the
-same loaders (`flight.add_sensor_data(...)`), which find the files by name
-and detect the format from the data.
+::: pils.sensors
+    options:
+      show_root_heading: false
+      members: false
 
-| Campaign | GPS | ADC | Inclinometer | Other | Log |
-|----------|-----|-----|--------------|-------|-----|
-| 202204 | none | `*_ADC_<n>.pck` | Kernel, `*_INC_<n>.pck` | | `aux/*_file.log` |
-| 202302 | `*_GPS.pck` (empty) | `*_ADC.pck` | `*_INC.pck` (empty) | | `sensors/*_log.log` |
-| 202404 | `*_GPS.bin` | `*_ADC.bin`, 12-byte records | Kernel, `*_INC.bin` | | `aux/*_file.log` |
-| 202412 | `*_GPS.bin` | `*_ADC.bin`, 20-byte records | Kernel, `*_INC.bin` | | `aux/*_file.log` |
-| 202504 | `*_GPS.bin` | `*_ADC.bin` (ASCII) | Kernel, `*_INC.bin`, `*_INC_<hhmmss>.bin` | IMU `ACC`, `GYR`, `BAR`, `MAG` | `aux/*_file.log`, `*_config.yml` |
-| 202511 | `*_GPS.bin`, `*_GPS.ubx` | `*_ADC.bin` (ASCII) | IMX-5, `*_INC_ins/imu/inl2.csv` | IMU, LM76 `*_TMP.csv` | `aux/*_file.log`, `*_config.yml` |
-
-- `*.pck` (2022, 2023): pickled records appended by the payload computer,
-  read by `pils.sensors.legacy` (plain values only). `<n>` numbers the files
-  of one recording. The 2022 payload computer started with a clock days
-  behind and jumped to the right time during the recording; the jump is
-  undone. The 2023 ADC times were stored as float32 (128 s steps); the
-  sample times are rebuilt from the sample count. The 2023 GPS and
-  inclinometer files hold no data.
-- ADC binary records: time (s), reading time (µs), amplitude (mV) in 20
-  bytes; in April 2024 time (s) and amplitude (V) in 12 bytes. ASCII files:
-  time (µs) and counts per line. Amplitudes are in mV after loading
-  (`amplitude_mv`).
-- GPS: u-blox UBX, read message by message; corrupted bytes are skipped. The
-  GPS week comes from the log (`Sensor ZED-F9P started`, 2023 `ZED-F9R`), or
-  from the file name without a log.
-- Log time stamps: `2025/12/08 19:25:43.590`, `2024/04/29 18:59:31` and, in
-  2023, `02/21/2023 19:07:09`.
-- Files cut by a power loss (an incomplete last record or line, trailing
-  zeros) are read up to the last complete record.
-- Drone: DJI `*_drone.dat` (and the DatCon `*_drone.csv` export) every year;
-  `*_litchi.csv` where Litchi flew the mission. The 2022 Litchi files are
-  logs of April 2025 and several February 2023 flights share one file: they
-  do not match the drone track and are left out of the sync.
+Drone: DJI `*_drone.dat` (and the DatCon `*_drone.csv` export) every year,
+and `*_litchi.csv` where Litchi flew the mission (see
+[Litchi](../api/drones/litchi.md)).
 
 ## Output Structure
 

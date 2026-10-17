@@ -18,7 +18,7 @@ RAW_SUFFIX = "_raw"
 
 
 def load_notes(path: str | Path) -> dict[str, Any]:
-    """The ``config`` block of a measurement notes file.
+    """Read the ``config`` block of a measurement notes file.
 
     Raises
     ------
@@ -78,11 +78,12 @@ class LabMeasurement:
 
     @property
     def test_type(self) -> str:
+        """Kind of measurement: the name of its folder."""
         return self.folder.name
 
     @classmethod
     def find(cls, folder: str | Path, stem: str | None = None) -> "LabMeasurement":
-        """The measurement ``stem`` in ``folder`` (latest one if None).
+        """Find the measurement ``stem`` in ``folder`` (latest one if None).
 
         Raises
         ------

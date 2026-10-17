@@ -105,6 +105,10 @@ nav:
     - Versioning: development/versioning.md
   - Changelog: changelog.md
 
+# Hooks
+hooks:
+  - docs/hooks/sphinx_roles.py
+
 # Plugins
 plugins:
   - search

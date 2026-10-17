@@ -133,7 +133,7 @@ _HELD_COLUMNS = re.compile(
 
 
 def is_held_column(column: str) -> bool:
-    """True for state, flag and count columns, which are not interpolated.
+    """Tell whether a column is a state, flag or count (not interpolated).
 
     Examples
     --------
@@ -665,7 +665,6 @@ class Synchronizer:
         >>> print(f"Correlation: {result['correlation']:.3f}")
         Correlation: 0.998
         """
-
         # Use midpoint of first GPS as ENU reference
         mid_idx = 0
         ref_lat = float(lat1[mid_idx])
@@ -1096,7 +1095,7 @@ class Synchronizer:
         pitch_col: str = "pitch_deg",
         camera_model: str | None = None,
     ):
-
+        """Add camera data, aligned by its pitch (photogrammetry) or its clock."""
         if use_photogrammetry:
             required_cols = [timestamp_col, pitch_col]
             missing_cols = [

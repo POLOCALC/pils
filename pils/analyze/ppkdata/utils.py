@@ -57,10 +57,12 @@ def get_frequency_band(constellation: str, freq_code: str) -> str:
         constellation: GNSS constellation code (G, R, E, C, J, S)
         freq_code: Frequency code from RINEX observation
 
-    Returns:
+    Returns
+    -------
         Band name (e.g., 'L1', 'E5a', 'B2')
 
-    Examples:
+    Examples
+    --------
         >>> get_frequency_band('G', '1')
         'L1'
         >>> get_frequency_band('E', '5')
@@ -85,10 +87,12 @@ def get_dual_freq_bands(constellation: str) -> tuple[str, str | None]:
     Args:
         constellation: GNSS constellation code (G, R, E, C, J, S)
 
-    Returns:
+    Returns
+    -------
         Tuple of (primary_band, secondary_band) or (primary_band, None)
 
-    Examples:
+    Examples
+    --------
         >>> get_dual_freq_bands('G')
         ('L1', 'L2')
         >>> get_dual_freq_bands('E')
@@ -155,10 +159,12 @@ class GNSSColors:
         Args:
             constellation: GNSS constellation code ('G', 'R', 'E', 'C', etc.)
 
-        Returns:
+        Returns
+        -------
             Hex color code for the constellation
 
-        Examples:
+        Examples
+        --------
             >>> GNSSColors.get_constellation_color('G')
             '#1f77b4'
             >>> GNSSColors.get_constellation_color('E')
@@ -177,7 +183,8 @@ class GNSSColors:
         Args:
             ax: Matplotlib axes object
 
-        Examples:
+        Examples
+        --------
             >>> import matplotlib.pyplot as plt
             >>> fig, ax = plt.subplots()
             >>> ax.plot([1, 2, 3], [1, 4, 9])
@@ -244,7 +251,7 @@ def gps_utc_offset(gps_time: pl.Expr) -> pl.Expr:
 
 
 def to_utc(time: pl.Expr, system: str) -> pl.Expr:
-    """A naive datetime in ``system`` (GPST, UTC or JST) as UTC (us, UTC zone)."""
+    """Convert a naive datetime in ``system`` (GPST, UTC or JST) to UTC."""
     system = system.upper()
     if system == "GPST":
         time = time - pl.duration(seconds=gps_utc_offset(time))

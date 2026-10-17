@@ -159,7 +159,7 @@ def airborne_interval(
 def table_summary(
     times: np.ndarray, interval: tuple[float, float] | None
 ) -> dict[str, Any]:
-    """Samples, span, rate, gaps and coverage of the airborne interval."""
+    """Describe samples, span, rate, gaps and coverage of the airborne interval."""
     times = np.sort(times)
     steps = np.diff(times)
     # A gap: longer than 1 s and than 5 sampling steps (slow sensors)
@@ -224,7 +224,7 @@ def offset_rows(offsets: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def offset_warnings(offsets: dict[str, dict[str, Any]]) -> list[str]:
-    """What looks wrong in the synchronisation offsets."""
+    """List what looks wrong in the synchronisation offsets."""
     warnings = []
     for source, result in offsets.items():
         corr = result.get("correlation")
@@ -300,8 +300,11 @@ def read_rinex(path: str | Path) -> tuple[list[str], list[dict[str, dict]]]:
 def band_table(
     epochs: list[dict[str, dict]], interval_s: float = 1.0
 ) -> list[dict[str, Any]]:
-    """Per system and band: satellites (all, and above each SNR level), SNR,
-    loss of lock and continuous tracking (observation-weighted arc, s)."""
+    """Summarize the RINEX observations per system and band.
+
+    Satellites (all, and above each SNR level), SNR, loss of lock and
+    continuous tracking (observation-weighted arc, s).
+    """
     keys = sorted(
         {
             (sat[0], band)
@@ -390,6 +393,7 @@ class Section:
     lines: list[str] = field(default_factory=list)
 
     def add(self, *lines: str) -> None:
+        """Append lines of Markdown to the section."""
         self.lines.extend(lines)
 
 
@@ -529,7 +533,7 @@ class QuickLook:
         return report
 
     def markdown(self) -> str:
-        """The report as Markdown."""
+        """Return the report as Markdown."""
         code = store.code_version()
         lines = [
             f"# Quick look: {self.flight_name}",

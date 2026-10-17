@@ -1,3 +1,24 @@
+"""Payload GPS: the u-blox receiver recorded as UBX.
+
+The receiver is a ZED-F9P (ZED-F9R in 2023), recorded in ``*_GPS.bin`` or
+``*_GPS.ubx`` in ``aux/sensors/``. The NAV messages are merged on one time
+grid; positions are in degrees and metres (``lat_deg``, ``lon_deg``,
+``h_ell_m``, ``h_msl_m``) and ``timestamp`` in UNIX seconds.
+
+Notes
+-----
+- The messages are read one by one (:func:`read_ubx`); corrupted bytes
+  (some April 2025 files) are skipped with a warning.
+- The GPS week comes from the log's ``Sensor ZED-F9... started`` line or,
+  without a log, from the file name (``YYYYMMDD_hhmmss_GPS.bin``); the time
+  of week rolling over on Sunday is handled.
+- A folder without a GPS file raises ``FileNotFoundError``; a file with one
+  epoch or none gives an empty table, and ``Flight.sync`` then uses the
+  drone GPS as the reference.
+- The 2023 ``*_GPS.pck`` files hold no data and are not read.
+- The raw file is also the PPK rover (``pils.analyze.ppk``).
+"""
+
 from datetime import datetime
 from pathlib import Path
 
@@ -14,7 +35,7 @@ GPS_SUFFIXES = ("gps.bin", "gps.ubx")
 
 
 def read_ubx(path: Path, protocol: int = UBX_PROTOCOL):
-    """Parsed UBX messages of a file, skipping corrupted bytes.
+    """Yield the parsed UBX messages of a file, skipping corrupted bytes.
 
     pyubx2 raises on some corrupted data (e.g. a ``$`` followed by binary
     bytes, read as an NMEA sentence); the reader then continues after it.
@@ -66,7 +87,6 @@ class GPS:
         logpath : Optional[Path], default=None
             Optional path to log file. If None, will be inferred.
         """
-
         path = Path(path)
         files = (
             [path]
@@ -117,7 +137,6 @@ class GPS:
 
         Requires log file with "Sensor ZED-F9P started" entry for date extraction.
         """
-
         # Dictionary to collect records from different NAV message types
         nav_records = {}
 
