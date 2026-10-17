@@ -11,7 +11,7 @@ import pymap3d as pm
 
 from pils import store
 from pils.flight import Flight
-from pils.sensors.emlid import Emlid
+from pils.sensors.emlid import reference_positions
 from pils.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -204,6 +204,7 @@ class AZELAnalysis:
         drone_timezone_hours: float = 0.0,
         save_data: bool = False,
         additional_metadata: dict[str, Any] | None = None,
+        telescope_source: str = "survey",
     ) -> AZELVersion | None:
         """Run AZEL analysis for drone telescope tracking.
 
@@ -229,6 +230,11 @@ class AZELAnalysis:
             Additional metadata to include in the version metadata.
             This can include experiment details, weather conditions, etc.
             Default is None.
+        telescope_source : {"survey", "so3g"}, default="survey"
+            Where the telescope position comes from: the campaign's survey or,
+            without it, the newest survey of another campaign; or the ``so3g``
+            site (2-3 m off, see ``pils.sensors.emlid``). The source is in the
+            metadata (``telescope_position_source``).
 
         Returns
         -------
@@ -366,31 +372,31 @@ class AZELAnalysis:
         logger.info(f"Filtered to {valid_rtk.height} valid position samples")
         timestamps_ctime = valid_rtk[timestamp_col].to_list()
 
-        # 4. Load EMLID reference data
-        emlid = Emlid(self.flight)
-
-        ref_data = emlid.load_data(telescope_name=telescope_name)
-
-        # Extract scalar values from DataFrames
-        telescope_geod = ref_data["telescope"].row(0, named=True)
-
-        if format_type == "dji":
-            base_geod = ref_data["base"]["dji"].row(0, named=True)
-        else:
-            base_geod = ref_data["base"]["emlid"].row(0, named=True)
-
-        logger.info(
-            f"Telescope position: lat={telescope_geod['lat']:.6f}, lon={telescope_geod['lon']:.6f}, alt={telescope_geod['alt']:.2f}"
+        # 4. Telescope and DJI base positions (campaign survey, another
+        # campaign's survey, or so3g; see pils.sensors.emlid)
+        positions = reference_positions(
+            Path(self.flight.flight_path).parents[1],
+            telescope_name,
+            telescope_source=telescope_source,
         )
+        telescope_geod = positions.telescope
+        base_geod = positions.dji_base
+        for note in positions.notes:
+            logger.warning(note)
+
         logger.info(
-            f"DJI base position: lat={base_geod['lat']:.6f}, lon={base_geod['lon']:.6f}, alt={base_geod['alt']:.2f}"
+            f"Telescope position ({positions.telescope_source}): "
+            f"lat={telescope_geod['lat']:.6f}, lon={telescope_geod['lon']:.6f}, "
+            f"alt={telescope_geod['alt']:.2f}"
         )
 
         # 5. Compute RTK correction offset (conditional based on drone format)
-        # RTK correction only applies to DJI and Litchi (NOT BlackSquare)
-        rtk_applied = format_type in ["dji", "litchi"]
+        # RTK correction only applies to DJI and Litchi (NOT BlackSquare), and
+        # needs the campaign's surveyed DJI base
+        rtk_applied = format_type in ["dji", "litchi"] and base_geod is not None
 
         if rtk_applied:
+            assert base_geod is not None
             delta_e, delta_n, delta_u = self._compute_rtk_correction(
                 base_geod, dji_broadcast_geod
             )
@@ -471,6 +477,7 @@ class AZELAnalysis:
                 "delta_u": delta_u,
             },
             "rtk_applied": rtk_applied,
+            **positions.as_metadata(),
             "drone_format": format_type,
             "timezone_offset_hours": drone_timezone_hours,
             "telescope_name": telescope_name,

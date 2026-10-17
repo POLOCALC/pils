@@ -15,7 +15,7 @@ One call takes a flight from its raw files to the products described in
 
 Every run adds new revisions; earlier ones are kept. Steps that do not apply
 (a sensor that is not on the payload, a telescope missing from the campaign
-coordinates) are skipped; a step that fails is recorded and the remaining
+survey) are skipped; a step that fails is recorded and the remaining
 steps still run, except that nothing runs without synchronized data.
 
 The steps, in order:
@@ -47,7 +47,8 @@ Every step is ``done``, ``skipped`` or ``failed`` (:class:`StepResult`);
 | ``sync litchi`` | skipped | the Litchi log does not match the drone track (another flight's log) |
 | ``sync inclinometer`` | skipped | an inclinometer with its own clock (Kernel) and no Litchi pitch to align it |
 | ``save flight`` | skipped | dry run |
-| ``azel <TELESCOPE>`` | skipped | no campaign coordinates file, or the telescope is not in it |
+| ``azel <TELESCOPE>`` | done | the line says where the telescope position comes from, and "no DJI base correction" without a surveyed base in the campaign |
+| ``azel <TELESCOPE>`` | skipped | no survey of the telescope in any campaign (or no ``so3g`` site) |
 
 The ``offsets`` line gives each offset's method: ``reference`` (the
 reference itself), ``payload_clock`` (an inclinometer on the payload clock
@@ -84,7 +85,7 @@ PAYLOAD_SENSORS = ("gps", "adc", "inclinometer", "lm76", "imu")
 """Payload sensors tried in order; those without files are skipped."""
 
 DEFAULT_TELESCOPES = ("SATP1", "SATP2", "SATP3")
-"""Telescopes surveyed in the campaign coordinates file."""
+"""Telescopes for AZEL (the SATs, surveyed in November 2025)."""
 
 SYNC_RATES = {
     "drone": 100.0,
@@ -431,18 +432,13 @@ class FlightPackager:
                         "package_version": result.version_name,
                         "sync_revision": sync_revision,
                     },
+                    telescope_source=getattr(self, "telescope_source", "survey"),
                 )
             except ValueError as e:
-                if "No telescope positions" in str(e):
-                    result.add(name, "skipped", "not in the campaign coordinates")
+                if "No telescope positions" in str(e) or "No so3g site" in str(e):
+                    result.add(name, "skipped", str(e))
                 else:
                     result.add(name, "failed", f"ValueError: {e}")
-                continue
-            except FileNotFoundError as e:
-                if "EMLID" in str(e):  # the campaign has no coordinates file
-                    result.add(name, "skipped", f"no campaign coordinates: {e}")
-                else:
-                    result.add(name, "failed", _error(e))
                 continue
             except Exception as e:
                 result.add(name, "failed", _error(e))
@@ -450,7 +446,13 @@ class FlightPackager:
             if version is None:
                 result.add(name, "failed", "no valid RTK data after filtering")
                 continue
-            detail = f"{version.version_name}, {version.azel_data.height} rows"
+            meta = version.metadata
+            detail = (
+                f"{version.version_name}, {version.azel_data.height} rows, "
+                f"telescope from {meta.get('telescope_position_source')}"
+            )
+            if not meta.get("rtk_applied"):
+                detail += ", no DJI base correction"
             if not save:
                 result.add(name, "done", f"{detail} (not saved)")
                 continue
@@ -541,6 +543,7 @@ class FlightPackager:
         sensors: Sequence[str] = PAYLOAD_SENSORS,
         lab_root: str | Path | None = None,
         save: bool = True,
+        telescope_source: str = "survey",
     ) -> PackageResult:
         """Load, synchronize, save and analyse the flight.
 
@@ -559,6 +562,10 @@ class FlightPackager:
             Lab data root for the power analysis.
         save : bool
             Write the products; False computes everything without writing.
+        telescope_source : {"survey", "so3g"}, default="survey"
+            Telescope positions for AZEL: the campaign's survey, else the
+            newest survey of another campaign; or the ``so3g`` site (2-3 m
+            off). See ``pils.sensors.emlid.reference_positions``.
 
         Returns
         -------
@@ -568,6 +575,7 @@ class FlightPackager:
         from pils.config.telescopes import TELESCOPES_CONFIG
 
         telescopes = list(telescopes)
+        self.telescope_source = telescope_source
         power_targets = list(power_targets)
         geod = dji_broadcast_geod or TELESCOPES_CONFIG["dji_broadcast_geod"]
         result = PackageResult(
