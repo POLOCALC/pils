@@ -19,7 +19,10 @@ its format; `Flight` renames the columns to the schema when it loads them.
 - Tables have `snake_case` names too: `payload_data.inclinometer["ins"]`,
   `drone_data.records["imu_atti_0"]`.
 - Synchronized GPS tables (`drone`, `litchi`, `reference_gps`) have the
-  position as `lat_deg`, `lon_deg`, `h_ell_m`.
+  position as `lat_deg`, `lon_deg`, `h_ell_m` (`reference_gps` only when the
+  payload GPS is the sync reference).
+- ADC amplitudes are `amplitude_mv` whatever the file format (the 2022 and
+  April 2024 files store volts).
 
 Columns not listed below are converted to `snake_case` (`timeOfWeek_s` →
 `time_of_week_s`). The AZEL CSV handed to the telescopes keeps its own header
