@@ -38,6 +38,11 @@ All notable changes to PILS are documented here.
   gyroscope, or not corrected without one (`offsets["payload_clock"]`)
 
 ### Added
+- PPK: `run_analysis(template, optimize=True)` chooses the RTKLIB settings
+  from the data (frequencies, systems, SNR and elevation masks, ambiguity
+  resolution) and validates each candidate's fixes against the drone's RTK
+  track; the base is found in the day's or the campaign's `base/`; RTKLIB
+  from `PILS_RTKLIB_BIN`
 - `pils prune <proc> --keep N`: delete old revisions, keeping the newest N of
   each analysis and the synchronized revisions the kept ones were made from
 - `pils migrate` also converts lab results (`proc/<analysis>/*_solution.h5`)
@@ -64,6 +69,9 @@ All notable changes to PILS are documented here.
 - Development guides
 
 ### Fixed
+- PPK: a cached `base.obs` was reused even when it did not cover the rover
+  (flight_20251206_1833 had 2 minutes of overlap); rover `*_GPS.ubx` files
+  were not found
 - Kernel-100 inclinometer (April-May 2025 flights) did not load: the decoder
   was given the sensors folder; `*_INC_<time>.bin` files are found too
 - LM76 without a file and AZEL without campaign coordinates are reported
