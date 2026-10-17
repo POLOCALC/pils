@@ -38,11 +38,11 @@ All notable changes to PILS are documented here.
   gyroscope, or not corrected without one (`offsets["payload_clock"]`)
 
 ### Added
-- PPK: `run_analysis(template, optimize=True)` chooses the RTKLIB settings
+- PPK: `run_analysis(template)` (tuning on by default) chooses the RTKLIB settings
   from the data (frequencies, systems, SNR and elevation masks, ambiguity
   resolution) and validates each candidate's fixes against the drone's RTK
-  track; the base is found in the day's or the campaign's `base/`; RTKLIB
-  from `PILS_RTKLIB_BIN`
+  track, and says when the rover data limits fixing; the base is found in the
+  day's or the campaign's `base/`; RTKLIB from `PILS_RTKLIB_BIN`
 - `pils prune <proc> --keep N`: delete old revisions, keeping the newest N of
   each analysis and the synchronized revisions the kept ones were made from
 - `pils migrate` also converts lab results (`proc/<analysis>/*_solution.h5`)

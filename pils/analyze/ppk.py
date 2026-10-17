@@ -684,7 +684,7 @@ class PPKAnalysis:
         force: bool = False,
         analyze_rinex: bool = False,
         analyze_ppk: bool = False,
-        optimize: bool = False,
+        optimize: bool = True,
         reference: pl.DataFrame | str | None = "drone",
     ) -> PPKVersion | None:
         """
@@ -717,7 +717,7 @@ class PPKAnalysis:
             If True, analyze RINEX files (default: False)
         analyze_ppk : bool, optional
             If True, analyze PPK results (default: False)
-        optimize : bool, optional
+        optimize : bool, default=True
             Tune the configuration to the data first (see
             :func:`pils.analyze.ppk_tuning.tune`): ``config_path`` is the
             template, the chosen configuration is saved in the revision as

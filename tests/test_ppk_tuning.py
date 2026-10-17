@@ -152,3 +152,11 @@ def test_tune_picks_most_fixes_among_valid(tmp_path, monkeypatch):
     assert T.config_value(result.config_text, "pos1-elmask") == "20"
     assert result.table().filter(pl.col("valid")).height > 0
     assert not result.table().filter(pl.col("name").str.contains("hold"))["valid"].any()
+
+
+def test_data_quality_note():
+    good = T.ObsProfile(1.0, None, None, 700, lli_fraction=0.04, arc_s=388.0)
+    bad = T.ObsProfile(1.0, None, None, 880, lli_fraction=0.15, arc_s=95.0)
+    assert T.data_quality_note(good) == ""
+    note = T.data_quality_note(bad)
+    assert "15 %" in note and "95 s" in note
