@@ -38,6 +38,12 @@ All notable changes to PILS are documented here.
   gyroscope, or not corrected without one (`offsets["payload_clock"]`)
 
 ### Added
+- `pils quicklook FLIGHT...` (`pils.analyze.quicklook.QuickLook`): one
+  Markdown report per flight, with plots, in `proc/quicklook/rev_*`: files,
+  drone, payload sensors (rate, gaps, coverage), synchronisation offsets,
+  rover and base GNSS data per band (satellites above 30/35/40 dB-Hz, SNR,
+  loss of lock, tracking), AZEL, and with `--ppk` the tuned RTKLIB
+  configuration; every problem found is listed first
 - PPK: `run_analysis(template)` (tuning on by default) chooses the RTKLIB settings
   from the data (frequencies, systems, SNR and elevation masks, ambiguity
   resolution) and validates each candidate's fixes against the drone's RTK
