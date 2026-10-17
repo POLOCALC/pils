@@ -268,7 +268,7 @@ at its rate, by the same rules:
 | `inclinometer` | inclinometer `ins` table | `inclinometer` (100 Hz) |
 | `adc`, `lm76`, `imu_<sensor>` | payload sensors | `payload` (100 Hz) |
 | `drone_<record>` | DJI `.dat` records | `drone_records` (the drone rate) |
-| `reference_gps` | payload GPS, the reference | `reference_gps` (100 Hz) |
+| `reference_gps` | payload GPS, the reference (absent when the drone GPS is) | `reference_gps` (100 Hz) |
 | `camera` | camera | its own frame rate |
 
 The position columns of `drone`, `litchi` and `reference_gps` are

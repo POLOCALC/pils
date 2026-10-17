@@ -4,9 +4,12 @@ One command takes a flight from its raw files to the products in `proc/`
 described in [Directory Structure](../../user-guide/directory-structure.md):
 
 1. load the payload sensors (GPS, ADC, inclinometer, LM76, IMU; the ones not
-   on the payload are skipped) and the drone data;
-2. synchronize on the payload GPS (common time base, RTK drone data, the same
-   rates as the power analysis);
+   on the payload are skipped) and the drone data, in any of the file
+   formats of 2022-2025 (see
+   [Raw files by campaign](../../user-guide/directory-structure.md#raw-files-by-campaign));
+2. synchronize on the payload GPS, or on the drone GPS when there is no
+   payload GPS covering the flight (common time base, RTK drone data, the
+   same rates as the power analysis), and report every time offset;
 3. save the raw and synchronized data in `proc/flight/` (`Flight.save`);
 4. compute AZEL for each telescope and write the telescope's AZEL file;
 5. optionally, the expected power on telescope detectors;
@@ -46,6 +49,26 @@ result.ok          # False if a step failed
 packager.flight    # the loaded and synchronized Flight
 ```
 
+A run prints one line per step:
+
+```
+flight_20251208_2005 (rev_20261017_181502)
+  load gps           done     2037x21
+  load adc           done     ...
+  load drone         done     3851x27
+  sync               done     drone 77221x23, litchi ..., reference_gps ...
+  offsets            done     reference payload_gps: drone_gps +0.141 s (r=1.00),
+                              litchi_gps -0.181 s (r=1.00), inclinometer +0.325 s (r=1.00),
+                              payload_clock +0.144 s [inclinometer]
+  save flight        done     ...
+  azel SATP1         done     ...
+```
+
+`--dry-run` loads and synchronizes without writing; it is the quickest
+check of a flight or of a whole campaign (a flight takes 5-60 s). On the
+archive (275 flights, 2022-2025) it packs 274: flight_20251208_1404 has an
+empty `drone/` folder and no payload data.
+
 ## Output
 
 ```
@@ -60,6 +83,9 @@ flight_YYYYMMDD_hhmm/proc/
 ├── power/<TELESCOPE>_<wafer slot>/rev_*/   # only with --power
 └── package_manifest.json
 ```
+
+`pils quicklook` adds `proc/quicklook/rev_*/` (a Markdown report), PPK and
+EKF their own folders; they are run separately.
 
 Every revision is a write-once directory with Parquet tables and a
 `manifest.json` (see [Data Schema and Storage](../../user-guide/data-schema.md)).
@@ -77,10 +103,34 @@ it used (`sync_revision`). `package_manifest.json` records the code that ran
 Every step is reported as `done`, `skipped` or `failed`, and the command exits
 with 1 if any flight has a failed step.
 
-- A payload sensor without files is skipped. Without the payload GPS nothing
-  else can run, because it is the synchronization reference.
-- A telescope that is not in the campaign coordinates file
-  (`campaign/metadata/*_coordinates.csv`) is skipped.
+| Step | Status | Meaning |
+|------|--------|---------|
+| `load <sensor>` | skipped | no file for the sensor, or a file without data (the reason is given) |
+| `load drone` | failed | no drone log (e.g. an empty `drone/` folder) |
+| `load` | done | with "synchronized to the drone GPS": no payload GPS |
+| `load` | failed | no payload GPS and no drone GPS: nothing to synchronize on |
+| `sync` | failed | the synchronization raised (the error is given) |
+| `offsets` | done | the reference and every offset, with correlation `r` and method |
+| `sync drone` | failed | no time offset between the drone and the payload GPS |
+| `sync litchi` | skipped | the Litchi log does not match the drone track (another flight's log) |
+| `sync inclinometer` | skipped | an inclinometer with its own clock (Kernel) and no Litchi pitch to align it |
+| `azel <TELESCOPE>` | skipped | no campaign coordinates file, or the telescope is not in it |
+
+- The payload GPS is the reference if it covers at least half of the drone
+  GPS time; otherwise (missing, empty, stopped early, recorded at another
+  time) the drone GPS is. The payload sensors then keep the payload
+  computer's time. See
+  [Time Synchronization](../../user-guide/synchronization.md#without-a-payload-gps).
+- Payload sensors with empty files are left out of the sync instead of
+  stopping it.
+- Positions at latitude and longitude 0 (no solution) are not used.
+- Offset methods: `reference` (the reference itself), `payload_clock` (an
+  inclinometer on the payload clock without a Litchi pitch: its time is
+  kept), `inclinometer`, `imu_gyro` and `none` for the payload clock (see
+  [Payload clock](../../user-guide/synchronization.md#step-4-payload-clock)).
+  A correlation below about 0.9 deserves a look (e.g.
+  flight_20240430_2148, `r=0.57`: a payload GPS with many epochs without a
+  fix).
 - A failed AZEL or power step does not stop the others.
 
 ## Inputs
