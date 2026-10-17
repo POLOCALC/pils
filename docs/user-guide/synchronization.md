@@ -190,6 +190,33 @@ used) depends on the inclinometer:
   (`method: "none"`, with a warning); in both campaigns with a payload IMU
   the payload clock is within 0.2 s of GPS time.
 
+- **No Litchi gimbal pitch** (no Litchi log, or a log of another flight):
+  an inclinometer stamped by the payload computer (IMX-5, 2022 payload)
+  keeps its time (`offsets["inclinometer"]["method"]: "payload_clock"`,
+  with a warning). The drone's own attitude does not replace Litchi: the
+  payload hangs below the drone and moves differently (correlations of
+  0.1-0.7, with offsets that differ between axes).
+
+#### Without a payload GPS
+
+The payload GPS is the reference when it covers at least half of the drone
+GPS time (`MIN_REFERENCE_COVERAGE`). Otherwise the drone GPS (RTK solution
+for DJI drones) is the reference (`flight.sync_reference == "drone_gps"`,
+saved as `reference` in the revision's manifest): the drone offset is zero
+(`method: "reference"`), there is no `reference_gps` table, and the payload
+sensors keep the payload computer's time. This is the case for
+
+- 2022 (no payload GPS) and February 2023 (the GPS file holds no data);
+- payload GPS files with a few epochs only, or stopped before the flight
+  (April 2024 flight_20240429_1601: 2 minutes, an hour away from the
+  flight; April 2025 flight_20250428_1524: stops 3 minutes before take-off).
+
+Without the payload GPS the DJI main receiver heights (above mean sea
+level) are not converted to the ellipsoid; the RTK heights are ellipsoidal.
+
+`flight.sync_offset_details` keeps every offset with its method and
+correlation (`time_offset_details` in the manifest).
+
 !!! warning "Litchi's attitude lags"
     The inclinometer offset comes from Litchi's gimbal pitch. Litchi's
     aircraft yaw lags the drone's flight controller by about 0.19 s

@@ -229,9 +229,6 @@ class FlightPackager:
                 result.add(f"load {sensor}", "skipped", f"no data in {sensors_dir}")
             else:
                 result.add(f"load {sensor}", "done", _describe(data))
-        if getattr(flight.raw_data.payload_data, "gps", None) is None:
-            result.add("load", "failed", "no payload GPS: it is the sync reference")
-            return None
         try:
             flight.add_drone_data()
             result.add(
@@ -242,6 +239,16 @@ class FlightPackager:
                 result.add("load drone records", "done", _describe(records))
         except Exception as e:
             result.add("load drone", "failed", _error(e))
+        # The payload GPS is the sync reference; without it, the drone GPS
+        gps = getattr(flight.raw_data.payload_data, "gps", None)
+        drone = getattr(flight.raw_data.drone_data, "drone", None)
+        has_gps = isinstance(gps, pl.DataFrame) and not gps.is_empty()
+        has_drone = isinstance(drone, pl.DataFrame | dict) and len(drone) > 0
+        if not has_gps and not has_drone:
+            result.add("load", "failed", "no payload GPS and no drone GPS to sync to")
+            return None
+        if not has_gps:
+            result.add("load", "done", "no payload GPS: synchronized to the drone GPS")
         return flight
 
     def _sync(self, flight: Flight, result: PackageResult) -> bool:
@@ -255,6 +262,47 @@ class FlightPackager:
         result.add(
             "sync", "done", ", ".join(f"{k} {_describe(v)}" for k, v in synced.items())
         )
+        offsets = []
+        for name, offset in flight.sync_offset_details.items():
+            text = f"{name} {offset.get('time_offset', 0.0):+.3f} s"
+            if "correlation" in offset:
+                text += f" (r={offset['correlation']:.2f})"
+            if offset.get("method"):
+                text += f" [{offset['method']}]"
+            offsets.append(text)
+        result.add(
+            "offsets",
+            "done",
+            f"reference {flight.sync_reference}: " + ", ".join(offsets),
+        )
+        # Sources loaded but left out of the synchronized data
+        drone = flight.raw_data.drone_data
+        payload = flight.raw_data.payload_data
+        if isinstance(drone.drone, pl.DataFrame | dict) and len(drone.drone):
+            if "drone" not in synced:
+                result.add(
+                    "sync drone",
+                    "failed",
+                    "no time offset between the drone GPS and the payload GPS "
+                    "(no overlap or no correlation)",
+                )
+        if isinstance(drone.litchi, pl.DataFrame) and drone.litchi.height:
+            if "litchi" not in synced:
+                result.add(
+                    "sync litchi",
+                    "skipped",
+                    "the Litchi log does not match the drone track "
+                    "(another flight's log?)",
+                )
+        if "inclinometer" in payload and "inclinometer" not in synced:
+            data = payload["inclinometer"]
+            data = data.data if hasattr(data, "data") else data
+            if isinstance(data, pl.DataFrame | dict) and len(data):
+                result.add(
+                    "sync inclinometer",
+                    "skipped",
+                    "no time offset: needs the Litchi gimbal pitch",
+                )
         return True
 
     def _save_flight(

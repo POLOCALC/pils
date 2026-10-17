@@ -1,4 +1,5 @@
 import glob
+import io
 import os
 from datetime import timedelta
 from pathlib import Path
@@ -25,6 +26,38 @@ try:
     YAML_AVAILABLE = True
 except ImportError:
     YAML_AVAILABLE = False
+
+
+def read_csv_tolerant(path: str | Path) -> pl.DataFrame:
+    """Read a sensor CSV; lines cut or padded by a power loss are dropped.
+
+    A recording stopped by a power loss can end in the middle of a line or
+    with zeros (NUL bytes); those lines, and any line without the header's
+    number of fields, are left out.
+    """
+    raw = Path(path).read_bytes()
+    if b"\x00" not in raw and raw.endswith(b"\n"):
+        try:
+            return pl.read_csv(raw)
+        except (pl.exceptions.ComputeError, pl.exceptions.NoDataError):
+            pass
+    complete = raw.endswith(b"\n")
+    raw = raw.replace(b"\x00", b"")
+    lines = raw.decode("utf-8", errors="replace").splitlines()
+    if not complete and lines:
+        lines = lines[:-1]  # the last line was cut
+    if not lines:
+        return pl.DataFrame()
+    fields = lines[0].count(",")
+    kept = [lines[0]] + [
+        line for line in lines[1:] if line.count(",") == fields and line.strip()
+    ]
+    dropped = len(lines) - len(kept)
+    logger.warning(f"{Path(path).name}: {dropped} incomplete line(s) dropped")
+    # A damaged value left on a complete line becomes null
+    return pl.read_csv(
+        io.StringIO("\n".join(kept)), ignore_errors=True, infer_schema_length=10000
+    )
 
 
 def decode_inclino(inclino_path: str | Path) -> dict[str, list[Any]]:
@@ -160,7 +193,7 @@ def detect_inclinometer_type_from_files(dirpath: Path) -> str:
     -------
     tuple[str, Optional[str]]
         Tuple of (inclinometer_type, path_to_file).
-        inclinometer_type is 'imx5', 'kernel', or 'unknown'.
+        inclinometer_type is 'imx5', 'kernel', 'legacy' (2022-2023 pickles) or 'unknown'.
     """
     # Check for IMX-5 files (CSV format with INC_ prefix)
 
@@ -173,7 +206,33 @@ def detect_inclinometer_type_from_files(dirpath: Path) -> str:
     if kernel_files:
         return "kernel"
 
+    # 2022 and 2023 payloads: pickle files
+    if list(dirpath.glob("*_INC.pck")) + list(dirpath.glob("*_INC_*.pck")):
+        return "legacy"
+
     return "unknown"
+
+
+class LegacyInclinometer:
+    """Kernel inclinometer recorded by the 2022 and 2023 payloads (``*.pck``).
+
+    Stamped with the payload computer's clock; see
+    :func:`pils.sensors.legacy.read_legacy_inclinometer`.
+    """
+
+    def __init__(self, path: Path, logpath: str | None = None) -> None:
+        self.path = Path(path)
+        self.logpath = logpath
+        self.tstart = None
+        self.data: pl.DataFrame | None = None
+
+    def load_data(self) -> None:
+        from .legacy import read_legacy_inclinometer
+
+        data = read_legacy_inclinometer(self.path)
+        if data is None:
+            raise FileNotFoundError(f"No inclinometer file (*_INC*.pck) in {self.path}")
+        self.data = data
 
 
 class IMX5Inclinometer:
@@ -233,7 +292,7 @@ class IMX5Inclinometer:
         if self.ins_path is None:
             return None
 
-        df = pl.read_csv(self.ins_path)
+        df = read_csv_tolerant(self.ins_path)
 
         # Convert radians to degrees for attitude
         cols_to_add = []
@@ -266,7 +325,7 @@ class IMX5Inclinometer:
         if self.imu_path is None:
             return None
 
-        df = pl.read_csv(self.imu_path)
+        df = read_csv_tolerant(self.imu_path)
 
         cols_to_add = []
         # Create timestamp from timestamp_ns
@@ -300,7 +359,7 @@ class IMX5Inclinometer:
         if self.inl2_path is None:
             return None
 
-        df = pl.read_csv(self.inl2_path)
+        df = read_csv_tolerant(self.inl2_path)
 
         cols_to_add = []
         # Create timestamp from timestamp_ns
@@ -407,6 +466,8 @@ class KernelInclinometer:
             )
         # Load data from binary decoder
         decoded = decode_inclino(self.path)
+        if not decoded:
+            raise ValueError(f"No Kernel inclinometer messages in {self.path}")
         inclino_data = pl.DataFrame(decoded)
 
         # Detect counter wrap-arounds (where counter resets)
@@ -494,7 +555,7 @@ class Inclinometer:
         self,
         path: Path,
         logpath: str | None = None,
-        sensor_type: Literal["kernel", "imx5"] | None = None,
+        sensor_type: Literal["kernel", "imx5", "legacy"] | None = None,
     ) -> None:
         self._lookout_path = path
 
@@ -506,7 +567,9 @@ class Inclinometer:
         logger.info(f"Inclinometer sensor type: {self.sensor_type}")
 
         self.logpath = logpath
-        self._decoder: KernelInclinometer | IMX5Inclinometer | None = None
+        self._decoder: (
+            KernelInclinometer | IMX5Inclinometer | LegacyInclinometer | None
+        ) = None
 
         # Initialize the appropriate decoder
         self._init_decoder()
@@ -528,6 +591,8 @@ class Inclinometer:
             self._decoder = KernelInclinometer(self._lookout_path, self.logpath)
         elif self.sensor_type == "imx5":
             self._decoder = IMX5Inclinometer(self._lookout_path, self.logpath)
+        elif self.sensor_type == "legacy":
+            self._decoder = LegacyInclinometer(self._lookout_path, self.logpath)
 
     @property
     def tstart(self):
@@ -568,7 +633,8 @@ class Inclinometer:
         if self._decoder is None:
             raise ValueError(
                 f"No inclinometer data found at {self._lookout_path}. "
-                "Expected either *_INC.bin (Kernel) or *_INC_*.csv (IMX-5) files."
+                "Expected *_INC.bin (Kernel), *_INC_*.csv (IMX-5) or *_INC*.pck "
+                "(2022-2023) files."
             )
 
         self._decoder.load_data()

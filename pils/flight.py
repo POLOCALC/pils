@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Literal, Optional, Union, overload
 
 import h5py
+import numpy as np
 import polars as pl
 
 from pils import schema
@@ -75,6 +76,30 @@ _LEGACY_SYNC_COORDINATES = {
     "altitude": "h_ell_m",
 }
 _SYNC_KINDS = {"drone": "dji", "reference_gps": "gps"}
+
+# The payload GPS is the sync reference if it covers at least this fraction
+# of the drone GPS time; else (stopped early, another session) the drone GPS
+MIN_REFERENCE_COVERAGE = 0.5
+
+
+def _valid_positions(frame: pl.DataFrame, lat_col: str, lon_col: str) -> pl.DataFrame:
+    """Rows with a position: not null and not at latitude and longitude 0."""
+    lat, lon = pl.col(lat_col), pl.col(lon_col)
+    return frame.filter(
+        lat.is_not_null() & lon.is_not_null() & ~((lat == 0) & (lon == 0))
+    )
+
+
+def _time_coverage(times: pl.Series, reference: pl.Series) -> float:
+    """Fraction of the span of ``reference`` covered by the span of ``times``."""
+    ref = reference.drop_nulls().to_numpy().astype(float)
+    own = times.drop_nulls().to_numpy().astype(float)
+    if ref.size < 2 or ref.max() <= ref.min():
+        return 1.0
+    if own.size == 0:
+        return 0.0
+    overlap = min(ref.max(), own.max()) - max(ref.min(), own.min())
+    return float(max(overlap, 0.0) / (ref.max() - ref.min()))
 
 
 def _legacy_sync_table(key: str, df: pl.DataFrame) -> tuple[str, pl.DataFrame]:
@@ -257,6 +282,10 @@ class Flight:
         self.raw_data = RawData()
         self.sync_data: dict[str, pl.DataFrame] | None = None
         self.sync_offsets: dict[str, float] = {}
+        # Each offset with how it was found (method, correlation, ...)
+        self.sync_offset_details: dict[str, dict[str, Any]] = {}
+        # The reference timebase: "payload_gps" or "drone_gps"
+        self.sync_reference: str | None = None
         self.sync_rates: dict[str, float] = {}
         self.adc_gain_config = None
         # Set by the loaders; saved with the raw data
@@ -704,6 +733,8 @@ class Flight:
 
         # Find candidate files
         available_files = glob.glob(str(drone_folder) + "/*")
+        if not available_files:
+            raise FileNotFoundError(f"No drone log in {drone_folder} (empty folder)")
         records: dict[str, pl.DataFrame] = {}  # other .dat records (DJI)
 
         if isinstance(self.__drone_model, str) and "dji" in self.__drone_model.lower():
@@ -723,6 +754,10 @@ class Flight:
                 if fname.endswith("litchi.csv") and "dji" in self.__drone_model.lower():
                     litchi_data_path = file
 
+            if drone_data_path is None:
+                raise FileNotFoundError(
+                    f"No DJI drone log (*drone.dat, *drone.csv) in {drone_folder}"
+                )
             logger.info(f"Drone : {drone_data_path}")
             drone = DJIDrone(drone_data_path)
             drone.load_data(use_dat=dji_dat_loader)
@@ -977,32 +1012,46 @@ class Flight:
         >>> print(list(flight.sync_data.keys()))
         """
 
-        # Check if GPS payload data is available
-        if not self.raw_data.payload_data or "gps" not in self.raw_data.payload_data:
-            raise ValueError(
-                "GPS payload data is required as reference timebase. "
-                "Call flight.add_sensor_data(['gps']) first."
-            )
+        # The payload GPS is the reference timebase; without it (not
+        # recorded, or empty) the drone GPS is
+        gps_data = None
+        if self.raw_data.payload_data and "gps" in self.raw_data.payload_data:
+            gps_sensor = self.raw_data.payload_data["gps"]
+            gps_data = gps_sensor.data if hasattr(gps_sensor, "data") else gps_sensor
+            required = {"timestamp", "lat_deg", "lon_deg", "h_ell_m"}
+            if not isinstance(gps_data, pl.DataFrame) or gps_data.is_empty():
+                logger.warning(
+                    "Payload GPS has no data: the drone GPS is the reference"
+                )
+                gps_data = None
+            elif not required <= set(gps_data.columns):
+                logger.warning(
+                    "Payload GPS has no position "
+                    f"({sorted(required - set(gps_data.columns))} missing): "
+                    "the drone GPS is the reference"
+                )
+                gps_data = None
+            else:
+                gps_data = _valid_positions(gps_data, "lat_deg", "lon_deg")
+                if gps_data.is_empty():
+                    logger.warning(
+                        "Payload GPS has no position fix: the drone GPS is the reference"
+                    )
+                    gps_data = None
 
         # Create synchronizer
         sync = Synchronizer()
-
-        # Add GPS payload as reference (mandatory)
-        gps_sensor = self.raw_data.payload_data["gps"]
-        gps_data = gps_sensor.data if hasattr(gps_sensor, "data") else gps_sensor
-        sync.add_gps_reference(
-            gps_data,
-            timestamp_col="timestamp",
-            lat_col="lat_deg",
-            lon_col="lon_deg",
-            alt_col="h_ell_m",
-        )
 
         # Add drone GPS if available
         drone_data = self.raw_data.drone_data.drone
         drone_has_data = (isinstance(drone_data, dict) and len(drone_data) > 0) or (
             isinstance(drone_data, pl.DataFrame) and len(drone_data) > 0
         )
+        if gps_data is None and not drone_has_data:
+            raise ValueError(
+                "No reference timebase: no payload GPS data and no drone GPS. "
+                "Call flight.add_sensor_data(['gps']) or flight.add_drone_data() first."
+            )
 
         # A copy: the defaults below must not change the caller's dict
         target_rate = dict(target_rate or {})
@@ -1030,12 +1079,43 @@ class Flight:
                     prefix = ""
                 lat_col, lon_col = f"{prefix}lat_deg", f"{prefix}lon_deg"
                 alt_col = f"{prefix}h_ell_m"
-                # Heights above mean sea level: to the ellipsoid with the geoid
-                # separation of the payload receiver
-                separation = (gps_data["h_ell_m"] - gps_data["h_msl_m"]).median()
-                drone_df = drone_df.with_columns(
-                    (pl.col(f"{prefix}h_msl_m") + separation).alias(alt_col)
+                if alt_col not in drone_df.columns:
+                    # Heights above mean sea level: to the ellipsoid with the
+                    # geoid separation of the payload receiver (without it,
+                    # heights stay above mean sea level)
+                    separation = (
+                        (gps_data["h_ell_m"] - gps_data["h_msl_m"]).median()
+                        if gps_data is not None and "h_msl_m" in gps_data.columns
+                        else 0.0
+                    )
+                    if gps_data is None:
+                        logger.warning(
+                            "No payload GPS: drone heights are above mean sea "
+                            "level, not the ellipsoid"
+                        )
+                    drone_df = drone_df.with_columns(
+                        (pl.col(f"{prefix}h_msl_m") + separation).alias(alt_col)
+                    )
+            # Positions only where the receiver has a solution (DJI RTK rows
+            # without one are at 0, 0, 0)
+            drone_df = _valid_positions(drone_df, lat_col, lon_col)
+            if gps_data is not None:
+                coverage = _time_coverage(gps_data["timestamp"], drone_df["timestamp"])
+                if coverage < MIN_REFERENCE_COVERAGE:
+                    logger.warning(
+                        f"Payload GPS covers {100 * coverage:.0f} % of the drone "
+                        "GPS time: the drone GPS is the reference"
+                    )
+                    gps_data = None
+            if gps_data is None:
+                sync.add_gps_reference(
+                    drone_df,
+                    timestamp_col="timestamp",
+                    lat_col=lat_col,
+                    lon_col=lon_col,
+                    alt_col=alt_col,
                 )
+                sync.reference = "drone_gps"
 
             sync.add_drone_gps(
                 drone_df,
@@ -1043,6 +1123,15 @@ class Flight:
                 lat_col=lat_col,
                 lon_col=lon_col,
                 alt_col=alt_col,
+            )
+
+        if gps_data is not None:
+            sync.add_gps_reference(
+                gps_data,
+                timestamp_col="timestamp",
+                lat_col="lat_deg",
+                lon_col="lon_deg",
+                alt_col="h_ell_m",
             )
 
         # Add litchi GPS if available
@@ -1077,14 +1166,18 @@ class Flight:
                 incl_sensor.data if hasattr(incl_sensor, "data") else incl_sensor
             )
             if isinstance(incl_data, dict):  # IMX-5: the INS table
-                incl_data = incl_data["ins"]
+                incl_data = incl_data.get("ins")
             # The Kernel-100 has its own clock (log start + counter); the
-            # IMX-5 is stamped with the payload computer's clock
-            sync.add_inclinometer(
-                incl_data,
-                self.__inclinometer,
-                clock="own" if self.__inclinometer == "kernel" else "payload",
-            )
+            # IMX-5 and the 2022 payload are stamped with the payload
+            # computer's clock
+            if isinstance(incl_data, pl.DataFrame) and not incl_data.is_empty():
+                sync.add_inclinometer(
+                    incl_data,
+                    self.__inclinometer,
+                    clock="own" if self.__inclinometer == "kernel" else "payload",
+                )
+            else:
+                logger.warning("Inclinometer has no data: not synchronized")
 
         # Add Camera data if available
 
@@ -1104,7 +1197,10 @@ class Flight:
                 target_rate["payload"] = 100.0
             adc_sensor = payload["adc"]
             adc_data = adc_sensor.data if hasattr(adc_sensor, "data") else adc_sensor
-            sync.add_payload_sensor("adc", adc_data)
+            if isinstance(adc_data, pl.DataFrame) and not adc_data.is_empty():
+                sync.add_payload_sensor("adc", adc_data)
+            else:
+                logger.warning("ADC has no data: not synchronized")
 
         # Add LM76 if available
         if "lm76" in payload:
@@ -1114,7 +1210,10 @@ class Flight:
             lm76_data = (
                 lm76_sensor.data if hasattr(lm76_sensor, "data") else lm76_sensor
             )
-            sync.add_payload_sensor("lm76", lm76_data)
+            if isinstance(lm76_data, pl.DataFrame) and not lm76_data.is_empty():
+                sync.add_payload_sensor("lm76", lm76_data)
+            else:
+                logger.warning("LM76 has no data: not synchronized")
 
         # Add IMU sensors if available ({"barometer": df, ...})
         if "imu" in payload and payload["imu"] is not None:
@@ -1140,6 +1239,14 @@ class Flight:
             for name, offset in sync.offsets.items()
             if "time_offset" in offset
         }
+        self.sync_offset_details = {
+            name: {
+                k: (v.tolist() if isinstance(v, np.ndarray) else v)
+                for k, v in offset.items()
+            }
+            for name, offset in sync.offsets.items()
+        }
+        self.sync_reference = sync.reference
         # Rates (Hz) of the synchronized tables, as used
         self.sync_rates = dict(sync.rates)
 
@@ -1232,6 +1339,8 @@ class Flight:
             metadata={
                 "raw_saved_at": store.read_manifest(raw)["saved_at"],
                 "time_offsets": self.sync_offsets,
+                "time_offset_details": self.sync_offset_details,
+                "reference": self.sync_reference,
                 "rates": self.sync_rates,
                 **(sync_metadata or {}),
             },
@@ -1295,6 +1404,8 @@ class Flight:
                 )
                 flight.sync_data = sync_tables  # type: ignore[assignment]
                 flight.sync_offsets = sync_meta.get("time_offsets", {})
+                flight.sync_offset_details = sync_meta.get("time_offset_details", {})
+                flight.sync_reference = sync_meta.get("reference")
                 flight.sync_rates = sync_meta.get("rates", {})
         return flight
 

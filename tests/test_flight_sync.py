@@ -58,14 +58,14 @@ def test_sync_creates_sync_data(sample_flight_with_gps):
 
 
 def test_sync_requires_gps_payload():
-    """Test that sync() raises error without GPS payload."""
+    """sync() raises without a payload GPS and without a drone GPS."""
     flight_info = {
         "drone_data_folder_path": "/tmp/test_flight/drone",
         "aux_data_folder_path": "/tmp/test_flight/aux",
     }
     flight = Flight(flight_info)
 
-    with pytest.raises(ValueError, match="GPS payload data is required"):
+    with pytest.raises(ValueError, match="No reference timebase"):
         flight.sync()
 
 

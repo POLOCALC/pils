@@ -5,7 +5,38 @@ import numpy as np
 import polars as pl
 from pyubx2 import UBX_PROTOCOL, UBXReader
 
+from ..utils.logging_config import get_logger
 from ..utils.tools import get_logpath_from_datapath, read_log_time
+
+logger = get_logger(__name__)
+
+GPS_SUFFIXES = ("gps.bin", "gps.ubx")
+
+
+def read_ubx(path: Path, protocol: int = UBX_PROTOCOL):
+    """Parsed UBX messages of a file, skipping corrupted bytes.
+
+    pyubx2 raises on some corrupted data (e.g. a ``$`` followed by binary
+    bytes, read as an NMEA sentence); the reader then continues after it.
+    """
+    errors = 0
+    with open(path, "rb") as stream:
+        reader = UBXReader(stream, protfilter=protocol, quitonerror=0)
+        while True:
+            position = stream.tell()
+            try:
+                raw, parsed = reader.read()
+            except Exception:
+                if stream.tell() == position:
+                    break  # not moving on: stop rather than loop
+                errors += 1
+                continue
+            if raw is None:
+                break
+            if parsed is not None:
+                yield parsed
+    if errors:
+        logger.warning(f"{path.name}: {errors} corrupted messages skipped")
 
 
 class GPS:
@@ -36,15 +67,27 @@ class GPS:
             Optional path to log file. If None, will be inferred.
         """
 
-        files = list(path.glob("*"))
-
-        for f in files:
-            if f.name.lower().endswith("gps.bin"):
-                self.data_path = f
-        if logpath is not None:
-            self.logpath = logpath
-        else:
-            self.logpath = get_logpath_from_datapath(self.data_path)
+        path = Path(path)
+        files = (
+            [path]
+            if path.is_file()
+            else [
+                f
+                for f in sorted(path.glob("*"))
+                if f.name.lower().endswith(GPS_SUFFIXES)
+            ]
+        )
+        if not files:
+            raise FileNotFoundError(
+                f"No payload GPS file (*_GPS.bin, *_GPS.ubx) in {path}"
+            )
+        self.data_path = files[-1]
+        self.logpath: Path | None = logpath
+        if logpath is None:
+            try:
+                self.logpath = get_logpath_from_datapath(self.data_path)
+            except FileNotFoundError:
+                pass  # the date then comes from the file name
 
         self.tstart: datetime | None = None
         self.data: pl.DataFrame | None = None
@@ -78,41 +121,36 @@ class GPS:
         # Dictionary to collect records from different NAV message types
         nav_records = {}
 
-        with open(self.data_path, "rb") as stream:
-            ubr = UBXReader(stream, protfilter=UBX_PROTOCOL, quitonerror=False)
-            for _raw_data, parsed_data in ubr:
-                if parsed_data is None:
-                    continue
+        for parsed_data in read_ubx(self.data_path):  # corrupted bytes skipped
+            # Only process NAV messages
+            if not parsed_data.identity.startswith("NAV-"):
+                continue
 
-                # Only process NAV messages
-                if not parsed_data.identity.startswith("NAV-"):
-                    continue
+            msg_type = parsed_data.identity
 
-                msg_type = parsed_data.identity
+            # Initialize list for this message type if not exists
+            if msg_type not in nav_records:
+                nav_records[msg_type] = []
 
-                # Initialize list for this message type if not exists
-                if msg_type not in nav_records:
-                    nav_records[msg_type] = []
+            # Extract all attributes from the parsed message
+            record = {}
+            for attr in dir(parsed_data):
+                if not attr.startswith("_") and attr not in [
+                    "identity",
+                    "payload",
+                    "msg_cls",
+                    "msg_id",
+                    "length",
+                ]:
+                    try:
+                        value = getattr(parsed_data, attr)
+                        # Only include serializable values (not methods)
+                        if not callable(value):
+                            record[attr] = value
+                    except Exception:
+                        pass
 
-                # Extract all attributes from the parsed message
-                record = {}
-                for attr in dir(parsed_data):
-                    if not attr.startswith("_") and attr not in [
-                        "identity",
-                        "payload",
-                        "msg_cls",
-                        "msg_id",
-                        "length",
-                    ]:
-                        try:
-                            value = getattr(parsed_data, attr)
-                            # Only include serializable values (not methods)
-                            if not callable(value):
-                                record[attr] = value
-                        except Exception:
-                            pass
-
-                nav_records[msg_type].append(record)
+            nav_records[msg_type].append(record)
 
         # Convert each message type to a DataFrame with prefixed column names
         nav_dataframes = {}
@@ -129,14 +167,25 @@ class GPS:
                     df = df.rename(renamed_cols)
                 nav_dataframes[msg_type] = df
 
-        # Get the date from log file to compute GPS week
-        time_start, date = read_log_time(
-            keyphrase="Sensor ZED-F9P started", logfile=self.logpath
-        )
-
+        # Get the date from log file to compute GPS week ("ZED-F9P", in
+        # 2023 "ZED-F9R"); else from the file name (YYYYMMDD_hhmmss_GPS.bin)
+        time_start, date = None, None
+        if self.logpath is not None:
+            time_start, date = read_log_time(
+                keyphrase="Sensor ZED-F9", logfile=self.logpath
+            )
         if date is None:
-            self.data = pl.DataFrame()
-            return
+            try:
+                time_start = datetime.strptime(
+                    self.data_path.name[:15], "%Y%m%d_%H%M%S"
+                )
+                date = time_start.date()
+            except ValueError:
+                logger.warning(
+                    f"No date for {self.data_path}: no log, no date in the name"
+                )
+                self.data = pl.DataFrame()
+                return
 
         # GPS epoch and leap seconds offset (GPS time is ahead of UTC by 18 seconds as of 2017)
         gps_epoch = datetime(1980, 1, 6).date()
@@ -153,8 +202,12 @@ class GPS:
         leap_seconds_ms = gps_leap_seconds * 1000
         week_ms = gps_week * 7 * 24 * 60 * 60 * 1000
 
+        week = 7 * 24 * 60 * 60 * 1000
         for msg_type, df in nav_dataframes.items():
             if "iTOW" in df.columns:
+                # The time of week restarts on Sunday 00:00 GPS time
+                rollover = (pl.col("iTOW").diff() < -week // 2).cum_sum().fill_null(0)
+                df = df.with_columns(pl.col("iTOW") + rollover * week)
                 first_itow = df["iTOW"][0]
                 # Create Unix timestamp in ms
                 # unix_time_ms = gps_week_ms + iTOW + gps_epoch_offset - leap_seconds
@@ -234,7 +287,15 @@ class GPS:
             return None
 
         if freq is None:
-            freq_ms = int(np.mean(np.diff(first_valid_df["unix_time_ms"].to_numpy())))
+            steps = [
+                np.median(np.diff(np.sort(df["unix_time_ms"].to_numpy())))
+                for df in nav_dataframes.values()
+                if "unix_time_ms" in df.columns and len(df) > 1
+            ]
+            steps = [step for step in steps if step > 0]
+            if not steps:
+                return None  # one epoch: no track
+            freq_ms = int(min(steps))
         else:
             freq_ms = int(1000 / freq)
 
