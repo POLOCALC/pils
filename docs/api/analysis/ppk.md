@@ -29,8 +29,8 @@ converts them.
 
 ## Tuning the configuration
 
-`run_analysis(template, optimize=True)` chooses the RTKLIB settings from the
-data (`pils.analyze.ppk_tuning.tune`):
+`run_analysis(template)` chooses the RTKLIB settings from the data (on by
+default; `optimize=False` runs the template as it is) (`pils.analyze.ppk_tuning.tune`):
 
 1. **Profile** the rover and base RINEX: interval, time span, satellites per
    system, SNR per system and band, base receiver position.
@@ -62,6 +62,13 @@ The fix rate alone is not a safe criterion. On flight_20251206_1833:
 | Template (L1+L2, SNR mask 35) | 0.8 % | | |
 | L1, GPS+Galileo, fix-and-hold, ratio 2 | 72 % | 0.18 / 0.10 m | 1.5 % |
 | L1, GPS+Galileo+BeiDou, no SNR mask, 15 deg, continuous (chosen) | 67 % | 0.04 / 0.05 m | 0 % |
+
+When the rover data itself limits fixing (L1 phase loss of lock on more than
+10 % of observations, or continuous tracking shorter than 150 s), the run
+says so (`tuning_data_quality` in the manifest): no configuration fixes such
+data reliably. On the November 2025 campaign the best configuration differs
+from flight to flight, and neither a single configuration nor a model trained
+on other days finds it; the search on the flight's own data does.
 
 The revision keeps the chosen configuration as `optimized.conf`, every
 candidate in the `tuning` table (settings, fix rate, RMS, validity), and the

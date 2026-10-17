@@ -47,6 +47,26 @@ logger = logging.getLogger(__name__)
 
 # RTKLIB navigation system bits and RINEX system letters
 NAVSYS_BITS = {"G": 1, "S": 2, "R": 4, "E": 8, "J": 16, "C": 32, "I": 64}
+# Rover data that limits fixing whatever the configuration: L1 phase loss of
+# lock flagged on more than this fraction of observations, or continuous
+# tracking shorter than this (s). flight_20251206_1833 (67 % fixed): 4 %,
+# 388 s; flight_20250428_1625 (no fix): 15 %, 95 s
+MAX_ROVER_LLI = 0.10
+MIN_ROVER_ARC_S = 150.0
+
+
+def data_quality_note(rover: ObsProfile) -> str:
+    """Why the rover data may limit fixing, or "" if it looks fine."""
+    issues = []
+    if rover.lli_fraction > MAX_ROVER_LLI:
+        issues.append(f"loss of lock on {100 * rover.lli_fraction:.0f} % of L1 phase")
+    if 0 < rover.arc_s < MIN_ROVER_ARC_S:
+        issues.append(f"continuous tracking only ~{rover.arc_s:.0f} s")
+    if not issues:
+        return ""
+    return "rover data limits fixing: " + ", ".join(issues)
+
+
 # Minimum median number of satellites a system must have in common between
 # rover and base to be used
 MIN_COMMON_SATS = 4
@@ -85,6 +105,11 @@ class ObsProfile:
     band_fraction: dict[str, dict[str, float]] = field(default_factory=dict)
     # APPROX POSITION XYZ of the header (receiver's own solution), m
     approx_xyz: tuple[float, float, float] | None = None
+    # Fraction of L1 phase observations flagged loss of lock (LLI bit 0)
+    lli_fraction: float = 0.0
+    # Continuous L1 phase tracking per observation: mean length of the arc an
+    # observation belongs to (sum of squared arc lengths / total), s
+    arc_s: float = 0.0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -96,6 +121,8 @@ class ObsProfile:
             "snr": self.snr,
             "band_fraction": self.band_fraction,
             "approx_xyz": self.approx_xyz,
+            "lli_fraction": self.lli_fraction,
+            "arc_s": self.arc_s,
         }
 
 
@@ -157,6 +184,35 @@ def profile_obs(path: str | Path, max_epochs: int = 3000) -> ObsProfile:
         for system in types:
             sats.setdefault(system, []).append(count.get(system, 0))
 
+    # Loss of lock and continuous tracking of the L1 phase, over all epochs
+    l1_col = {
+        s: next((j for j, o in enumerate(t) if o.startswith("L1")), None)
+        for s, t in types.items()
+    }
+    phase = flagged = 0
+    current: dict[str, int] = {}
+    arcs: list[int] = []
+    for k, row in enumerate(epoch_rows):
+        stop = epoch_rows[k + 1] if k + 1 < len(epoch_rows) else len(body)
+        seen = set()
+        for line in body[row + 1 : stop]:
+            column = l1_col.get(line[0])
+            if column is None:
+                continue
+            field_ = line[3 + 16 * column : 3 + 16 * column + 16]
+            if not field_[:14].strip():
+                continue
+            phase += 1
+            if field_[14:15].strip().isdigit() and int(field_[14:15]) & 1:
+                flagged += 1
+            seen.add(line[:3])
+        for sat in list(current):
+            if sat not in seen:
+                arcs.append(current.pop(sat))
+        for sat in seen:
+            current[sat] = current.get(sat, 0) + 1
+    arcs += current.values()
+
     deltas = np.diff(np.array(times, dtype="datetime64[ms]")).astype(float) / 1e3
     return ObsProfile(
         interval_s=float(np.median(deltas)) if deltas.size else float("nan"),
@@ -174,6 +230,10 @@ def profile_obs(path: str | Path, max_epochs: int = 3000) -> ObsProfile:
             if totals.get(s)
         },
         approx_xyz=approx,  # type: ignore[arg-type]
+        lli_fraction=flagged / phase if phase else 0.0,
+        arc_s=float(np.sum(np.square(arcs)) / np.sum(arcs)) * float(np.median(deltas))
+        if arcs and deltas.size
+        else 0.0,
     )
 
 
@@ -491,6 +551,7 @@ class TuningResult:
     config_text: str | None
     validation: str
     base_note: str = ""
+    data_note: str = ""
 
     def table(self) -> pl.DataFrame:
         return pl.DataFrame([c.row() for c in self.trials])
@@ -499,6 +560,7 @@ class TuningResult:
         return {
             "tuning_validation": self.validation,
             "tuning_base_position": self.base_note,
+            "tuning_data_quality": self.data_note,
             "tuning_best": self.best.row() if self.best else None,
             "tuning_trials": len(self.trials),
             "rover_profile": self.rover.as_dict(),
@@ -554,12 +616,16 @@ def tune(
     text = Path(template).read_text() if Path(str(template)).exists() else str(template)
     rover, base = profile_obs(rover_obs), profile_obs(base_obs)
     base_overrides, base_note = base_position_check(text, base)
+    data_note = data_quality_note(rover)
+    if data_note:
+        logger.warning(data_note)
     if base_overrides:
         logger.warning(base_note)
     directions = reference is None
     # Forward and backward fix-and-hold solutions can hold the same wrong
     # ambiguities: without a reference, only continuous resolution is tried
     trials = candidates(rover, base, hold=not directions, template=text)
+    method = "forward/backward" if directions else "reference track"
     logger.info(
         f"Tuning RTKLIB: {len(trials)} candidates, validation "
         + ("forward/backward" if directions else "reference track")
@@ -655,6 +721,7 @@ def tune(
         rover=rover,
         base=base,
         config_text=config_text,
-        validation="forward/backward" if directions else "reference track",
+        validation=method,
         base_note=base_note,
+        data_note=data_note,
     )
