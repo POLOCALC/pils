@@ -229,8 +229,7 @@ def snr_masks(rover: ObsProfile, template: str = "") -> list[tuple[str, int | No
         first = (config_value(template, "pos1-snrmask_L1") or "").split(",")[0]
         if first.strip().isdigit():
             masks.append((f"snr{int(first)}", int(first)))
-    l1 = [rover.snr.get(s, {}).get("1") for s in ("G", "E")]
-    l1 = [v for v in l1 if v]
+    l1 = [v for s in ("G", "E") if (v := rover.snr.get(s, {}).get("1")) is not None]
     if l1:
         value = int(np.clip(round(float(np.median(l1))) - 5, 20, 35))
         if value not in [m for _, m in masks]:
