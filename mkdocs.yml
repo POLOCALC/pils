@@ -73,6 +73,7 @@ nav:
     - Analysis:
       - api/analysis/index.md
       - Packaging: api/analysis/package.md
+      - Quick look: api/analysis/quicklook.md
       - AZEL: api/analysis/azel.md
       - PPK: api/analysis/ppk.md
       - Power: api/analysis/power.md

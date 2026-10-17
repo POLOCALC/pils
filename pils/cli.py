@@ -10,6 +10,7 @@ Examples
     pils power flight_20251201_1515 -t satp1 -w ws0
     pils package flight_20251208_1927 flight_20251208_2010
     pils package /mnt/data/POLOCALC/campaigns/202511/20251208/flight_20251208_1927
+    pils quicklook flight_20251208_1927 --ppk optimized.conf
 
 Runs are saved (results file + plots) unless ``--dry-run``; ``--output-dir``
 writes them somewhere else than the data folders.
@@ -145,6 +146,30 @@ def _package(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
+def _quicklook(args: argparse.Namespace) -> int:
+    from pils.analyze.package import DEFAULT_TELESCOPES
+    from pils.analyze.quicklook import QuickLook
+
+    failed = 0
+    for flight in args.flights:
+        try:
+            quicklook = QuickLook.from_flight(flight, output_dir=args.output_dir)
+        except (LookupError, FileNotFoundError) as e:
+            print(e, file=sys.stderr)
+            failed += 1
+            continue
+        report = quicklook.run(
+            telescopes=args.telescope or DEFAULT_TELESCOPES,
+            rinex=not args.no_rinex,
+            ppk_template=args.ppk,
+        )
+        print(f"{quicklook.flight_name}: {len(quicklook.warnings)} warning(s)")
+        for warning in quicklook.warnings:
+            print(f"  - {warning}")
+        print(f"  -> {report}")
+    return 1 if failed else 0
+
+
 def _migrate(args: argparse.Namespace) -> int:
     from pils.migrate import migrate_lab, migrate_proc
 
@@ -261,6 +286,32 @@ def build_parser() -> argparse.ArgumentParser:
         "--lab-root",
         help="Lab data root for --power (default: PILS_LAB_DATA_PATH or STOUT)",
     )
+    quicklook = sub.add_parser(
+        "quicklook", help="Markdown report of a flight's data and their quality"
+    )
+    quicklook.add_argument(
+        "flights", nargs="+", help="Flight names (STOUT) or flight folders"
+    )
+    quicklook.add_argument(
+        "-t",
+        "--telescope",
+        action="append",
+        help="AZEL for this telescope (repeatable; default SATP1, SATP2, SATP3)",
+    )
+    quicklook.add_argument(
+        "--ppk",
+        metavar="TEMPLATE",
+        help="Also tune this RTKLIB configuration to the data (takes minutes)",
+    )
+    quicklook.add_argument(
+        "--no-rinex",
+        action="store_true",
+        help="Do not convert and profile the rover and base GNSS recordings",
+    )
+    quicklook.add_argument(
+        "--output-dir",
+        help="Write <output-dir>/<flight>/proc/quicklook/ instead of in the flight folder",
+    )
     migrate = sub.add_parser(
         "migrate", help="Convert HDF5 results in proc/ to the Parquet layout"
     )
@@ -287,6 +338,8 @@ def main(argv: list[str] | None = None) -> int:
         return _lab(args)
     if args.command == "package":
         return _package(args)
+    if args.command == "quicklook":
+        return _quicklook(args)
     if args.command == "migrate":
         return _migrate(args)
     if args.command == "prune":
