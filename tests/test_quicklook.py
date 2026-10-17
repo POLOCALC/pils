@@ -77,28 +77,19 @@ def fake_flight(monkeypatch):
         )
 
     def sync(self, **kwargs):
-        from pils.synchronizer import Synchronizer
-
-        sync = Synchronizer()
-        sync.offsets = {
+        # What Flight.sync keeps of the Synchronizer's offsets
+        self.sync_offset_details = {
             "drone_gps": {"time_offset": 150.0, "correlation": 0.99},
             "litchi_gps": {"time_offset": 0.2, "correlation": 0.5},
             "payload_clock": {"time_offset": 0.0, "method": "none"},
         }
-        # What Flight.sync does: the Synchronizer is called
-        Synchronizer.synchronize(sync)
+        self.sync_reference = "payload_gps"
         self.sync_data = {"drone": DRONE}
         return self.sync_data
-
-    def synchronize(self, *args, **kwargs):  # keep the offsets set above
-        return {}
 
     monkeypatch.setattr(Flight, "add_sensor_data", add_sensor_data)
     monkeypatch.setattr(Flight, "add_drone_data", add_drone_data)
     monkeypatch.setattr(Flight, "sync", sync)
-    from pils.synchronizer import Synchronizer
-
-    monkeypatch.setattr(Synchronizer, "synchronize", synchronize)
 
 
 @pytest.fixture

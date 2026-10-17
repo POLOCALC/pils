@@ -317,6 +317,9 @@ class Synchronizer:
         self.other_payload: dict[str, pl.DataFrame] = {}
         self.drone_records: dict[str, pl.DataFrame] = {}
         self.inclinometer_clock = "payload"
+        # The reference timebase: the payload GPS, or the drone GPS for
+        # flights without a payload GPS (then the drone offset is zero)
+        self.reference = "payload_gps"
 
         self.offsets: dict[str, dict[str, Any]] = {}
         self.synchronized_data: dict[str, Any] | None = None
@@ -1229,7 +1232,13 @@ class Synchronizer:
         self.offsets = {}
 
         # Drone GPS offset detection
-        if self.drone_gps is not None:
+        if self.drone_gps is not None and self.reference == "drone_gps":
+            self.offsets["drone_gps"] = {
+                "time_offset": 0.0,
+                "correlation": 1.0,
+                "method": "reference",
+            }
+        elif self.drone_gps is not None:
             logger.info("Detecting drone GPS offset via NED correlation...")
             result = self._find_gps_offset(
                 time1=self.gps_payload[self.__ref_names["timestamp"]].to_numpy(),
@@ -1335,6 +1344,24 @@ class Synchronizer:
                     logger.info(
                         "Using data timestamp and inclinometer offset as camera offset"
                     )
+
+        # An inclinometer on the payload clock without a Litchi pitch to
+        # align it to: the payload clock is taken as the reference time
+        if (
+            self.inclinometer is not None
+            and "inclinometer" not in self.offsets
+            and self.inclinometer_clock == "payload"
+        ):
+            self.offsets["inclinometer"] = {
+                "time_offset": -self.offsets.get("litchi_gps", {}).get(
+                    "time_offset", 0.0
+                ),
+                "method": "payload_clock",
+            }
+            logger.warning(
+                "No Litchi pitch for the inclinometer offset: the payload clock "
+                "is taken as the reference time"
+            )
 
         rates = {
             "drone": float(target_rate.get("drone", 10.0)),
@@ -1442,12 +1469,13 @@ class Synchronizer:
         elif self.drone_records:
             logger.warning("No drone GPS offset: drone records not synchronized")
 
-        synced["reference_gps"] = align(
-            self.gps_payload,
-            self.__ref_names["timestamp"],
-            0.0,
-            rates["reference_gps"],
-        )
+        if self.reference == "payload_gps":
+            synced["reference_gps"] = align(
+                self.gps_payload,
+                self.__ref_names["timestamp"],
+                0.0,
+                rates["reference_gps"],
+            )
 
         # Standardize coordinate column names for GPS sources
         for key, names in (
@@ -1476,7 +1504,11 @@ class Synchronizer:
         - ``"none"``: no way to tie the payload clock (taken as the
           reference GPS time).
         """
-        has_incl = self.inclinometer is not None and "inclinometer" in self.offsets
+        has_incl = (
+            self.inclinometer is not None
+            and "inclinometer" in self.offsets
+            and self.offsets["inclinometer"].get("method") != "payload_clock"
+        )
         if has_incl and self.inclinometer_clock == "payload":
             result = {"time_offset": inclinometer_offset, "method": "inclinometer"}
         elif has_incl and "imu_gyroscope" in self.other_payload:

@@ -75,6 +75,33 @@ All notable changes to PILS are documented here.
 - Development guides
 
 ### Fixed
+- Payload files of every campaign load: `pils package --dry-run` packs 274
+  of the 275 flights of 2022-2025 (was 156; flight_20251208_1404 has no
+  data):
+  - 2022 and 2023 pickle files (`*_ADC*.pck`, `*_INC*.pck`,
+    `pils.sensors.legacy`): only plain values are unpickled; the 2022
+    payload clock jump (saved clock days behind, set by the network during
+    the recording) is undone; the 2023 ADC times (float32, 128 s steps)
+    are rebuilt from the sample count
+  - April 2024 ADC records (time, volts: 12 bytes) besides the 20-byte
+    records; records cut at the end and preallocated zeros are dropped
+  - payload log times without milliseconds (2024) and in the 2023 format;
+    the 2023 log in `sensors/`
+  - payload GPS: `*_GPS.ubx` files; corrupted bytes that stopped the u-blox
+    reader (April 2025); files with one epoch; a clear error when there is
+    no GPS file; the GPS week from the file name without a log; the time of
+    week rolling over on Sunday
+  - IMX-5 CSV files cut by a power loss (an incomplete last line, NUL
+    bytes); Kernel files with no messages give an error
+- Sync: positions at latitude and longitude 0 (DJI RTK rows without a
+  solution, payload GPS epochs without a fix) are dropped; they stopped the
+  drone offset on 9 flights
+- A clear error for an empty drone folder
+- Sync: without a payload GPS, or with one covering less than half of the
+  drone GPS time, the drone GPS is the reference; empty payload tables are
+  left out instead of stopping the sync; `pils package` reports the drone,
+  Litchi or inclinometer data left out of the sync and every offset with
+  its method
 - PPK: a cached `base.obs` was reused even when it did not cover the rover
   (flight_20251206_1833 had 2 minutes of overlap); rover `*_GPS.ubx` files
   were not found

@@ -93,7 +93,7 @@ def _seconds(frame: pl.DataFrame) -> np.ndarray | None:
 def _utc(seconds: float | None) -> str:
     if seconds is None or not np.isfinite(seconds):
         return "-"
-    moment = datetime.datetime.fromtimestamp(seconds, datetime.timezone.utc)
+    moment = datetime.datetime.fromtimestamp(seconds, datetime.UTC)
     return moment.strftime("%Y-%m-%d %H:%M:%S")
 
 
@@ -417,28 +417,6 @@ def _collect_warnings() -> Iterator[_WarningCollector]:
         root.removeHandler(handler)
 
 
-@contextlib.contextmanager
-def _capture_offsets() -> Iterator[dict[str, dict[str, Any]]]:
-    """The Synchronizer's full offsets (method, correlation) during a sync;
-    ``Flight.sync_offsets`` keeps the seconds only."""
-    from pils.synchronizer import Synchronizer
-
-    captured: dict[str, dict[str, Any]] = {}
-    original = Synchronizer.synchronize
-
-    def synchronize(self: Synchronizer, *args: Any, **kwargs: Any) -> Any:
-        try:
-            return original(self, *args, **kwargs)
-        finally:
-            captured.update(self.offsets)
-
-    Synchronizer.synchronize = synchronize  # type: ignore[method-assign]
-    try:
-        yield captured
-    finally:
-        Synchronizer.synchronize = original  # type: ignore[method-assign]
-
-
 class QuickLook:
     """Quick-look report of one flight.
 
@@ -721,7 +699,7 @@ class QuickLook:
             stout_takeoff = self.flight_info.get("takeoff_datetime")
             if isinstance(stout_takeoff, datetime.datetime):
                 if stout_takeoff.tzinfo is None:
-                    stout_takeoff = stout_takeoff.replace(tzinfo=datetime.timezone.utc)
+                    stout_takeoff = stout_takeoff.replace(tzinfo=datetime.UTC)
                 late = start - stout_takeoff.timestamp()
                 if abs(late) > 10 * 60:
                     self.warnings.append(
@@ -925,16 +903,25 @@ class QuickLook:
     # Synchronisation -------------------------------------------------------------
 
     def _sync_section(self, section: Section) -> None:
-        if "gps" not in self.flight.raw_data.payload_data:
-            section.add("No payload GPS: it is the time reference, no sync.")
-            self.warnings.append("Sync: not done (no payload GPS)")
-            return
-        with _capture_offsets() as offsets:
+        try:
             # Offsets only: shifted, not resampled
             self.flight.sync(common_time=False, drone_records=())
+        except ValueError as e:
+            section.add(f"No sync: {e}")
+            self.warnings.append(f"Sync: not done ({e})")
+            return
+        offsets = self.flight.sync_offset_details
         rows = offset_rows(offsets)
+        if self.flight.sync_reference == "drone_gps":
+            reference = "the drone GPS time (no payload GPS covering the flight)"
+            self.warnings.append(
+                "Sync: the drone GPS is the reference (no payload GPS covering "
+                "the flight); payload sensors keep the payload computer's time"
+            )
+        else:
+            reference = "the payload GPS time"
         section.add(
-            "Offsets to the payload GPS time (inclinometer and camera: to Litchi).",
+            f"Offsets to {reference} (inclinometer and camera: to Litchi).",
             "",
             md_table(rows, digits=3),
         )

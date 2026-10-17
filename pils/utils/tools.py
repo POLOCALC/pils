@@ -31,16 +31,49 @@ def read_log_time(
         The date (YYYY-MM-DD) extracted from the log file, or None if not found.
     """
     logfile = Path(logfile)  # Convert to Path if string
-    with open(logfile) as f:
+    with open(logfile, errors="replace") as f:
         lines = f.readlines()
 
-    line_tstart = [line for line in lines if keyphrase in line]
-    if len(line_tstart) != 0:
-        tstart = datetime.datetime.strptime(
-            line_tstart[0].split("[")[0].replace(" ", ""), "%Y/%m/%d%H:%M:%S.%f"
-        )
-        return tstart, tstart.date()
+    for line in lines:
+        if keyphrase in line:
+            tstart = parse_log_datetime(line)
+            if tstart is not None:
+                return tstart, tstart.date()
     return None, None
+
+
+# Payload log time stamps: "2025/12/08 19:25:43.590", "2024/04/29 18:59:31"
+# and, in 2023, "02/21/2023 19:06:54"
+_LOG_TIME = re.compile(
+    r"(?P<date>\d{4}/\d{2}/\d{2}|\d{2}/\d{2}/\d{4})\s+"
+    r"(?P<time>\d{2}:\d{2}:\d{2})(?:\.(?P<frac>\d+))?"
+)
+
+
+def parse_log_datetime(line: str) -> datetime.datetime | None:
+    """Time stamp at the start of a payload log line (UTC, no time zone).
+
+    Parameters
+    ----------
+    line : str
+        Log line, e.g. ``"2025/12/08 19:25:43.590  [Thread-1]  INFO:..."``.
+
+    Returns
+    -------
+    datetime.datetime or None
+        None if the line has no time stamp.
+    """
+    match = _LOG_TIME.search(line)
+    if match is None:
+        return None
+    date = match["date"]
+    date_format = "%Y/%m/%d" if date[4] == "/" else "%m/%d/%Y"
+    moment = datetime.datetime.strptime(
+        f"{date} {match['time']}", f"{date_format} %H:%M:%S"
+    )
+    if match["frac"]:
+        moment += datetime.timedelta(seconds=float(f"0.{match['frac']}"))
+    return moment
 
 
 def read_alvium_log_time(keyphrase: str, logfile: str | Path) -> pl.DataFrame:
@@ -212,8 +245,10 @@ def get_logpath_from_datapath(datapath: str | Path) -> Path:
     folder = datapath.parent  # sensor file → sensors/
     aux_dir = folder.parent  # sensors/ → aux/
 
-    # Look for *_file.log
+    # Look for *_file.log (in 2023: sensors/*_log.log)
     logfiles = [f for f in aux_dir.iterdir() if f.name.endswith("_file.log")]
+    if not logfiles:
+        logfiles = sorted(folder.glob("*_log.log"))[:1]
     if not logfiles:
         raise FileNotFoundError(f"No log file found in {aux_dir}")
     if len(logfiles) > 1:

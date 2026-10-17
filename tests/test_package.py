@@ -134,6 +134,7 @@ class TestRun:
             "load imu": "skipped",
             "load drone": "done",
             "sync": "done",
+            "offsets": "done",
             "save flight": "done",
             "azel SATP1": "done",
             "azel SATP9": "skipped",
@@ -186,10 +187,24 @@ class TestRun:
         assert store.list_versions(proc / "azel" / "SATP1")
         assert not (flight_dir / "proc").exists()
 
-    def test_no_gps_stops_before_sync(self, flight_dir, fake_flight, monkeypatch):
+    def test_no_gps_syncs_to_the_drone(self, flight_dir, fake_flight, monkeypatch):
         monkeypatch.setattr(
             Flight, "add_sensor_data", lambda self, sensor: None
         )  # nothing on the payload
+        result = FlightPackager.from_flight(flight_dir).run(telescopes=[])
+        assert steps(result)["load"] == "done"
+        assert "drone GPS" in next(s.detail for s in result.steps if s.name == "load")
+        assert steps(result)["sync"] == "done"
+
+    def test_no_gps_and_no_drone_stops_before_sync(
+        self, flight_dir, fake_flight, monkeypatch
+    ):
+        monkeypatch.setattr(Flight, "add_sensor_data", lambda self, sensor: None)
+
+        def no_drone(self, *args, **kwargs):
+            raise FileNotFoundError("no drone log")
+
+        monkeypatch.setattr(Flight, "add_drone_data", no_drone)
         result = FlightPackager.from_flight(flight_dir).run()
         assert not result.ok
         assert steps(result)["load"] == "failed"

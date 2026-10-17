@@ -1,6 +1,5 @@
 import glob
 import os
-import struct
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -22,6 +21,31 @@ ADS1015_VALUE_GAIN = {
 }
 
 
+# Binary ADC records: time (s), [reading time (us),] amplitude
+STRUCT_LAYOUTS = {
+    "dqf": [("timestamp", "<f8"), ("reading_time", "<i8"), ("amplitude", "<f4")],
+    "df": [("timestamp", "<f8"), ("amplitude", "<f4")],  # April 2024, volts
+}
+
+
+def detect_struct_layout(data: bytes) -> str:
+    """Layout of a binary ADC file: the one whose times advance steadily."""
+    best, best_score = "dqf", -1.0
+    for name, fields in STRUCT_LAYOUTS.items():
+        record = np.dtype(fields)
+        n = min(len(data) // record.itemsize, 2000)
+        if n < 3:
+            continue
+        times = np.frombuffer(data[: n * record.itemsize], record)["timestamp"]
+        steps = np.diff(times)
+        with np.errstate(invalid="ignore"):
+            plausible = (times > 1e9) & (times < 4e9)
+            score = float(np.mean(plausible[1:] & (steps >= 0) & (steps < 1.0)))
+        if score > best_score:
+            best, best_score = name, score
+    return best
+
+
 def decode_adc_file_struct(adc_path: str | Path) -> pl.DataFrame:
     """
     Decodes the old ADC file written in a structured binary format and returns its content as a polars DataFrame.
@@ -40,17 +64,23 @@ def decode_adc_file_struct(adc_path: str | Path) -> pl.DataFrame:
         datetime is the converted timestamp in datetime format.
     """
 
-    pattern = "dqf"
-
     with open(adc_path, "rb") as f:
         data = f.read()
 
-    reps = int(len(data) / 20)
-    vals = struct.unpack("<" + pattern * reps, data)
-    vals = np.reshape(np.array(vals), (reps, 3))
-    adc_data = pl.DataFrame(
-        {"timestamp": vals[:, 0], "reading_time": vals[:, 1], "amplitude": vals[:, 2]}
+    layout = detect_struct_layout(data)
+    record = np.dtype(STRUCT_LAYOUTS[layout])
+    # A record cut at the end (power loss) and preallocated zeros are dropped
+    values = np.frombuffer(
+        data[: len(data) // record.itemsize * record.itemsize], record
     )
+    values = values[np.isfinite(values["timestamp"]) & (values["timestamp"] > 1.0)]
+    columns = {"timestamp": values["timestamp"].astype(float)}
+    if "reading_time" in (record.names or ()):
+        columns["reading_time"] = values["reading_time"]
+    amplitude = values["amplitude"].astype(float)
+    # April 2024 (12-byte records) stored volts; the later format millivolts
+    columns["amplitude"] = amplitude * 1e3 if layout == "df" else amplitude
+    adc_data = pl.DataFrame(columns)
     adc_data = adc_data.with_columns(
         pl.from_epoch(pl.col("timestamp"), time_unit="s").alias("datetime")
     )
@@ -139,13 +169,16 @@ class ADC:
             If None, attempts to read from config.yml in the same folder.
             Defaults to 16 if not found.
         """
-        files = list(path.glob("*"))
+        path = Path(path)
+        files = sorted(f for f in path.glob("*") if f.name.lower().endswith("adc.bin"))
+        legacy = sorted(path.glob("*_ADC.pck")) + sorted(path.glob("*_ADC_*.pck"))
+        if not files and not legacy:
+            raise FileNotFoundError(f"No ADC file (*_ADC.bin, *_ADC*.pck) in {path}")
+        # 2022 and 2023 payloads: pickle files (see pils.sensors.legacy)
+        self.legacy_folder = path if not files else None
+        self.data_path = files[-1] if files else legacy[0]
 
-        for f in files:
-            if f.name.lower().endswith("adc.bin"):
-                self.data_path = f
-
-        self.data = None
+        self.data: pl.DataFrame | None = None
         self.tstart = None
 
         # Handle logpath
@@ -158,9 +191,7 @@ class ADC:
                 self.logpath = None
 
         with open(self.data_path, "rb") as f:
-            data = f.read()
-            self.is_ascii = is_ascii_file(data)
-            f.close()
+            self.is_ascii = self.legacy_folder is None and is_ascii_file(f.read())
 
         # Auto-detect gain from config file if not provided
         if gain_config is None:
@@ -208,7 +239,11 @@ class ADC:
 
     def load_data(self) -> None:
         """Load ADC data from file (auto-detects ASCII or binary format)."""
-        if self.is_ascii:
+        if self.legacy_folder is not None:
+            from .legacy import read_legacy_adc
+
+            self.data = read_legacy_adc(self.legacy_folder)
+        elif self.is_ascii:
             self.data = decode_adc_file_ascii(self.data_path, self.gain_config)
         else:
             self.data = decode_adc_file_struct(self.data_path)
