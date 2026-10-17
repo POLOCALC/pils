@@ -137,6 +137,7 @@ def _package(args: argparse.Namespace) -> int:
             power_targets=targets,
             lab_root=args.lab_root,
             save=not args.dry_run,
+            telescope_source=args.telescope_source,
         )
         print(result.summary())
         if not result.ok:
@@ -162,6 +163,7 @@ def _quicklook(args: argparse.Namespace) -> int:
             telescopes=args.telescope or DEFAULT_TELESCOPES,
             rinex=not args.no_rinex,
             ppk_template=args.ppk,
+            telescope_source=args.telescope_source,
         )
         print(f"{quicklook.flight_name}: {len(quicklook.warnings)} warning(s)")
         for warning in quicklook.warnings:
@@ -284,6 +286,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run", action="store_true", help="Compute without saving"
     )
     package.add_argument(
+        "--telescope-source",
+        choices=["survey", "so3g"],
+        default="survey",
+        help="Telescope positions for AZEL: the campaign survey, else another "
+        "campaign's (default); or the so3g site (sotodlib; 2-3 m off)",
+    )
+    package.add_argument(
         "--lab-root",
         help="Lab data root for --power (default: PILS_LAB_DATA_PATH or STOUT)",
     )
@@ -308,6 +317,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-rinex",
         action="store_true",
         help="Do not convert and profile the rover and base GNSS recordings",
+    )
+    quicklook.add_argument(
+        "--telescope-source",
+        choices=["survey", "so3g"],
+        default="survey",
+        help="Telescope positions for AZEL: the campaign survey, else another "
+        "campaign's (default); or the so3g site (sotodlib; 2-3 m off)",
     )
     quicklook.add_argument(
         "--output-dir",

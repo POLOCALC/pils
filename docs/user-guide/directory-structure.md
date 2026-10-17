@@ -15,8 +15,10 @@ campaigns
         └── flightplans
 ```
 
-Without `metadata/*_coordinates.csv` the AZEL step is skipped (in 2022-2025
-only 202511 has one).
+In 2022-2025 only 202511 has `metadata/*_coordinates.csv`. The other
+campaigns take the telescope positions from it (the telescopes do not move)
+and have no surveyed DJI base (see
+[AZEL](../api/analysis/azel.md#telescope-and-base-positions)).
 
 where each flight is is organized as follows:
 

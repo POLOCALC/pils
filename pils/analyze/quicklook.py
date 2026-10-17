@@ -468,6 +468,7 @@ class QuickLook:
         telescopes: Iterable[str] = DEFAULT_TELESCOPES,
         rinex: bool = True,
         ppk_template: str | Path | None = None,
+        telescope_source: str = "survey",
     ) -> Path:
         """Load the flight, check its data and write the report.
 
@@ -482,12 +483,16 @@ class QuickLook:
             RTKLIB configuration: also tune it to the data
             (:func:`pils.analyze.ppk_tuning.tune`, validated on the drone RTK
             track) and report the result. Takes several minutes.
+        telescope_source : {"survey", "so3g"}, default="survey"
+            Telescope positions for AZEL (see
+            ``pils.sensors.emlid.reference_positions``).
 
         Returns
         -------
         Path
             The report (``report.md``).
         """
+        self.telescope_source = telescope_source
         self.revision_dir = self.quicklook_dir / store.new_version_name()
         self.plots_dir = self.revision_dir / "plots"
         self.plots_dir.mkdir(parents=True, exist_ok=True)
@@ -1215,7 +1220,12 @@ class QuickLook:
             azel = AZELAnalysis(self.flight, output_dir=scratch)
             for telescope in telescopes:
                 try:
-                    version = azel.run_analysis(telescope, geod, save_data=False)
+                    version = azel.run_analysis(
+                        telescope,
+                        geod,
+                        save_data=False,
+                        telescope_source=getattr(self, "telescope_source", "survey"),
+                    )
                 except (ValueError, FileNotFoundError) as e:
                     rows.append({"telescope": telescope, "note": str(e).split("\n")[0]})
                     continue
@@ -1228,6 +1238,18 @@ class QuickLook:
                         pl.col("timestamp").is_between(*self.airborne)
                     )
                     data = airborne if airborne.height else data
+                meta = version.metadata
+                note = f"from {meta.get('telescope_position_source')}"
+                if not meta.get("rtk_applied"):
+                    note += "; no DJI base correction"
+                    self.warnings.append(
+                        f"AZEL {telescope}: no surveyed DJI base in this campaign, "
+                        "the drone track is not corrected for it"
+                    )
+                if str(meta.get("telescope_position_source", "")).startswith("so3g"):
+                    self.warnings.append(
+                        f"AZEL {telescope}: so3g telescope position (2-3 m off)"
+                    )
                 rows.append(
                     {
                         "telescope": telescope,
@@ -1237,11 +1259,11 @@ class QuickLook:
                         "az_max_deg": float(np.max(data["az_deg"].to_numpy())),
                         "range_min_m": float(np.min(data["srange_m"].to_numpy())),
                         "range_max_m": float(np.max(data["srange_m"].to_numpy())),
-                        "note": "",
+                        "note": note,
                     }
                 )
         if all("el_min_deg" not in r for r in rows):
-            section.add("No AZEL: telescope coordinates missing for this campaign.", "")
+            section.add("No AZEL: no telescope position (see the notes).", "")
         section.add(
             "Airborne part, not saved (`pils package` saves it).", "", md_table(rows)
         )

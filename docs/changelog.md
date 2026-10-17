@@ -81,6 +81,16 @@ All notable changes to PILS are documented here.
   docstrings for constants) and the pages include them; the docs render the
   Sphinx roles of the docstrings as links
 
+### Added
+- AZEL telescope positions for campaigns without a survey: the newest
+  survey of another campaign (the telescopes do not move), or, with
+  `--telescope-source so3g` (`pils package`, `pils quicklook`), the so3g
+  site used by sotodlib (2-3 m from the survey). The DJI base correction
+  needs the campaign's own survey; without it the drone track is not
+  corrected (in 202511 the correction is 1.3 m east, 9.2 m up). The source
+  of each position is in the AZEL metadata (`telescope_position_source`,
+  `base_position_source`, `position_notes`)
+
 ### Fixed
 - Payload files of every campaign load: `pils package --dry-run` packs 274
   of the 275 flights of 2022-2025 (was 156; flight_20251208_1404 has no
