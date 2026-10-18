@@ -47,15 +47,13 @@ default; `optimize=False` runs the template as it is) (`pils.analyze.ppk_tuning.
    a warning: relative positions stay at centimetres, the absolute position
    is good to a few metres).
 4. **Run** every candidate with `rnx2rtkp` in parallel.
-5. **Score** every epoch of each solution against the drone's RTK track
-   (after removing the median offset, the lever arm): good fixes within
-   0.10 m horizontally and 0.15 m vertically, wrong fixes off by more than
-   0.5 m (`score_against_reference`). Without a reference track
-   (`reference=None`), the forward and backward solutions must agree
-   instead, and fix-and-hold is not tried.
-6. **Choose** the candidate with the most good fixes among those with at most
-   0.5 % wrong fixes (`max_wrong_pct`); if none is valid, the template is
-   used.
+5. **Choose** the candidate with the most epochs fixed by RTKLIB (Q=1), the
+   default (`selection="fix_rate"`). Optional checks:
+   `selection="reference"` keeps the candidates whose fixes agree with the
+   drone's RTK track (good fixes within 0.10/0.15 m, at most 0.5 % of epochs
+   off by more than 0.5 m; `score_against_reference`), and
+   `selection="directions"` needs the forward and backward solutions to agree.
+6. If no candidate fixes any epoch, the template is used.
 7. **Explain**: from the random runs, how each setting acted on this flight
    (`setting_effects`, `tuning_effects` in the manifest; the quick look
    shows it).
@@ -68,21 +66,22 @@ The fix rate alone is not a safe criterion. On flight_20251206_1833:
 | L1, GPS+Galileo, fix-and-hold, ratio 2 | 72 % | 0.18 / 0.10 m | 1.5 % |
 | L1, GPS+Galileo+BeiDou, no SNR mask, 15 deg, continuous (chosen) | 67 % | 0.04 / 0.05 m | 0 % |
 
-On the 119 November 2025 flights (good fixes, % of epochs, median; at most
-0.5 % wrong fixes):
+The search adapts to each flight: the grid follows the data profile, and the
+random configurations explore the settings around it.
 
-| Configuration | Good fixes | Wrong fixes (mean) |
-|---|---|---|
-| Template (`base.conf`, L1+L2, SNR mask 35) | 1.6 % | 17 % |
-| Grid (384 candidates) | 5.1 % (86 flights; 0 on the others) | 0.03 % |
-| Grid + 1000 random | 9.0 % | at most 0.5 % |
+!!! warning "Fix rate and wrong fixes"
+    The most Q=1 epochs is not always the most correct positions. On the 119
+    November 2025 flights, scored against the drone RTK track, the template
+    fixed 17 % of the epochs on average more than 0.5 m off. Choosing by fix
+    rate keeps such configurations; `selection="reference"` excludes them
+    when a reference track exists. With the reference selection the median
+    of correct fixes was 9 % with the random search, 5 % with the grid alone
+    and 1.6 % with the template.
 
 The random search costs about a minute on 32 cores (`n_random` sets it).
 A model of the settings' effects, trained on other days and tested on days
-it had not seen, chose no better than random sampling, with or without the
-data features: the effects depend on the data (e.g. fix-and-hold helps most
-with a weak Galileo E5b signal), but not predictably enough across days, so
-they are measured on each flight.
+it had not seen, chose no better than random sampling, so the effects are
+measured on each flight.
 
 When the rover data itself limits fixing (L1 phase loss of lock on more than
 10 % of observations, or continuous tracking shorter than 150 s), the run
@@ -92,13 +91,14 @@ from flight to flight, and neither a single configuration nor a model trained
 on other days finds it; the search on the flight's own data does.
 
 The revision keeps the chosen configuration as `optimized.conf`, every
-candidate in the `tuning` table (settings, fix rate, good and wrong fixes,
-validity), and the data profiles, the choice and the effects in its manifest.
+candidate in the `tuning` table (settings, fix rate; good and wrong fixes with
+`selection="reference"`), and the data profiles, the choice and the effects in
+its manifest.
 
 ```python
 ppk = PPKAnalysis(flight)
 version = ppk.run_analysis("template.conf", optimize=True)
-version.tuning_data.filter("valid").sort("good_pct", descending=True)
+version.tuning_data.sort("fix_pct", descending=True)
 ```
 
 ::: pils.analyze.ppk_tuning.tune

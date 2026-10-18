@@ -481,8 +481,8 @@ class QuickLook:
             profile them for PPK.
         ppk_template : str | Path, optional
             RTKLIB configuration: also tune it to the data
-            (:func:`pils.analyze.ppk_tuning.tune`, validated on the drone RTK
-            track) and report the result. Takes several minutes.
+            (:func:`pils.analyze.ppk_tuning.tune`, the most fixed epochs)
+            and report the result. Takes a few minutes.
         telescope_source : {"survey", "so3g"}, default="survey"
             Telescope positions for AZEL (see
             ``pils.sensors.emlid.reference_positions``).
@@ -1141,18 +1141,6 @@ class QuickLook:
             return None
         return float(np.linalg.norm(np.subtract(rover_xyz, base.approx_xyz)) / 1e3)
 
-    def _reference_track(self) -> pl.DataFrame | None:
-        drone = self.flight.raw_data.drone_data.drone
-        if not isinstance(drone, pl.DataFrame) or "rtk_lat_deg" not in drone.columns:
-            return None
-        track = drone.select(
-            "timestamp",
-            pl.col("rtk_lat_deg").alias("lat_deg"),
-            pl.col("rtk_lon_deg").alias("lon_deg"),
-            pl.col("rtk_h_ell_m").alias("h_ell_m"),
-        ).filter((pl.col("lat_deg") != 0) & pl.col("timestamp").is_not_null())
-        return track if track.height else None
-
     def _ppk(
         self,
         section: Section,
@@ -1164,8 +1152,7 @@ class QuickLook:
     ) -> None:
         from pils.analyze.ppk_tuning import tune
 
-        reference = self._reference_track()
-        result = tune(template, rover_obs, base_obs, nav, work / "runs", reference)
+        result = tune(template, rover_obs, base_obs, nav, work / "runs")
         trials = result.table()
         self.tables["ppk_tuning"] = trials
         self.metadata["ppk_validation"] = result.validation
@@ -1174,7 +1161,7 @@ class QuickLook:
             "### PPK tuning",
             "",
             f"Template {Path(str(template)).name}, {len(result.trials)} candidates, "
-            f"validated on the {result.validation}.",
+            f"chosen by {result.validation}.",
         )
         if result.base_note:
             section.add("", f"Base position check: {result.base_note}.")
@@ -1182,8 +1169,8 @@ class QuickLook:
             self.warnings.append(f"PPK: {result.base_note}")
         best = result.best
         if best is None:
-            section.add("", "**No candidate passed validation**: no reliable fixes.")
-            self.warnings.append("PPK: no configuration gives validated fixes")
+            section.add("", "**No candidate fixes any epoch.**")
+            self.warnings.append("PPK: no configuration fixes any epoch")
         else:
             assert result.config_text is not None and self.revision_dir is not None
             (self.revision_dir / "optimized.conf").write_text(result.config_text)
