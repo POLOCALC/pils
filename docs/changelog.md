@@ -83,12 +83,11 @@ All notable changes to PILS are documented here.
 
 ### Added
 - PPK tuning: 1000 random configurations over 18 RTKLIB settings besides
-  the grid (`n_random`), every epoch scored against the drone RTK track
-  (good and wrong fixes), the best is the one with the most good fixes and
-  at most 0.5 % wrong; and how each setting acted on the flight
-  (`setting_effects`, `tuning_effects`, shown by the quick look). On the 119
-  November 2025 flights: median 9 % good fixes, against 5 % with the grid
-  and 1.6 % with the template (17 % wrong fixes)
+  the grid (`n_random`); the best has the most epochs fixed by RTKLIB (Q=1,
+  `selection="fix_rate"`, the default), or, with `selection="reference"`,
+  the most fixes agreeing with the drone RTK track; and how each setting
+  acted on the flight (`setting_effects`, `tuning_effects`, shown by the
+  quick look). A PPK run that fails no longer leaves an empty revision
 - AZEL telescope positions for campaigns without a survey: the newest
   survey of another campaign (the telescopes do not move), or, with
   `--telescope-source so3g` (`pils package`, `pils quicklook`), the so3g

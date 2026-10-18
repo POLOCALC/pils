@@ -417,7 +417,9 @@ class PPKAnalysis:
         revision_path.mkdir(parents=True, exist_ok=True)
         return revision_path
 
-    def _should_run_analysis(self, config_path: Path, optimize: bool = False) -> bool:
+    def _should_run_analysis(
+        self, config_path: Path, optimize: bool = False, selection: str = "fix_rate"
+    ) -> bool:
         """
         Determine if RTKLIB analysis should run.
 
@@ -457,7 +459,7 @@ class PPKAnalysis:
             return True
 
         current_hash = self._hash_config(config_path) + (
-            ":optimize" if optimize else ""
+            f":optimize:{selection}" if optimize else ""
         )
         previous_hash = latest.metadata.get("config_hash")
 
@@ -687,6 +689,7 @@ class PPKAnalysis:
         analyze_ppk: bool = False,
         optimize: bool = True,
         reference: pl.DataFrame | str | None = "drone",
+        selection: str = "fix_rate",
     ) -> PPKVersion | None:
         """
         Execute RTKLIB PPK analysis with smart re-run logic.
@@ -725,10 +728,14 @@ class PPKAnalysis:
             ``optimized.conf`` and every candidate in the ``tuning`` table.
             If no candidate passes validation, the template is used.
         reference : pl.DataFrame, "drone" or None, optional
-            Track used to validate the candidates' fixes: ``"drone"`` (the
-            drone's RTK track, the default), a table with ``timestamp``,
-            ``lat_deg``, ``lon_deg``, ``h_ell_m``, or None to compare forward
-            and backward solutions instead.
+            Track for ``selection="reference"``: ``"drone"`` (the drone's
+            RTK track) or a table with ``timestamp``, ``lat_deg``,
+            ``lon_deg``, ``h_ell_m``. Not loaded with the other selections.
+        selection : {"fix_rate", "reference", "directions"}, default="fix_rate"
+            How the tuning chooses the configuration: the most epochs fixed
+            by RTKLIB (default), the most fixes agreeing with ``reference``,
+            or forward/backward agreement (see
+            :func:`pils.analyze.ppk_tuning.tune`).
 
         Returns
         -------
@@ -754,12 +761,51 @@ class PPKAnalysis:
         >>> # Force re-run
         >>> v3 = ppk.run_analysis(..., force=True)
         """
+        before = {p.name for p in self.ppk_dir.glob("rev_*")}
+        try:
+            return self._run_analysis(
+                config_path,
+                rover_obs=rover_obs,
+                base_obs=base_obs,
+                nav_file=nav_file,
+                force=force,
+                analyze_rinex=analyze_rinex,
+                analyze_ppk=analyze_ppk,
+                optimize=optimize,
+                reference=reference,
+                selection=selection,
+            )
+        finally:
+            # A run that failed leaves its revision folder without a manifest
+            for folder in self.ppk_dir.glob("rev_*"):
+                if (
+                    folder.name not in before
+                    and not (folder / "manifest.json").exists()
+                ):
+                    shutil.rmtree(folder, ignore_errors=True)
+
+    def _run_analysis(
+        self,
+        config_path: str | Path,
+        rover_obs: str | Path | None = None,
+        base_obs: str | Path | None = None,
+        nav_file: str | Path | None = None,
+        force: bool = False,
+        analyze_rinex: bool = False,
+        analyze_ppk: bool = False,
+        optimize: bool = True,
+        reference: pl.DataFrame | str | None = "drone",
+        selection: str = "fix_rate",
+    ) -> PPKVersion | None:
+        """Run the analysis; see :meth:`run_analysis`."""
         config_path = Path(config_path)
         if not config_path.exists():
             raise FileNotFoundError(f"Config file not found: {config_path}")
 
         # Check if should run
-        if not force and not self._should_run_analysis(config_path, optimize):
+        if not force and not self._should_run_analysis(
+            config_path, optimize, selection
+        ):
             logger.info("Skipping analysis - config unchanged")
             latest = self.get_latest_version()
             if latest is not None:
@@ -891,7 +937,11 @@ class PPKAnalysis:
         logger.info(f"Running PPK analysis: {version_name}")
         tuning = None
         if optimize:
-            track = self._reference_track() if isinstance(reference, str) else reference
+            track = None
+            if selection == "reference":
+                track = (
+                    self._reference_track() if isinstance(reference, str) else reference
+                )
             tuning = tune(
                 config_path,
                 rover_obs,
@@ -899,6 +949,7 @@ class PPKAnalysis:
                 nav_file,
                 revision_path / "tuning",
                 reference=track,
+                selection=selection,
             )
             shutil.rmtree(revision_path / "tuning", ignore_errors=True)
         if tuning is not None and tuning.config_text is not None:
@@ -977,7 +1028,9 @@ class PPKAnalysis:
                 stat_data = None
 
         # Create metadata with config hash and parsed parameters
-        config_hash = self._hash_config(config_path) + (":optimize" if optimize else "")
+        config_hash = self._hash_config(config_path) + (
+            f":optimize:{selection}" if optimize else ""
+        )
         config_params = self._parse_config_params(config_copy)
         metadata = {
             "config_hash": config_hash,

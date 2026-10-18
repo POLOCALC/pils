@@ -791,9 +791,11 @@ def setting_effects(
     with a choice and the runs without it differ, on average, only by that
     choice. For each choice of :data:`SETTING_CHOICES`:
 
-    - ``gain``: the 97th percentile of good fixes (% of epochs) with the
+    - ``gain``: the 97th percentile of good fixes (% of epochs; the fix
+      rate when the trials were not scored against a reference) with the
       choice minus without, i.e. what the best configurations reach;
-    - ``risk``: the mean wrong fixes (% of epochs) with minus without.
+    - ``risk``: the mean wrong fixes (% of epochs) with minus without (None
+      without a reference).
 
     On the November 2025 flights the effects depend on the data: e.g.
     fix-and-hold gained most with a weak Galileo E5b signal, GLONASS with
@@ -805,7 +807,7 @@ def setting_effects(
     Parameters
     ----------
     trials : list of Candidate
-        Scored candidates; only ``random_*`` ones with ``good_pct`` are used.
+        Run candidates; only the ``random_*`` ones are used.
     min_runs : int, default=20
         Fewest runs on each side to report a choice.
 
@@ -815,9 +817,12 @@ def setting_effects(
         ``choice``, ``gain``, ``risk``, ``runs_with``, ``runs_without``,
         sorted by gain.
     """
-    runs = [
-        t for t in trials if t.name.startswith("random_") and t.good_pct is not None
-    ]
+    runs = [t for t in trials if t.name.startswith("random_") and t.epochs]
+    scored = bool(runs) and all(t.good_pct is not None for t in runs)
+
+    def value(t: Candidate) -> float:
+        return float(t.good_pct if scored and t.good_pct is not None else t.fix_pct)
+
     out = []
     for name, (yes, no) in SETTING_CHOICES.items():
         try:
@@ -831,13 +836,15 @@ def setting_effects(
             {
                 "choice": name,
                 "gain": float(
-                    np.percentile([t.good_pct for t in a], 97)
-                    - np.percentile([t.good_pct for t in b], 97)
+                    np.percentile([value(t) for t in a], 97)
+                    - np.percentile([value(t) for t in b], 97)
                 ),
                 "risk": float(
                     np.mean([t.wrong_pct or 0.0 for t in a])
                     - np.mean([t.wrong_pct or 0.0 for t in b])
-                ),
+                )
+                if scored
+                else None,
                 "runs_with": len(a),
                 "runs_without": len(b),
             }
@@ -895,6 +902,7 @@ def tune(
     n_random: int = N_RANDOM,
     seed: int = 0,
     max_wrong_pct: float = 0.5,
+    selection: str = "fix_rate",
 ) -> TuningResult:
     """Choose the RTKLIB configuration for this data.
 
@@ -910,9 +918,8 @@ def tune(
         Folder for the candidates' configs and solutions.
     reference : pl.DataFrame, optional
         Independent track of the rover (``timestamp`` UNIX s UTC,
-        ``lat_deg``, ``lon_deg``, ``h_ell_m``), e.g. the drone RTK track.
-        Without it, forward and backward solutions are compared (two runs
-        per candidate).
+        ``lat_deg``, ``lon_deg``, ``h_ell_m``), e.g. the drone RTK track;
+        used by ``selection="reference"``.
     max_h_rms, max_v_rms : float
         Largest RMS (m) of the fixed epochs against the reference.
     max_bad_pct : float
@@ -928,6 +935,8 @@ def tune(
     max_wrong_pct : float, default=0.5
         With a reference: largest % of epochs with a wrong fix (off by more
         than ``WRONG_M``) for a valid candidate.
+    selection : {"fix_rate", "reference", "directions"}, default="fix_rate"
+        How the best candidate is chosen (see Notes).
 
     Returns
     -------
@@ -938,11 +947,15 @@ def tune(
 
     Notes
     -----
-    With a reference, every epoch of a solution is scored
-    (:func:`score_against_reference`): a candidate is valid with at most
-    ``max_wrong_pct`` wrong fixes, and the best has the most good fixes.
-    Without one, forward and backward solutions are compared and the best
-    valid candidate has the most fixes.
+    - ``"fix_rate"``: the candidate with the most epochs fixed by RTKLIB
+      (Q=1, of all the solution's epochs); no other check. On the November
+      2025 flights the highest fix rates often included wrong fixes (the
+      template: 17 % of epochs fixed off by more than 0.5 m, on average).
+    - ``"reference"``: every epoch is scored against ``reference``
+      (:func:`score_against_reference`): valid with at most
+      ``max_wrong_pct`` wrong fixes, the best has the most good fixes.
+    - ``"directions"``: forward and backward solutions must agree (two runs
+      per candidate, no fix-and-hold); the most fixes.
     """
     workdir = Path(workdir)
     workdir.mkdir(parents=True, exist_ok=True)
@@ -954,19 +967,25 @@ def tune(
         logger.warning(data_note)
     if base_overrides:
         logger.warning(base_note)
-    directions = reference is None
+    if selection not in ("fix_rate", "reference", "directions"):
+        raise ValueError(f"Unknown selection {selection!r}")
+    if selection == "reference" and reference is None:
+        raise ValueError('selection="reference" needs a reference track')
+    directions = selection == "directions"
+    by_reference = selection == "reference"
     # Forward and backward fix-and-hold solutions can hold the same wrong
-    # ambiguities: without a reference, only continuous resolution is tried
+    # ambiguities: with "directions", only continuous resolution is tried
     trials = candidates(rover, base, hold=not directions, template=text)
     if n_random:
         trials += random_candidates(
             rover, base, n=n_random, seed=seed, hold=not directions
         )
-    method = "forward/backward" if directions else "reference track"
-    logger.info(
-        f"Tuning RTKLIB: {len(trials)} candidates, validation "
-        + ("forward/backward" if directions else "reference track")
-    )
+    method = {
+        "fix_rate": "fix rate",
+        "reference": "reference track",
+        "directions": "forward/backward",
+    }[selection]
+    logger.info(f"Tuning RTKLIB: {len(trials)} candidates, selection by {method}")
 
     def run(candidate: Candidate) -> Candidate:
         candidate.overrides.update(base_overrides)
@@ -1007,6 +1026,16 @@ def tune(
                         workdir / f"{candidate.name}.pos",
                     )
                 )
+                if not by_reference:
+                    candidate.epochs = solution.height
+                    if solution.height:
+                        candidate.fix_pct = float(
+                            100 * (solution["quality"] == 1).sum() / solution.height
+                        )
+                    candidate.valid = candidate.fix_pct > 0
+                    if not candidate.valid:
+                        candidate.note = "no fixed epochs"
+                    return candidate
                 assert reference is not None
                 score = (
                     score_against_reference(solution, reference)
@@ -1060,7 +1089,9 @@ def tune(
     def merit(c: Candidate) -> tuple[float, float]:
         if directions:
             return round(c.fix_pct, 1), -(c.h_rms or 0)
-        return round(c.good_pct or 0.0, 1), -(c.wrong_pct or 0.0)
+        if by_reference:
+            return round(c.good_pct or 0.0, 1), -(c.wrong_pct or 0.0)
+        return round(c.fix_pct, 1), 0.0
 
     best = max(valid, key=merit) if valid else None
     config_text = None
@@ -1069,9 +1100,9 @@ def tune(
         logger.info(
             f"Best RTKLIB config {best.name}: {best.fix_pct:.1f} % fixed"
             + (
-                ""
-                if directions
-                else f", {best.good_pct:.1f} % good, {best.wrong_pct:.2f} % wrong"
+                f", {best.good_pct:.1f} % good, {best.wrong_pct:.2f} % wrong"
+                if by_reference
+                else ""
             )
         )
     else:

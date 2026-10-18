@@ -146,6 +146,7 @@ def test_tune_picks_most_fixes_among_valid(tmp_path, monkeypatch):
         tmp_path / "work",
         reference=track(t),
         n_random=0,
+        selection="reference",
     )
     assert result.best is not None
     assert result.best.overrides["pos2-armode"] == "continuous"
@@ -213,6 +214,7 @@ def test_setting_effects():
                 "pos2-minfixsats": "5",
             },
         )
+        c.epochs = 100
         c.good_pct, c.wrong_pct = (40.0 if hold else 10.0), (2.0 if hold else 0.0)
         trials.append(c)
     effects = {e["choice"]: e for e in T.setting_effects(trials)}
@@ -239,3 +241,58 @@ def test_base_cache_covers_the_rover(tmp_path, monkeypatch):
     assert not ppk._covers(
         obs, datetime(2025, 12, 6, 18, 0), datetime(2025, 12, 6, 18, 45)
     )
+
+
+def test_tune_by_fix_rate(tmp_path, monkeypatch):
+    """The default: the most fixed epochs (Q=1), no reference needed."""
+    rover = rinex(tmp_path / "r.obs")
+    base = rinex(tmp_path / "b.obs")
+    t = np.arange(0.0, 100.0)
+
+    def fake_run(config, rover_obs, base_obs, nav, pos):
+        text = config.read_text()
+        el = int(T.config_value(text, "pos1-elmask"))
+        hold = T.config_value(text, "pos2-armode") == "fix-and-hold"
+        quality = np.where(t < 30 + el + (20 if hold else 0), 1, 2)
+        track(t).with_columns(pl.Series("quality", quality)).write_parquet(pos)
+        return pos
+
+    monkeypatch.setattr(T, "run_rnx2rtkp", fake_run)
+    monkeypatch.setattr(T, "read_pos", lambda pos: pl.read_parquet(pos))
+    result = T.tune(
+        "pos2-armode =continuous\npos1-elmask =10\n",
+        rover,
+        base,
+        tmp_path / "n.nav",
+        tmp_path / "work",
+        n_random=60,
+    )
+    assert result.validation == "fix rate"
+    best = result.best
+    assert best is not None and best.fix_pct == max(c.fix_pct for c in result.trials)
+    assert best.overrides["pos2-armode"] == "fix-and-hold"
+    effects = {e["choice"]: e for e in result.effects}
+    assert effects["fix-and-hold (vs continuous)"]["gain"] > 10
+    assert effects["fix-and-hold (vs continuous)"]["risk"] is None
+    with pytest.raises(ValueError, match="needs a reference"):
+        T.tune(
+            "x", rover, base, tmp_path / "n.nav", tmp_path / "w", selection="reference"
+        )
+
+
+def test_failed_ppk_run_leaves_no_revision(tmp_path, monkeypatch):
+    from pils.analyze.ppk import PPKAnalysis
+
+    ppk = PPKAnalysis.__new__(PPKAnalysis)
+    ppk.ppk_dir = tmp_path / "ppk"
+    ppk.ppk_dir.mkdir()
+    (ppk.ppk_dir / "rev_20250101_000000").mkdir()  # an earlier, kept
+
+    def fail(*args, **kwargs):
+        (ppk.ppk_dir / "rev_20261018_093715").mkdir()
+        raise FileNotFoundError("No base recording covers ...")
+
+    monkeypatch.setattr(ppk, "_run_analysis", fail)
+    with pytest.raises(FileNotFoundError):
+        ppk.run_analysis("template.conf")
+    assert [p.name for p in ppk.ppk_dir.iterdir()] == ["rev_20250101_000000"]
