@@ -219,3 +219,23 @@ def test_setting_effects():
     hold = effects["fix-and-hold (vs continuous)"]
     assert hold["gain"] == pytest.approx(30) and hold["risk"] == pytest.approx(2)
     assert "L1+L2 (vs L1)" not in effects  # never tried
+
+
+def test_base_cache_covers_the_rover(tmp_path, monkeypatch):
+    from datetime import datetime
+
+    from pils.analyze.ppk import PPKAnalysis
+
+    ppk = PPKAnalysis.__new__(PPKAnalysis)
+    span = (datetime(2025, 12, 6, 18, 30), datetime(2025, 12, 6, 18, 50))
+    monkeypatch.setattr(ppk, "_get_rinex_bounds", lambda obs: span)
+    obs = tmp_path / "base.obs"
+    assert ppk._covers(
+        obs, datetime(2025, 12, 6, 18, 35), datetime(2025, 12, 6, 18, 45)
+    )
+    assert not ppk._covers(
+        obs, datetime(2025, 12, 6, 18, 35), datetime(2025, 12, 6, 19, 0)
+    )
+    assert not ppk._covers(
+        obs, datetime(2025, 12, 6, 18, 0), datetime(2025, 12, 6, 18, 45)
+    )
