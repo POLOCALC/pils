@@ -540,10 +540,9 @@ class PPKAnalysis:
         first, last = self._get_rinex_bounds(obs)
         if first is None or last is None:
             return False
-        return (
-            bool((first - start).total_seconds() <= 2)
-            and bool(end - last).total_seconds() <= 2
-        )
+        early = (first - start).total_seconds()
+        late = (end - last).total_seconds()
+        return bool(early <= 2 and late <= 2)
 
     def _base_candidates(self) -> list[Path]:
         """Raw u-blox base recordings: the day's, then the campaign's."""
