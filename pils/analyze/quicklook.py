@@ -1188,11 +1188,17 @@ class QuickLook:
             assert result.config_text is not None and self.revision_dir is not None
             (self.revision_dir / "optimized.conf").write_text(result.config_text)
             self.metadata["ppk_best"] = best.row()
+            quality = (
+                f"{_fmt(best.good_pct, 1)} % good fixes, "
+                f"{_fmt(best.wrong_pct, 2)} % wrong fixes (of the epochs)"
+                if best.good_pct is not None
+                else f"RMS {_fmt(best.h_rms, 3)} m horizontal / "
+                f"{_fmt(best.v_rms, 3)} m vertical, {_fmt(best.bad_pct, 2)} % "
+                "wrong fixes"
+            )
             section.add(
                 "",
-                f"Best: **{best.name}**, {best.fix_pct:.1f} % fixed, "
-                f"RMS {_fmt(best.h_rms, 3)} m horizontal / {_fmt(best.v_rms, 3)} m "
-                f"vertical, {_fmt(best.bad_pct, 2)} % wrong fixes. "
+                f"Best: **{best.name}**, {best.fix_pct:.1f} % fixed, {quality}. "
                 "Configuration: `optimized.conf` next to this report.",
                 "",
                 "Settings changed from the template:",
@@ -1201,12 +1207,36 @@ class QuickLook:
             )
             if best.fix_pct < 50:
                 self.warnings.append(f"PPK: best fix rate only {best.fix_pct:.0f} %")
-        top = trials.sort(["valid", "fix_pct"], descending=True).head(10)
-        columns = ["name", "fix_pct", "h_rms_m", "v_rms_m", "bad_pct", "valid", "note"]
-        columns = [c for c in columns if c in top.columns]
+        top = trials.head(10)  # sorted by tune: valid first, then the best
+        columns = [
+            "name",
+            "fix_pct",
+            "good_pct",
+            "wrong_pct",
+            "h_rms_m",
+            "v_rms_m",
+            "bad_pct",
+            "valid",
+            "note",
+        ]
+        columns = [
+            c for c in columns if c in top.columns and top[c].null_count() < top.height
+        ]
         section.add(
             "", "Top candidates:", "", md_table(top.select(columns).to_dicts(), 2)
         )
+        effects = result.effects
+        if effects:
+            section.add(
+                "",
+                "How the settings acted on this flight (random configurations; "
+                "gain: best good fixes with minus without, risk: wrong fixes "
+                "with minus without, % of epochs):",
+                "",
+                md_table(
+                    [{k: e[k] for k in ("choice", "gain", "risk")} for e in effects], 1
+                ),
+            )
 
     # AZEL ---------------------------------------------------------------------------
 
