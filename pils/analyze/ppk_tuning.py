@@ -3,15 +3,14 @@
 The best RTKLIB settings depend on the data: which signals the rover tracks
 well (a payload antenna may have a weak L2), which constellations both
 receivers see, how fast the data are. :func:`tune` profiles the rover and base
-RINEX files, builds candidate configurations from the profile around a
-template, runs them all with ``rnx2rtkp`` in parallel, and keeps the one with
-the most fixed epochs among those that pass validation:
+RINEX files, builds candidate configurations around a template (a grid from
+the profile and :data:`N_RANDOM` random configurations), runs them all with
+``rnx2rtkp`` in parallel, and keeps the best one that passes validation:
 
 - with a reference track (the drone's RTK solution, flown about a metre from
-  the payload antenna), the fixed epochs must follow it: after removing the
-  median offset (lever arm), horizontal and vertical RMS below
-  ``max_h_rms``/``max_v_rms`` and at most ``max_bad_pct`` % of the fixed
-  epochs off by more than 1 m;
+  the payload antenna), every fixed epoch is scored against it after
+  removing the median offset (lever arm): the most good fixes among the
+  candidates with at most ``max_wrong_pct`` % wrong fixes;
 - without one, the forward and backward solutions must agree on the epochs
   that both fix; this check is weaker (both directions can hold the same
   wrong ambiguities with fix-and-hold, which is then not tried).
@@ -20,11 +19,15 @@ The fix rate alone is not a safe criterion: lower ratio thresholds and
 fix-and-hold raise it with wrong fixes (on flight_20251206_1833, 72 % fixed
 but 1.5 % of the fixes off by more than a metre, against 65 % with none).
 
+The random configurations also show how each setting acted on the flight
+(:func:`setting_effects`).
+
 Examples
 --------
 >>> result = tune(template, rover_obs, base_obs, nav, workdir,
 ...               reference=drone_track)  # doctest: +SKIP
->>> result.best.overrides, result.best.fix_pct  # doctest: +SKIP
+>>> result.best.overrides, result.best.good_pct  # doctest: +SKIP
+>>> result.effects  # doctest: +SKIP
 """
 
 from __future__ import annotations
@@ -35,6 +38,7 @@ import os
 import re
 import shutil
 import subprocess
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -262,6 +266,8 @@ class Candidate:
     h_rms: float | None = None
     v_rms: float | None = None
     bad_pct: float | None = None
+    good_pct: float | None = None
+    wrong_pct: float | None = None
     valid: bool = False
     note: str = ""
 
@@ -275,6 +281,8 @@ class Candidate:
             "h_rms_m": self.h_rms,
             "v_rms_m": self.v_rms,
             "bad_pct": self.bad_pct,
+            "good_pct": self.good_pct,
+            "wrong_pct": self.wrong_pct,
             "valid": self.valid,
             "note": self.note,
         }
@@ -370,6 +378,107 @@ def candidates(
 
 # The template's base position is not used if it is farther than this from
 # the base receiver's own position (RINEX header), m
+N_RANDOM = 1000
+"""Random configurations tried by :func:`tune` besides the grid.
+
+On the 119 November 2025 flights, the best of 1000 random configurations
+(validated on the drone RTK track, at most 0.5 % wrong fixes) gave a median
+of 9 % correctly fixed epochs, twice the grid's; 1000 runs take about a
+minute on 32 cores.
+"""
+
+
+def usable_systems(rover: ObsProfile, base: ObsProfile) -> list[str]:
+    """List GPS and the systems both receivers see enough of."""
+    common = {
+        s: min(rover.sats.get(s, 0), base.sats.get(s, 0)) for s in ("G", "E", "R", "C")
+    }
+    return [s for s in ("G", "E", "R", "C") if common[s] >= MIN_COMMON_SATS]
+
+
+def random_candidates(
+    rover: ObsProfile,
+    base: ObsProfile,
+    n: int = N_RANDOM,
+    seed: int = 0,
+    hold: bool = True,
+) -> list[Candidate]:
+    """Draw random configurations over 18 RTKLIB settings.
+
+    The settings and their ranges: frequency (L1, L1+L2), systems (GPS plus
+    any of the usable Galileo, GLONASS, BeiDou), elevation mask 5-25 deg,
+    rover SNR mask off or 20-40 dB-Hz, ambiguity resolution continuous or
+    (with ``hold``) fix-and-hold, ratio threshold 1.5-4, GLONASS and BeiDou
+    ambiguity resolution, lock count 0-20, minimum satellites to fix 3-8,
+    ambiguity elevation mask 0-25 deg, outage count 1-20, slip threshold
+    0.02-0.2 m, ionosphere rejection 1-30 m, code/phase error ratio
+    100-500, phase error 2-20 mm, horizontal acceleration noise 1-10 m/s2,
+    receiver dynamics.
+
+    Parameters
+    ----------
+    rover, base : ObsProfile
+        Data profiles (:func:`profile_obs`); they decide the systems.
+    n : int, default=N_RANDOM
+        Number of configurations.
+    seed : int, default=0
+        Random seed (the same data and seed give the same candidates).
+    hold : bool, default=True
+        Allow fix-and-hold.
+
+    Returns
+    -------
+    list of Candidate
+        Named ``random_0000`` ... with their overrides.
+    """
+    rng = np.random.default_rng(seed)
+    others = [s for s in usable_systems(rover, base) if s != "G"]
+    out = []
+    for i in range(n):
+        systems = ["G"] + [s for s in others if rng.random() < 0.5]
+        snr = int(rng.choice([0, *range(20, 41)]))
+        thres = float(np.round(rng.uniform(1.5, 4.0), 2))
+        phase = float(np.round(10 ** rng.uniform(np.log10(0.002), np.log10(0.02)), 4))
+        ratio = str(int(rng.integers(100, 501)))
+        mask = ",".join([str(snr or 30)] * 9)
+        overrides = {
+            "pos1-frequency": str(rng.choice(["l1", "l1+l2"])),
+            "pos1-navsys": str(sum(NAVSYS_BITS[s] for s in systems)),
+            "pos1-elmask": str(int(rng.integers(5, 26))),
+            "pos1-snrmask_r": "on" if snr else "off",
+            "pos1-snrmask_b": "off",
+            "pos1-snrmask_L1": mask,
+            "pos1-snrmask_L2": mask,
+            "pos1-soltype": "combined",
+            "pos1-dynamics": str(rng.choice(["on", "off"])),
+            "pos2-armode": str(rng.choice(["continuous", "fix-and-hold"]))
+            if hold
+            else "continuous",
+            "pos2-arthres": str(thres),
+            "pos2-arthresmin": str(thres),
+            "pos2-arthresmax": str(thres),
+            "pos2-gloarmode": str(rng.choice(["off", "autocal"])),
+            "pos2-bdsarmode": str(rng.choice(["off", "on"])),
+            "pos2-arlockcnt": str(int(rng.integers(0, 21))),
+            "pos2-minfixsats": str(int(rng.integers(3, 9))),
+            "pos2-arelmask": str(int(rng.integers(0, 26))),
+            "pos2-aroutcnt": str(int(rng.integers(1, 21))),
+            "pos2-slipthres": str(
+                float(np.round(10 ** rng.uniform(np.log10(0.02), np.log10(0.2)), 3))
+            ),
+            "pos2-rejionno": str(
+                float(np.round(10 ** rng.uniform(0, np.log10(30)), 1))
+            ),
+            "stats-eratio1": ratio,
+            "stats-eratio2": ratio,
+            "stats-errphase": str(phase),
+            "stats-errphaseel": str(phase),
+            "stats-prnaccelh": str(float(np.round(rng.uniform(1, 10), 1))),
+        }
+        out.append(Candidate(name=f"random_{i:04d}", overrides=overrides))
+    return out
+
+
 MAX_BASE_OFFSET_M = 50.0
 
 
@@ -516,6 +625,86 @@ def compare_to_reference(
     )
 
 
+GOOD_H_M, GOOD_V_M = 0.10, 0.15
+"""A fixed epoch is good within these (horizontal, vertical) of the reference."""
+
+WRONG_M = 0.5
+"""A fixed epoch is wrong (wrong ambiguities) when off by more than this."""
+
+
+def score_against_reference(
+    solution: pl.DataFrame, reference: pl.DataFrame
+) -> dict[str, float] | None:
+    """Score each fixed epoch against an independent track.
+
+    The median offset of the fixed epochs (lever arm) is removed.
+
+    Parameters
+    ----------
+    solution : pl.DataFrame
+        ``timestamp``, ``lat_deg``, ``lon_deg``, ``h_ell_m``, ``quality``.
+    reference : pl.DataFrame
+        ``timestamp``, ``lat_deg``, ``lon_deg``, ``h_ell_m`` (e.g. the
+        drone RTK track).
+
+    Returns
+    -------
+    dict or None
+        ``fix_pct``, ``good_pct`` (fixed within ``GOOD_H_M``/``GOOD_V_M``)
+        and ``wrong_pct`` (fixed, off by more than ``WRONG_M``), all in % of
+        the epochs inside the reference span; ``h_rms``/``v_rms`` (m) of
+        the fixed epochs. None if the solution does not overlap the
+        reference.
+    """
+    import pymap3d as pm
+
+    reference = reference.sort("timestamp")
+    rt = reference["timestamp"].to_numpy()
+    sol = solution.filter(pl.col("timestamp").is_between(rt[0], rt[-1]))
+    if sol.height == 0:
+        return None
+    fixed = sol.filter(pl.col("quality") == 1).sort("timestamp")
+    out = {
+        "fix_pct": 100 * fixed.height / sol.height,
+        "good_pct": 0.0,
+        "wrong_pct": 0.0,
+        "h_rms": float("nan"),
+        "v_rms": float("nan"),
+    }
+    if fixed.height < 10:
+        return out
+    origin = (
+        float(reference["lat_deg"].median()),  # type: ignore[arg-type]
+        float(reference["lon_deg"].median()),  # type: ignore[arg-type]
+        float(reference["h_ell_m"].median()),  # type: ignore[arg-type]
+    )
+    a = np.array(
+        pm.geodetic2enu(
+            fixed["lat_deg"].to_numpy(),
+            fixed["lon_deg"].to_numpy(),
+            fixed["h_ell_m"].to_numpy(),
+            *origin,
+        )
+    )
+    b = np.array(
+        pm.geodetic2enu(
+            reference["lat_deg"].to_numpy(),
+            reference["lon_deg"].to_numpy(),
+            reference["h_ell_m"].to_numpy(),
+            *origin,
+        )
+    )
+    b = np.array([np.interp(fixed["timestamp"].to_numpy(), rt, axis) for axis in b])
+    r = a - b
+    r -= np.median(r, axis=1, keepdims=True)
+    h, v = np.hypot(r[0], r[1]), np.abs(r[2])
+    out["good_pct"] = 100 * float(np.sum((h < GOOD_H_M) & (v < GOOD_V_M))) / sol.height
+    out["wrong_pct"] = 100 * float(np.sum((h > WRONG_M) | (v > WRONG_M))) / sol.height
+    out["h_rms"] = float(np.sqrt(np.mean(h**2)))
+    out["v_rms"] = float(np.sqrt(np.mean(v**2)))
+    return out
+
+
 def compare_directions(
     forward: pl.DataFrame, backward: pl.DataFrame
 ) -> tuple[float, float, float] | None:
@@ -544,6 +733,118 @@ def compare_directions(
     )
 
 
+SETTING_CHOICES: dict[
+    str, tuple[Callable[[dict[str, str]], bool], Callable[[dict[str, str]], bool]]
+] = {
+    "L1+L2 (vs L1)": (
+        lambda o: o["pos1-frequency"] == "l1+l2",
+        lambda o: o["pos1-frequency"] == "l1",
+    ),
+    "with Galileo": (
+        lambda o: int(o["pos1-navsys"]) & 8 > 0,
+        lambda o: int(o["pos1-navsys"]) & 8 == 0,
+    ),
+    "with GLONASS": (
+        lambda o: int(o["pos1-navsys"]) & 4 > 0,
+        lambda o: int(o["pos1-navsys"]) & 4 == 0,
+    ),
+    "with BeiDou": (
+        lambda o: int(o["pos1-navsys"]) & 32 > 0,
+        lambda o: int(o["pos1-navsys"]) & 32 == 0,
+    ),
+    "fix-and-hold (vs continuous)": (
+        lambda o: o["pos2-armode"] == "fix-and-hold",
+        lambda o: o["pos2-armode"] == "continuous",
+    ),
+    "SNR mask >= 33 dB-Hz (vs off or <= 27)": (
+        lambda o: (
+            o["pos1-snrmask_r"] == "on"
+            and int(o["pos1-snrmask_L1"].split(",")[0]) >= 33
+        ),
+        lambda o: (
+            o["pos1-snrmask_r"] == "off"
+            or int(o["pos1-snrmask_L1"].split(",")[0]) <= 27
+        ),
+    ),
+    "elevation mask >= 18 deg (vs <= 12)": (
+        lambda o: int(o["pos1-elmask"]) >= 18,
+        lambda o: int(o["pos1-elmask"]) <= 12,
+    ),
+    "AR threshold >= 3 (vs < 2.3)": (
+        lambda o: float(o["pos2-arthres"]) >= 3.0,
+        lambda o: float(o["pos2-arthres"]) < 2.3,
+    ),
+    "min fix sats >= 6 (vs <= 4)": (
+        lambda o: int(o["pos2-minfixsats"]) >= 6,
+        lambda o: int(o["pos2-minfixsats"]) <= 4,
+    ),
+}
+"""Choices compared by :func:`setting_effects`: (with, without) on the overrides."""
+
+
+def setting_effects(
+    trials: list[Candidate], min_runs: int = 20
+) -> list[dict[str, Any]]:
+    """Measure how each setting acted on this data, from the random trials.
+
+    The random configurations differ in all settings at once, so the runs
+    with a choice and the runs without it differ, on average, only by that
+    choice. For each choice of :data:`SETTING_CHOICES`:
+
+    - ``gain``: the 97th percentile of good fixes (% of epochs) with the
+      choice minus without, i.e. what the best configurations reach;
+    - ``risk``: the mean wrong fixes (% of epochs) with minus without.
+
+    On the November 2025 flights the effects depend on the data: e.g.
+    fix-and-hold gained most with a weak Galileo E5b signal, GLONASS with
+    few strong GPS satellites, BeiDou with GPS loss of lock; a ratio
+    threshold of 3 and 6 satellites to fix cut wrong fixes by 3-5 % of
+    epochs. A model of these effects learned on other days did not choose
+    better than random sampling, so they are measured on each flight.
+
+    Parameters
+    ----------
+    trials : list of Candidate
+        Scored candidates; only ``random_*`` ones with ``good_pct`` are used.
+    min_runs : int, default=20
+        Fewest runs on each side to report a choice.
+
+    Returns
+    -------
+    list of dict
+        ``choice``, ``gain``, ``risk``, ``runs_with``, ``runs_without``,
+        sorted by gain.
+    """
+    runs = [
+        t for t in trials if t.name.startswith("random_") and t.good_pct is not None
+    ]
+    out = []
+    for name, (yes, no) in SETTING_CHOICES.items():
+        try:
+            a = [t for t in runs if yes(t.overrides)]
+            b = [t for t in runs if no(t.overrides)]
+        except (KeyError, ValueError):
+            continue
+        if len(a) < min_runs or len(b) < min_runs:
+            continue
+        out.append(
+            {
+                "choice": name,
+                "gain": float(
+                    np.percentile([t.good_pct for t in a], 97)
+                    - np.percentile([t.good_pct for t in b], 97)
+                ),
+                "risk": float(
+                    np.mean([t.wrong_pct or 0.0 for t in a])
+                    - np.mean([t.wrong_pct or 0.0 for t in b])
+                ),
+                "runs_with": len(a),
+                "runs_without": len(b),
+            }
+        )
+    return sorted(out, key=lambda e: -e["gain"])
+
+
 @dataclass
 class TuningResult:
     """Outcome of :func:`tune`."""
@@ -557,6 +858,11 @@ class TuningResult:
     base_note: str = ""
     data_note: str = ""
 
+    @property
+    def effects(self) -> list[dict[str, Any]]:
+        """Effect of each setting on this data (see :func:`setting_effects`)."""
+        return setting_effects(self.trials)
+
     def table(self) -> pl.DataFrame:
         """Return the trials as a table, one row per candidate."""
         return pl.DataFrame([c.row() for c in self.trials])
@@ -569,6 +875,7 @@ class TuningResult:
             "tuning_data_quality": self.data_note,
             "tuning_best": self.best.row() if self.best else None,
             "tuning_trials": len(self.trials),
+            "tuning_effects": self.effects,
             "rover_profile": self.rover.as_dict(),
             "base_profile": self.base.as_dict(),
         }
@@ -585,6 +892,9 @@ def tune(
     max_v_rms: float = 0.15,
     max_bad_pct: float = 0.5,
     workers: int | None = None,
+    n_random: int = N_RANDOM,
+    seed: int = 0,
+    max_wrong_pct: float = 0.5,
 ) -> TuningResult:
     """Choose the RTKLIB configuration for this data.
 
@@ -610,12 +920,29 @@ def tune(
         directions without a reference).
     workers : int, optional
         Parallel runs (default: CPU count).
+    n_random : int, default=N_RANDOM
+        Random configurations tried besides the grid
+        (:func:`random_candidates`); 0 for the grid only.
+    seed : int, default=0
+        Seed of the random configurations.
+    max_wrong_pct : float, default=0.5
+        With a reference: largest % of epochs with a wrong fix (off by more
+        than ``WRONG_M``) for a valid candidate.
 
     Returns
     -------
     TuningResult
-        The best candidate (most fixed epochs among the valid ones; None if
-        none is valid), every trial, the data profiles and the chosen config.
+        The best candidate (None if none is valid), every trial, the data
+        profiles, the chosen config and the effect of each setting on this
+        data (:func:`setting_effects`).
+
+    Notes
+    -----
+    With a reference, every epoch of a solution is scored
+    (:func:`score_against_reference`): a candidate is valid with at most
+    ``max_wrong_pct`` wrong fixes, and the best has the most good fixes.
+    Without one, forward and backward solutions are compared and the best
+    valid candidate has the most fixes.
     """
     workdir = Path(workdir)
     workdir.mkdir(parents=True, exist_ok=True)
@@ -631,6 +958,10 @@ def tune(
     # Forward and backward fix-and-hold solutions can hold the same wrong
     # ambiguities: without a reference, only continuous resolution is tried
     trials = candidates(rover, base, hold=not directions, template=text)
+    if n_random:
+        trials += random_candidates(
+            rover, base, n=n_random, seed=seed, hold=not directions
+        )
     method = "forward/backward" if directions else "reference track"
     logger.info(
         f"Tuning RTKLIB: {len(trials)} candidates, validation "
@@ -677,11 +1008,29 @@ def tune(
                     )
                 )
                 assert reference is not None
-                check = (
-                    compare_to_reference(solution, reference)
+                score = (
+                    score_against_reference(solution, reference)
                     if solution.height
                     else None
                 )
+                candidate.epochs = solution.height
+                if score is None:
+                    candidate.note = "no epoch inside the reference track"
+                    return candidate
+                candidate.fix_pct = score["fix_pct"]
+                candidate.good_pct = score["good_pct"]
+                candidate.wrong_pct = score["wrong_pct"]
+                candidate.h_rms, candidate.v_rms = score["h_rms"], score["v_rms"]
+                candidate.valid = (
+                    candidate.good_pct > 0 and candidate.wrong_pct <= max_wrong_pct
+                )
+                if not candidate.valid:
+                    candidate.note = (
+                        "no good fixes"
+                        if candidate.good_pct == 0
+                        else f"{candidate.wrong_pct:.1f} % wrong fixes"
+                    )
+                return candidate
         except subprocess.CalledProcessError as e:
             candidate.note = f"rnx2rtkp failed: {e.stderr[-200:]!r}"
             return candidate
@@ -707,23 +1056,29 @@ def tune(
         trials = list(pool.map(run, trials))
 
     valid = [c for c in trials if c.valid]
-    best = (
-        max(valid, key=lambda c: (round(c.fix_pct, 1), -(c.h_rms or 0)))
-        if valid
-        else None
-    )
+
+    def merit(c: Candidate) -> tuple[float, float]:
+        if directions:
+            return round(c.fix_pct, 1), -(c.h_rms or 0)
+        return round(c.good_pct or 0.0, 1), -(c.wrong_pct or 0.0)
+
+    best = max(valid, key=merit) if valid else None
     config_text = None
     if best is not None:
         config_text = apply_overrides(text, best.overrides)
         logger.info(
-            f"Best RTKLIB config {best.name}: {best.fix_pct:.1f} % fixed, "
-            f"h RMS {best.h_rms:.3f} m, v RMS {best.v_rms:.3f} m"
+            f"Best RTKLIB config {best.name}: {best.fix_pct:.1f} % fixed"
+            + (
+                ""
+                if directions
+                else f", {best.good_pct:.1f} % good, {best.wrong_pct:.2f} % wrong"
+            )
         )
     else:
         logger.warning("No candidate configuration passed validation")
     return TuningResult(
         best=best,
-        trials=sorted(trials, key=lambda c: (-c.valid, -c.fix_pct)),
+        trials=sorted(trials, key=lambda c: (not c.valid, *(-x for x in merit(c)))),
         rover=rover,
         base=base,
         config_text=config_text,

@@ -145,6 +145,7 @@ def test_tune_picks_most_fixes_among_valid(tmp_path, monkeypatch):
         tmp_path / "n.nav",
         tmp_path / "work",
         reference=track(t),
+        n_random=0,
     )
     assert result.best is not None
     assert result.best.overrides["pos2-armode"] == "continuous"
@@ -160,3 +161,61 @@ def test_data_quality_note():
     assert T.data_quality_note(good) == ""
     note = T.data_quality_note(bad)
     assert "15 %" in note and "95 s" in note
+
+
+def test_score_against_reference():
+    t = np.arange(0.0, 100.0)
+    ref = track(t)
+    sol = track(t, east=1.5).with_columns(
+        pl.Series("quality", np.where(t < 50, 1, 2))  # half fixed
+    )
+    jump = sol.with_columns(
+        pl.when(pl.col("timestamp").is_between(40, 49))
+        .then(pl.col("lon_deg") + 3 / 102_000.0)
+        .otherwise(pl.col("lon_deg"))
+        .alias("lon_deg")
+    )
+    score = T.score_against_reference(jump, ref)
+    assert score["fix_pct"] == pytest.approx(49, abs=1)  # epochs inside the span
+    assert score["wrong_pct"] == pytest.approx(10, abs=1)
+    assert score["good_pct"] == pytest.approx(39, abs=1)
+
+
+def test_random_candidates_follow_the_data(tmp_path):
+    base = T.profile_obs(rinex(tmp_path / "b.obs"))
+    rover = T.profile_obs(rinex(tmp_path / "r.obs"))
+    a = T.random_candidates(rover, base, n=50, seed=1)
+    assert [c.overrides for c in a] == [
+        c.overrides for c in T.random_candidates(rover, base, n=50, seed=1)
+    ]
+    navsys = {int(c.overrides["pos1-navsys"]) for c in a}
+    assert navsys <= {1, 9}  # GPS, Galileo: the only systems in the data
+    assert not any(
+        c.overrides["pos2-armode"] == "fix-and-hold"
+        for c in T.random_candidates(rover, base, n=50, hold=False)
+    )
+
+
+def test_setting_effects():
+    trials = []
+    for i in range(200):
+        hold = i % 2 == 0
+        c = T.Candidate(
+            name=f"random_{i:04d}",
+            overrides={
+                "pos1-frequency": "l1",
+                "pos1-navsys": "1",
+                "pos2-armode": "fix-and-hold" if hold else "continuous",
+                "pos1-snrmask_r": "off",
+                "pos1-snrmask_L1": "30",
+                "pos1-elmask": "15",
+                "pos2-arthres": "3",
+                "pos2-minfixsats": "5",
+            },
+        )
+        c.good_pct, c.wrong_pct = (40.0 if hold else 10.0), (2.0 if hold else 0.0)
+        trials.append(c)
+    effects = {e["choice"]: e for e in T.setting_effects(trials)}
+    hold = effects["fix-and-hold (vs continuous)"]
+    assert hold["gain"] == pytest.approx(30) and hold["risk"] == pytest.approx(2)
+    assert "L1+L2 (vs L1)" not in effects  # never tried
