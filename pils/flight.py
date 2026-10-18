@@ -87,12 +87,26 @@ otherwise (missing, stopped early, another session) the drone GPS is.
 """
 
 
-def _valid_positions(frame: pl.DataFrame, lat_col: str, lon_col: str) -> pl.DataFrame:
-    """Rows with a position: not null and not at latitude and longitude 0."""
+MAX_GPS_H_ACC_M = 50.0
+"""Largest horizontal accuracy (u-blox ``h_acc_m``) of a payload GPS epoch used to sync.
+
+Epochs without a real fix carry positions thousands of km off, with an
+accuracy estimate to match (April 2024: 4000 km, against 5 m with a fix).
+"""
+
+
+def _valid_positions(
+    frame: pl.DataFrame, lat_col: str, lon_col: str, acc_col: str | None = None
+) -> pl.DataFrame:
+    """Keep rows with a position: not null, not at 0, 0, accurate enough.
+
+    ``acc_col`` (if in the table) must be at most :data:`MAX_GPS_H_ACC_M`.
+    """
     lat, lon = pl.col(lat_col), pl.col(lon_col)
-    return frame.filter(
-        lat.is_not_null() & lon.is_not_null() & ~((lat == 0) & (lon == 0))
-    )
+    keep = lat.is_not_null() & lon.is_not_null() & ~((lat == 0) & (lon == 0))
+    if acc_col is not None and acc_col in frame.columns:
+        keep = keep & (pl.col(acc_col) <= MAX_GPS_H_ACC_M)
+    return frame.filter(keep)
 
 
 def _time_coverage(times: pl.Series, reference: pl.Series) -> float:
@@ -1034,7 +1048,7 @@ class Flight:
                 )
                 gps_data = None
             else:
-                gps_data = _valid_positions(gps_data, "lat_deg", "lon_deg")
+                gps_data = _valid_positions(gps_data, "lat_deg", "lon_deg", "h_acc_m")
                 if gps_data.is_empty():
                     logger.warning(
                         "Payload GPS has no position fix: the drone GPS is the reference"

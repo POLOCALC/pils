@@ -325,3 +325,17 @@ def test_positions_at_zero_are_dropped():
     flight.sync(target_rate={"drone": 5.0, "payload": 10.0})
     assert flight.sync_reference == "payload_gps"
     assert flight.sync_offset_details["drone_gps"]["correlation"] > 0.9
+
+
+def test_payload_gps_epochs_without_a_fix_are_dropped():
+    flight = flight_with(gps_span=(0.0, 300.0))
+    gps = flight.raw_data.payload_data.gps
+    # every 4th epoch without a fix: a position far off, a huge accuracy
+    no_fix = pl.int_range(pl.len()) % 4 == 0
+    flight.raw_data.payload_data.gps = gps.with_columns(
+        pl.when(no_fix).then(-44.9).otherwise(pl.col("lat_deg")).alias("lat_deg"),
+        pl.when(no_fix).then(4.3e6).otherwise(5.0).alias("h_acc_m"),
+    )
+    flight.sync(target_rate={"drone": 5.0, "payload": 10.0})
+    assert flight.sync_reference == "payload_gps"
+    assert flight.sync_offset_details["drone_gps"]["correlation"] > 0.9
