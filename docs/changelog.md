@@ -120,6 +120,9 @@ All notable changes to PILS are documented here.
 - Sync: positions at latitude and longitude 0 (DJI RTK rows without a
   solution, payload GPS epochs without a fix) are dropped; they stopped the
   drone offset on 9 flights
+- Sync: payload GPS epochs without a real fix (u-blox horizontal accuracy
+  worse than 50 m, `MAX_GPS_H_ACC_M`; positions thousands of km off in April
+  2024) are dropped; they stopped the drone offset on 3 April 2024 flights
 - A clear error for an empty drone folder
 - Sync: without a payload GPS, or with one covering less than half of the
   drone GPS time, the drone GPS is the reference; empty payload tables are
