@@ -82,12 +82,19 @@ select = [
   "F",    # pyflakes
   "W",    # pycodestyle warnings
   "UP",   # pyupgrade
-  "I"     # import sorting
+  "I",    # import sorting
+  "D",    # docstrings (PEP 257, numpydoc convention)
 ]
 ignore = [
   "E501",  # line too long (allows flexibility)
   "C901",  # function too complex (allows legacy code)
 ]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D"]  # test names say what they check
 
 [tool.ruff.format]
 quote-style = "double"

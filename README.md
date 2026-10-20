@@ -25,44 +25,38 @@ pip install -e ".[dev,stout]"
 
 ## Quick Start
 
-### Load Flight Data
+### Package a flight
 
-```python
-from pils import FlightDataHandler
+```bash
+# Load, synchronize and save a flight, with AZEL for each telescope
+pils package flight_20251208_1927
 
-# Initialize handler
-handler = FlightDataHandler(use_stout=True)
-
-# Load a flight
-flight = handler.load_flight(flight_id='flight-123')
-
-# Access drone telemetry
-drone_data = flight.drone.data
-print(drone_data[['latitude', 'longitude', 'altitude']].head())
-
-# Access payload sensors
-if flight.payload and flight.payload.gps:
-    gps_data = flight.payload.gps.data
-    print(gps_data.head())
+# Convert results saved in HDF5 by earlier versions
+pils migrate /path/to/flight/proc
 ```
 
-### Load Payload Sensors Only
+### Load and synchronize a flight
 
 ```python
-from pils.datahandler import Payload
+from pils.flight import Flight
 
-# Load all sensors from flight aux folder
-payload = Payload(dirpath='/path/to/flight/aux')
-payload.load_all()
+flight = Flight({
+    "drone_data_folder_path": "/path/to/flight/drone",
+    "aux_data_folder_path": "/path/to/flight/aux",
+})
+flight.add_sensor_data(["gps", "adc", "inclinometer", "lm76", "imu"])
+flight.add_drone_data()
 
-# Access individual sensors
-gps_df = payload.gps.data
-imu_df = payload.imu.accelerometer.data
-adc_df = payload.adc.data
+# Column names follow pils.schema: snake_case with the unit as suffix
+gps = flight.raw_data.payload_data.gps          # lat_deg, lon_deg, h_ell_m, ...
+drone = flight.raw_data.drone_data.drone        # rtk_lat_deg, rtk_h_ell_m, ...
 
-# Synchronize all sensors to common time base
-synchronized = payload.synchronize(target_rate_hz=10.0)
-synchronized.write_parquet('synchronized.parquet')
+sync = flight.sync(target_rate={"drone": 100.0, "payload": 100.0})
+sync["drone"].select("timestamp", "lat_deg", "lon_deg", "h_ell_m")
+
+# Parquet tables with a manifest, one write-once revision per save
+flight.save("/path/to/flight/proc/flight")
+flight = Flight.load("/path/to/flight/proc/flight")
 ```
 
 ### Post-Process GPS with PPK

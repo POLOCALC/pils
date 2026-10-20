@@ -281,3 +281,141 @@ class TestEdgeCases:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])
+
+
+class TestColumnTypesRoundTrip:
+    """Column types found in real flights survive to_hdf5/from_hdf5."""
+
+    def test_strings_datetimes_and_table_groups(self, temp_h5_file):
+        flight = Flight({"drone_data_folder_path": "/tmp/test_flight/drone"})
+        drone = pl.DataFrame(
+            {
+                "timestamp": [0.0, 1.0, 2.0],
+                "datetime": ["2025-12-08 19:27:00", None, "2025-12-08 19:27:02"],
+            }
+        )
+        flight.raw_data.drone_data = DroneData(drone_df=drone, litchi_df=None)
+        times = pl.Series(
+            [datetime(2025, 12, 8, 19, 27), datetime(2025, 12, 8, 19, 28)]
+        )
+        flight.raw_data.payload_data.gps = pl.DataFrame(
+            {
+                "timestamp": [0.0, 1.0],
+                "utc": times,
+                "utc_tz": times.dt.replace_time_zone("UTC").dt.cast_time_unit("ns"),
+            }
+        )
+        # e.g. the inclinometer: one table per message type
+        flight.raw_data.payload_data.inclinometer = {
+            "INS": pl.DataFrame({"timestamp": [0.0], "roll": [1.0]}),
+            "IMU": pl.DataFrame({"timestamp": [0.0, 0.5], "acc_x": [0.1, 0.2]}),
+        }
+
+        flight.to_hdf5(temp_h5_file)
+        loaded = Flight.from_hdf5(temp_h5_file)
+
+        loaded_drone = loaded.raw_data.drone_data.drone
+        assert loaded_drone["datetime"].to_list() == [
+            "2025-12-08 19:27:00",
+            None,  # nulls are stored as a mask
+            "2025-12-08 19:27:02",
+        ]
+        gps = loaded.raw_data.payload_data.gps
+        assert gps.equals(flight.raw_data.payload_data.gps)
+        assert gps.schema == flight.raw_data.payload_data.gps.schema
+        # Tables and columns come back with the schema's names
+        inclinometer = loaded.raw_data.payload_data.inclinometer
+        assert set(inclinometer) == {"ins", "imu"}
+        assert inclinometer["ins"].columns == ["timestamp", "roll_deg"]
+        assert inclinometer["imu"].equals(
+            flight.raw_data.payload_data.inclinometer["IMU"]
+        )
+
+    def test_columns_are_compressed(self, temp_h5_file):
+        flight = Flight({"drone_data_folder_path": "/tmp/test_flight/drone"})
+        flight.raw_data.payload_data.gps = pl.DataFrame(
+            {"timestamp": np.arange(1000.0)}
+        )
+        # Empty arrays cannot be chunked, so they are stored uncompressed
+        flight.raw_data.payload_data.lm76 = pl.DataFrame(
+            {"timestamp": pl.Series([], dtype=pl.Float64)}
+        )
+        flight.to_hdf5(temp_h5_file)
+        with h5py.File(temp_h5_file, "r") as f:
+            assert f["raw_data/payload_data/gps/timestamp"].compression == "gzip"
+            assert f["raw_data/payload_data/lm76/timestamp"].shape == (0,)
+
+    def test_dat_records_round_trip(self, temp_h5_file):
+        flight = Flight({"drone_data_folder_path": "/tmp/test_flight/drone"})
+        records = {
+            "IMU_ATTI(0)": pl.DataFrame(
+                {
+                    "IMU_ATTI(0):roll": [1.0, 2.0],
+                    "tick": [10, 20],
+                    "timestamp": [0.0, 1.0],
+                }
+            ),
+            "Motor": pl.DataFrame({"Motor:Speed:RFront": [3800], "tick": [15]}),
+        }
+        flight.raw_data.drone_data = DroneData(
+            drone_df=pl.DataFrame({"timestamp": [0.0]}), litchi_df=None, records=records
+        )
+        flight.to_hdf5(temp_h5_file)
+
+        # Older files: records and columns get the schema's names
+        loaded = Flight.from_hdf5(temp_h5_file).raw_data.drone_data.records
+        assert set(loaded) == {"imu_atti_0", "motor"}
+        assert loaded["imu_atti_0"].columns == ["roll_deg", "tick", "timestamp"]
+        assert loaded["imu_atti_0"]["roll_deg"].to_list() == [1.0, 2.0]
+        assert loaded["motor"].columns == ["speed_rfront_rpm", "tick"]
+
+
+class TestTableFormat:
+    """Nulls, units and types through pils.utils.hdf5.write_table/read_table."""
+
+    def test_nulls_types_and_units(self, temp_h5_file):
+        import h5py
+
+        from pils.utils.hdf5 import read_table, read_units, write_table
+
+        frame = pl.DataFrame(
+            {
+                "timestamp": [0.0, 1.0, 2.0],
+                "rtk_lat_deg": [1.0, None, float("nan")],
+                "numSV": pl.Series([3, None, 5], dtype=pl.Int64),
+                "flag": [True, None, False],
+                "name": ["a", None, "c"],
+                "when": pl.Series(
+                    [datetime(2025, 1, 1), None, datetime(2025, 1, 2)]
+                ).dt.replace_time_zone("UTC"),
+            }
+        )
+        with h5py.File(temp_h5_file, "w") as f:
+            write_table(f, "t", frame)
+            loaded = read_table(f["t"])
+            units = read_units(f["t"])
+        assert loaded.schema == frame.schema
+        assert loaded["rtk_lat_deg"].is_null().to_list() == [False, True, False]
+        assert np.isnan(loaded["rtk_lat_deg"][2])  # a NaN stays a NaN
+        assert loaded.select(pl.all().exclude("rtk_lat_deg")).equals(
+            frame.select(pl.all().exclude("rtk_lat_deg"))
+        )
+        assert units == {"timestamp": "s", "rtk_lat_deg": "deg"}
+
+    def test_legacy_ppk_microseconds(self, temp_h5_file):
+        import json
+
+        import h5py
+
+        from pils.utils.hdf5 import read_table
+
+        with h5py.File(temp_h5_file, "w") as f:
+            group = f.create_group("t")
+            group.create_dataset("t", data=np.array([1_000_000]))
+            group.attrs["columns"] = json.dumps(["t"])
+            group.attrs["dtypes"] = json.dumps(
+                ["Datetime(time_unit='ns', time_zone=None)"]
+            )
+            loaded = read_table(group, legacy_time_unit="us")
+        assert loaded["t"][0] == datetime(1970, 1, 1, 0, 0, 1)
+        assert loaded.schema["t"] == pl.Datetime("ns")

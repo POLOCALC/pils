@@ -72,6 +72,9 @@ nav:
       - Litchi: api/drones/litchi.md
     - Analysis:
       - api/analysis/index.md
+      - Packaging: api/analysis/package.md
+      - Quick look: api/analysis/quicklook.md
+      - AZEL: api/analysis/azel.md
       - PPK: api/analysis/ppk.md
       - Power: api/analysis/power.md
     - Lab Analysis:
@@ -84,9 +87,11 @@ nav:
       - api/utilities/index.md
       - Tools: api/utilities/tools.md
       - Decoders: api/utilities/decoders.md
+      - Storage: api/utilities/storage.md
   - User Guide:
     - user-guide/index.md
     - Directory Structure: user-guide/directory-structure.md
+    - Data Schema: user-guide/data-schema.md
     - Time Synchronization: user-guide/synchronization.md
     - Drone: user-guide/dji-drone.md
   - Development:
@@ -99,6 +104,10 @@ nav:
     - Code Style: development/code-style.md
     - Versioning: development/versioning.md
   - Changelog: changelog.md
+
+# Hooks
+hooks:
+  - docs/hooks/sphinx_roles.py
 
 # Plugins
 plugins:

@@ -4,6 +4,8 @@ from pathlib import Path
 
 import polars as pl
 
+from pils.analyze.ppkdata.utils import GPS_EPOCH_UNIX, gps_utc_offset
+
 
 class STATAnalyzer:
     """Polars-based analyzer for RTKLIB .stat residual files.
@@ -45,14 +47,19 @@ class STATAnalyzer:
         - Rejection counts
         - Lock status
 
-        Returns:
-            DataFrame with columns: tow, satellite, frequency, azimuth,
-            elevation, resid_code, resid_phase, snr, slip, lock, reject
+        Returns
+        -------
+            DataFrame with the names of :mod:`pils.schema`: timestamp
+            (UNIX s, UTC, from the GPS week and time of week), gps_week,
+            tow_s, satellite, frequency, az_deg, el_deg, resid_code_m,
+            resid_phase_m, snr_dbhz, slip, lock, reject, constellation
 
-        Raises:
+        Raises
+        ------
             FileNotFoundError: If .stat file doesn't exist
 
-        Examples:
+        Examples
+        --------
             >>> analyzer = STATAnalyzer('rtk.pos.stat')
             >>> df = analyzer.parse()
             >>> gps_stats = df.filter(pl.col('satellite').str.starts_with('G'))
@@ -72,14 +79,15 @@ class STATAnalyzer:
                     try:
                         sat_data.append(
                             {
-                                "tow": float(parts[2]),
+                                "gps_week": int(parts[1]),
+                                "tow_s": float(parts[2]),
                                 "satellite": parts[3],
                                 "frequency": int(parts[4]),
-                                "azimuth": float(parts[5]),
-                                "elevation": float(parts[6]),
-                                "resid_code": float(parts[7]),
-                                "resid_phase": float(parts[8]),
-                                "snr": float(parts[10]),
+                                "az_deg": float(parts[5]),
+                                "el_deg": float(parts[6]),
+                                "resid_code_m": float(parts[7]),
+                                "resid_phase_m": float(parts[8]),
+                                "snr_dbhz": float(parts[10]),
                                 "slip": int(parts[12]),
                                 "lock": int(parts[13]),
                                 "reject": int(parts[16]),
@@ -91,31 +99,44 @@ class STATAnalyzer:
         if not sat_data:
             return pl.DataFrame()
 
-        self.df = pl.DataFrame(sat_data).with_columns(
-            [pl.col("satellite").str.slice(0, 1).alias("constellation")]
+        gps_seconds = pl.col("gps_week") * 604800 + pl.col("tow_s")
+        gps_time = pl.from_epoch(
+            ((gps_seconds + GPS_EPOCH_UNIX) * 1e6).round().cast(pl.Int64),
+            time_unit="us",
+        )
+        timestamp = gps_seconds + GPS_EPOCH_UNIX - gps_utc_offset(gps_time)
+        self.df = (
+            pl.DataFrame(sat_data)
+            .with_columns(
+                timestamp.alias("timestamp"),
+                pl.col("satellite").str.slice(0, 1).alias("constellation"),
+            )
+            .select("timestamp", pl.exclude("timestamp"))
         )
 
         return self.df
 
     def get_satellite_stats(self):
-        """Aggregates residuals and SNR per satellite.
+        """Aggregate residuals and SNR per satellite.
 
-        Returns:
+        Returns
+        -------
             DataFrame with per-satellite statistics including:
-            - avg_snr: Mean signal-to-noise ratio
-            - avg_resid_phase: Mean absolute phase residual
-            - avg_resid_code: Mean absolute code residual
-            - p95_resid_phase: 95th percentile phase residual
+            - avg_snr_dbhz: Mean signal-to-noise ratio
+            - avg_resid_phase_m: Mean absolute phase residual
+            - avg_resid_code_m: Mean absolute code residual
+            - p95_resid_phase_m: 95th percentile phase residual
             - total_slips: Total cycle slips detected
             - total_rejects: Total rejected observations
 
-        Examples:
+        Examples
+        --------
             >>> analyzer = STATAnalyzer('solution.pos.stat')
             >>> analyzer.parse()
             >>> sat_stats = analyzer.get_satellite_stats()
             >>> gps_stats = sat_stats.filter(pl.col('satellite').str.starts_with('G'))
             >>> print(f"GPS satellites: {gps_stats.height}")
-            >>> high_residual = sat_stats.filter(pl.col('avg_resid_phase') > 0.05)
+            >>> high_residual = sat_stats.filter(pl.col('avg_resid_phase_m') > 0.05)
         """
         """
         Aggregates residuals and SNR per satellite.
@@ -127,10 +148,13 @@ class STATAnalyzer:
             self.df.group_by(["satellite", "frequency"])
             .agg(
                 [
-                    pl.col("snr").mean().alias("avg_snr"),
-                    pl.col("resid_phase").abs().mean().alias("avg_resid_phase"),
-                    pl.col("resid_code").abs().mean().alias("avg_resid_code"),
-                    pl.col("resid_phase").abs().quantile(0.95).alias("p95_resid_phase"),
+                    pl.col("snr_dbhz").mean().alias("avg_snr_dbhz"),
+                    pl.col("resid_phase_m").abs().mean().alias("avg_resid_phase_m"),
+                    pl.col("resid_code_m").abs().mean().alias("avg_resid_code_m"),
+                    pl.col("resid_phase_m")
+                    .abs()
+                    .quantile(0.95)
+                    .alias("p95_resid_phase_m"),
                     pl.col("slip").sum().alias("total_slips"),
                     pl.col("reject").sum().alias("total_rejects"),
                 ]
@@ -139,15 +163,15 @@ class STATAnalyzer:
         )
 
     def get_global_stats(self):
-        """Aggregates residuals and SNR per frequency band.
+        """Aggregate residuals and SNR per frequency band.
 
         Returns
         -------
         pl.DataFrame
             DataFrame with global statistics by frequency:
-            - mean_snr: Average SNR for the frequency
-            - mean_resid_phase: Average phase residual
-            - mean_resid_code: Average code residual
+            - mean_snr_dbhz: Average SNR for the frequency
+            - mean_resid_phase_m: Average phase residual
+            - mean_resid_code_m: Average code residual
 
         Examples
         --------
@@ -163,9 +187,9 @@ class STATAnalyzer:
             self.df.group_by("frequency")
             .agg(
                 [
-                    pl.col("snr").mean().alias("mean_snr"),
-                    pl.col("resid_phase").abs().mean().alias("mean_resid_phase"),
-                    pl.col("resid_code").abs().mean().alias("mean_resid_code"),
+                    pl.col("snr_dbhz").mean().alias("mean_snr_dbhz"),
+                    pl.col("resid_phase_m").abs().mean().alias("mean_resid_phase_m"),
+                    pl.col("resid_code_m").abs().mean().alias("mean_resid_code_m"),
                 ]
             )
             .sort("frequency")

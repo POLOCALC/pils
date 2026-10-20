@@ -19,9 +19,9 @@ def reference_gps():
     return pl.DataFrame(
         {
             "timestamp": t,
-            "posllh_lat": 45.0 + 0.0001 * t,
-            "posllh_lon": 10.0 + 0.0001 * t,
-            "posllh_height": 100.0 + t,
+            "lat_deg": 45.0 + 0.0001 * t,
+            "lon_deg": 10.0 + 0.0001 * t,
+            "h_ell_m": 100.0 + t,
         }
     )
 
@@ -38,9 +38,9 @@ def drone_gps_with_offset(reference_gps):
     return pl.DataFrame(
         {
             "timestamp": t,
-            "latitude": 45.0 + 0.0001 * (t - 2.0),
-            "longitude": 10.0 + 0.0001 * (t - 2.0),
-            "altitude": 100.0 + (t - 2.0),
+            "lat_deg": 45.0 + 0.0001 * (t - 2.0),
+            "lon_deg": 10.0 + 0.0001 * (t - 2.0),
+            "h_ell_m": 100.0 + (t - 2.0),
         }
     )
 
@@ -250,9 +250,9 @@ def flight_with_gps():
     gps_data = pl.DataFrame(
         {
             "timestamp": np.linspace(0.0, 10.0, 11),
-            "posllh_lat": 45.0 + 0.0001 * np.linspace(0.0, 10.0, 11),
-            "posllh_lon": 10.0 + 0.0001 * np.linspace(0.0, 10.0, 11),
-            "posllh_height": 100.0 + np.linspace(0.0, 10.0, 11),
+            "lat_deg": 45.0 + 0.0001 * np.linspace(0.0, 10.0, 11),
+            "lon_deg": 10.0 + 0.0001 * np.linspace(0.0, 10.0, 11),
+            "h_ell_m": 100.0 + np.linspace(0.0, 10.0, 11),
         }
     )
     flight.raw_data.payload_data = PayloadData()

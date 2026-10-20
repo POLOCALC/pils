@@ -1,5 +1,5 @@
-"""
-RINEX Report Generator v5
+"""RINEX Report Generator v5.
+
 Feature-Complete Orchestrator for RINEXAnalyzer and RINEXPlotter.
 """
 
@@ -51,7 +51,8 @@ class RINEXReport:
             analyzer: Existing RINEXAnalyzer instance
             plotter: Existing RINEXPlotter instance
 
-        Examples:
+        Examples
+        --------
             >>> # From file
             >>> report = RINEXReport(rinex_obs=Path('station.obs'), rinex_nav=Path('station.nav'))
             >>> # From existing analyzer
@@ -87,13 +88,16 @@ class RINEXReport:
             report_name: Output path for markdown report
             plot_folder: Subfolder name for plot assets
 
-        Returns:
+        Returns
+        -------
             Path to generated report file
 
-        Raises:
+        Raises
+        ------
             ValueError: If analyzer or plotter not initialized
 
-        Examples:
+        Examples
+        --------
             >>> report = RINEXReport(rinex_obs=Path('file.obs'), rinex_nav=Path('file.nav'))
             >>> report_path = report.generate('rinex_quality.md', plot_folder='figures')
             >>> print(f"Report generated at: {report_path}")

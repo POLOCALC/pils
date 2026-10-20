@@ -68,7 +68,7 @@ flight.add_drone_data()
 flight.add_sensor_data(['gps', 'imu'])
 
 # Access data
-gps_df = flight['gps'].data
+gps_df = flight.raw_data.payload_data.gps
 print(gps_df.head())
 ```
 
@@ -94,7 +94,7 @@ print(gps_df.head())
 ### Sensors
 
 - **GPS**: u-blox, NMEA compatible
-- **IMU**: MPU9250, accelerometer/gyroscope/magnetometer/barometer
+- **IMU**: accelerometer/gyroscope/magnetometer/barometer (150 Hz)
 - **ADC**: ADS1256, 4-channel voltage measurement
 - **Camera**: Video and image sequence
 - **Inclinometer**: Kernel-100, IMX-5

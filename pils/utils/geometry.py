@@ -64,7 +64,7 @@ def beam_2d_gauss(
 
 
 def normalize(v: ArrayLike) -> np.ndarray:
-    """Unit vector."""
+    """Return the unit vector of ``v``."""
     v = np.asarray(v, dtype=float)
     return v / np.linalg.norm(v)
 

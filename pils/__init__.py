@@ -1,5 +1,5 @@
 """
-PILS - POLOCALC Inertial & Drone Loading System
+PILS - POLOCALC Inertial & Drone Loading System.
 
 A comprehensive Python package for loading, decoding, and analyzing flight data
 from drone missions with integrated STOUT campaign management system support.
