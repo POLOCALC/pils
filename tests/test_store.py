@@ -173,3 +173,43 @@ def test_prune_keeps_newest_and_referenced(tmp_path):
     assert len(removed) == 4
     with pytest.raises(ValueError):
         store.prune_versions(tmp_path, keep=0)
+
+
+def test_find_datasets_latest_and_columns(tmp_path):
+    proc = tmp_path / "proc"
+    frame = {"gps": pl.DataFrame({"timestamp": [0.0, 1.0], "lat": [1.0, 2.0]})}
+    store.write_tables(proc / "flight" / "raw", frame)
+    store.save_version(proc / "flight" / "sync", "rev_20260102_000000", frame, {})
+    store.save_version(proc / "flight" / "sync", "rev_20260101_000000", frame, {})
+    store.save_version(proc / "azel", "rev_20260101_000000", frame, {}, parent="SATP1")
+    (proc / "flight" / "sync" / "rev_20260103_000000").mkdir()  # no manifest yet
+    staging = proc / "ppk" / ".rev_20260104_000000.abcd1234.tmp"
+    staging.mkdir(parents=True)
+    (staging / store.MANIFEST).write_text("{}")
+    assert store.find_datasets(proc) == {
+        "azel/SATP1": ["rev_20260101_000000"],
+        "flight/raw": [""],
+        "flight/sync": ["rev_20260101_000000", "rev_20260102_000000"],
+    }
+    assert store.find_datasets(tmp_path / "missing") == {}
+    assert store.latest_version(proc / "flight" / "sync") == "rev_20260102_000000"
+    assert store.latest_version(proc / "ppk") is None
+    directory = proc / "flight" / "raw"
+    assert store.table_path(directory, "gps") == directory / "gps.parquet"
+    assert store.read_columns(directory, "gps", ["lat"]).columns == ["lat"]
+    assert store.read_columns(directory, "gps").columns == ["timestamp", "lat"]
+    with pytest.raises(KeyError):
+        store.read_columns(directory, "imu")
+
+
+def test_reading_does_not_load_the_decoders():
+    import subprocess
+    import sys
+
+    code = (
+        "import sys, pils.store, pils.lab_analysis.store; "
+        "print(sorted(m for m in ('cv2', 'h5py', 'scipy', 'matplotlib', 'pils.flight') "
+        "if m in sys.modules))"
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert out.stdout.strip() == "[]", out.stderr
