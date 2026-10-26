@@ -114,6 +114,23 @@ class TestStore:
             store.item_folder({"category": "x", "name": "y", "specifications": {}})
         assert store.item("cou-1") is COUPLER
 
+    def test_item_folders_lists_existing_bands(self, lab):
+        (lab / "WR06" / "coupler" / "COU_001").mkdir(parents=True)
+        store = LabStore(lab)
+        both = {"input_band": "WR06", "output_band": "WR10", "x_band": "WR15"}
+        item = {"category": "coupler", "name": "COU_001", "specifications": both}
+        assert store.item_folders(item) == [
+            lab / "WR06" / "coupler" / "COU_001",
+            lab / "WR10" / "coupler" / "COU_001",
+        ]
+        same = {"input_band": "WR10", "output_band": "WR10"}
+        assert len(store.item_folders({**item, "specifications": same})) == 1
+        # Without a band: every band folder
+        item["specifications"] = {}
+        assert len(store.item_folders(item)) == 2
+        item["name"] = "missing"
+        assert store.item_folders(item) == []
+
     def test_legacy_vna_csv_is_relabelled(self, lab):
         store = LabStore(lab)
         # Legacy "S12" is the Touchstone S21 column

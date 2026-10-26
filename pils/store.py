@@ -33,7 +33,6 @@ from pathlib import Path
 from typing import Any
 
 import polars as pl
-import pyarrow.parquet as pq
 
 from pils import schema
 
@@ -116,6 +115,8 @@ def write_parquet(frame: pl.DataFrame, path: str | Path) -> dict[str, Any]:
     dict
         Rows, and dtype and unit of each column, for the manifest.
     """
+    import pyarrow.parquet as pq
+
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     units = schema.table_units(frame.columns)
@@ -141,6 +142,8 @@ def read_parquet(path: str | Path) -> pl.DataFrame:
 
 def read_units(path: str | Path) -> dict[str, str]:
     """Units stored in a Parquet file written by :func:`write_parquet`."""
+    import pyarrow.parquet as pq
+
     meta = pq.read_schema(path).metadata or {}
     if b"pils" not in meta:
         return {}
@@ -312,9 +315,64 @@ def load_version(
     return tables, manifest["metadata"]
 
 
+def latest_version(root: str | Path, parent: str | None = None) -> str | None:
+    """Return the newest saved revision, or None (names sort by time)."""
+    versions = list_versions(root, parent)
+    return versions[-1] if versions else None
+
+
 def read_manifest(directory: str | Path) -> dict[str, Any]:
     """Read the manifest of a saved directory."""
     return json.loads((Path(directory) / MANIFEST).read_text())
+
+
+def table_path(directory: str | Path, name: str) -> Path:
+    """File of the table ``name`` of a saved directory.
+
+    Raises
+    ------
+    KeyError
+        If the table is not in the directory's manifest.
+    """
+    directory = Path(directory)
+    if name not in read_manifest(directory).get("tables", {}):
+        raise KeyError(f"No table '{name}' in {directory}")
+    return directory / f"{name}.parquet"
+
+
+def read_columns(
+    directory: str | Path, name: str, columns: list[str] | None = None
+) -> pl.DataFrame:
+    """Read some columns (all if None) of one table of a saved directory."""
+    return pl.read_parquet(table_path(directory, name), columns=columns)
+
+
+def find_datasets(root: str | Path) -> dict[str, list[str]]:
+    """Find the saved products under ``root`` (a flight's ``proc/``) and revisions.
+
+    Returns
+    -------
+    dict
+        By folder relative to ``root`` (``flight/sync``, ``azel/SATP1``), the
+        revisions oldest first, or ``[""]`` for a directory saved in place
+        (``flight/raw``).
+    """
+    root = Path(root)
+    if not root.is_dir():
+        return {}
+    found: dict[Path, list[str]] = {}
+    for manifest in root.rglob(MANIFEST):
+        folder = manifest.parent
+        if any(part.startswith(".") for part in folder.relative_to(root).parts):
+            continue  # being written (see write_tables)
+        if folder.name.startswith(VERSION_PREFIX):
+            found.setdefault(folder.parent, []).append(folder.name)
+        else:
+            found.setdefault(folder, []).append("")
+    return {
+        folder.relative_to(root).as_posix(): sorted(versions)
+        for folder, versions in sorted(found.items())
+    }
 
 
 def delete_version(

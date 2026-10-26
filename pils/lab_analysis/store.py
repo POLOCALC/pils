@@ -15,7 +15,6 @@ from typing import Any
 import numpy as np
 import polars as pl
 
-from pils.utils import hdf5
 from pils.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -115,15 +114,32 @@ class LabStore:
         The band comes from the item's ``*band`` specifications (e.g.
         ``input_band``/``output_band``); the first one with a folder wins.
         """
-        specs = item.get("specifications") or {}
-        bands = [str(v) for k, v in specs.items() if "band" in k and v]
-        candidates = [self.root / b / item["category"] / item["name"] for b in bands]
+        candidates = self._band_folders(item)
         for folder in candidates:
             if folder.is_dir():
                 return folder
         if not candidates:
             raise LabDataNotFound(f"{item.get('name')}: no band in its specifications")
         return candidates[0]
+
+    def item_folders(self, item: Item) -> list[Path]:
+        """Every existing ``<root>/<band>/<category>/<name>`` of an item.
+
+        Without a band in its specifications, every band folder is looked in.
+        """
+        candidates = self._band_folders(item)
+        if not candidates and self.root.is_dir():
+            candidates = [
+                band / item["category"] / item["name"]
+                for band in sorted(self.root.iterdir())
+                if band.is_dir()
+            ]
+        return [folder for folder in dict.fromkeys(candidates) if folder.is_dir()]
+
+    def _band_folders(self, item: Item) -> list[Path]:
+        specs = item.get("specifications") or {}
+        bands = [str(v) for k, v in specs.items() if "band" in k and v]
+        return [self.root / b / item["category"] / item["name"] for b in bands]
 
     def test_folder(self, item: Item, test_type: str) -> Path:
         """``<item folder>/<test_type>``."""
@@ -206,6 +222,8 @@ class LabStore:
         """
         folder = self.test_folder(item, test_type)
         path = self._legacy_file(folder, "*[0-9].h5py", "*_processed.h5py")
+        from pils.utils import hdf5
+
         data = hdf5.load_h5(path)
         if dataset not in data:
             raise LabDataNotFound(
@@ -241,6 +259,8 @@ class LabStore:
         run = self._latest_run(folder, "beam")
         if run is not None:
             return run[0]["fwhm"]
+        from pils.utils import hdf5
+
         data = hdf5.load_h5(self._legacy_file(folder, "*fwhm_processed.hdf5"))
         return pl.concat(
             pl.DataFrame(
@@ -265,6 +285,8 @@ class LabStore:
         run = self._latest_run(folder, "multiplier_diode")
         if run is not None:
             return run[0]["responsivity"]
+        from pils.utils import hdf5
+
         data = hdf5.load_h5(self._legacy_file(folder, "*_processed.h5py"))
         return legacy_responsivity_table(data)
 

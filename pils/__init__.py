@@ -32,11 +32,38 @@ __version__ = "2026.3.5"
 __author__ = "POLOCALC Team"
 __license__ = "MIT"
 
-from . import decoders, drones, sensors, utils
-from .flight import Flight
-from .loader import PathLoader, StoutLoader
-from .pils import PILS
-from .synchronizer import Synchronizer
+import importlib
+from typing import Any
+
+# Imported when first used, so that reading saved data (pils.store,
+# pils.schema) does not load the decoders and their dependencies
+_LAZY = {
+    "Flight": ("pils.flight", "Flight"),
+    "PILS": ("pils.pils", "PILS"),
+    "PathLoader": ("pils.loader", "PathLoader"),
+    "StoutLoader": ("pils.loader", "StoutLoader"),
+    "Synchronizer": ("pils.synchronizer", "Synchronizer"),
+    "decoders": ("pils.decoders", None),
+    "drones": ("pils.drones", None),
+    "sensors": ("pils.sensors", None),
+    "utils": ("pils.utils", None),
+}
+
+
+def __getattr__(name: str) -> Any:
+    if name not in _LAZY:
+        raise AttributeError(f"module 'pils' has no attribute {name!r}")
+    module, attribute = _LAZY[name]
+    value = importlib.import_module(module)
+    if attribute is not None:
+        value = getattr(value, attribute)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted([*globals(), *_LAZY])
+
 
 __all__ = [
     "Flight",

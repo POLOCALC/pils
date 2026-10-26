@@ -19,15 +19,16 @@ November 2025 survey, about 0.5 deg of azimuth and elevation for a drone
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import polars as pl
 import pymap3d as pm
 
-from pils.flight import Flight
-
 from ..utils.logging_config import get_logger
+
+if TYPE_CHECKING:
+    from pils.flight import Flight
 
 logger = get_logger(__name__)
 
@@ -55,7 +56,7 @@ class Emlid:
     """
 
     def __init__(
-        self, flight: Flight | None = None, path: str | Path | None = None
+        self, flight: "Flight | None" = None, path: str | Path | None = None
     ) -> None:
         """Initialize EMLID coordinate loader from flight path.
 
