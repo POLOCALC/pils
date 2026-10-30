@@ -79,3 +79,20 @@ def test_what_is_missing_is_said(tmp_path):
 def test_the_path_is_thinned():
     xi, eta = thin(np.arange(10_000.0), np.zeros(10_000), max_points=100)
     assert len(xi) == len(eta) == 100 and xi[0] == 0 and xi[-1] == 9999
+
+
+def test_a_telescope_described_as_data_gives_the_same_coverage(tmp_path):
+    import json
+
+    from pils.analyze.coverage import describe_telescope, telescope_coverage
+    from pils.geometry.focal_plane import Wafer, wafer_from_dict, wafer_to_dict
+
+    own = Wafer("w", 0.01, -0.02, ((0.0, 0.0), (0.1, 0.0), (0.0, 0.1)), np.array([[0.0, 0.0], [0.002, 0.001]]))
+    back = wafer_from_dict(json.loads(json.dumps(wafer_to_dict(own))))
+    assert back == own and np.array_equal(back.pixels, own.pixels)
+    assert wafer_from_dict(wafer_to_dict(DEFAULT_WAFERS[1])).pixels is None
+
+    flight = _flight(tmp_path, offset=0.5)
+    description = json.loads(json.dumps(describe_telescope(
+        "satp3", wafers=DEFAULT_WAFERS, wafer_type="SAT_MF", own_wafers=False, az_offset_deg=0.5)))
+    assert telescope_coverage(flight, description, 90) == _coverage(flight, az_offset_deg=0.5)

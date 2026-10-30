@@ -7,21 +7,28 @@ within a fraction of its beam (``pils.geometry.crossings``), the same rule a
 planner applies to a simulated flight.
 
 The result is plot-ready data, not a figure: the path (thinned) and every
-pixel with its crossings.
+pixel with its crossings. A telescope can be given as plain data
+(:func:`describe_telescope`), as a planner that knows it hands it over.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
 
 from pils import store
 from pils.geometry.crossings import crossings, relative_path
-from pils.geometry.detectors import SOURCE_BAND, FocalPlaneModel, rotated_pixels
-from pils.geometry.focal_plane import Wafer
+from pils.geometry.detectors import (
+    SOURCE_BAND,
+    FocalPlaneModel,
+    focal_plane_model,
+    rotated_pixels,
+)
+from pils.geometry.focal_plane import Wafer, wafer_from_dict, wafer_to_dict
 
 # The most samples of the path returned (it is drawn, not analysed)
 MAX_POINTS = 4000
@@ -151,3 +158,61 @@ def flight_coverage(
         "crossed": int(sum(1 for c in counts if c)),
         "datasets": {"azel": azel_dir.name, "pointing": pointing_dir.name},
     }
+
+
+def describe_telescope(
+    name: str,
+    *,
+    wafers: Sequence[Wafer],
+    wafer_type: str,
+    own_wafers: bool,
+    beam_fwhm_arcmin: float = 0.0,
+    beam_fraction: float = 0.5,
+    az_offset_deg: float = 0.0,
+) -> dict[str, Any]:
+    """A telescope's focal plane as plain data (JSON), for :func:`telescope_coverage`.
+
+    ``own_wafers``: its wafers are its own (read from its detector table, with the beam
+    ``beam_fwhm_arcmin``), not the SO layout of its ``wafer_type``.
+    """
+    return {
+        "name": name.upper(),
+        "wafer_type": wafer_type,
+        "own_wafers": bool(own_wafers),
+        "beam_fwhm_arcmin": float(beam_fwhm_arcmin),
+        "beam_fraction": float(beam_fraction),
+        "az_offset_deg": float(az_offset_deg),
+        "wafers": [wafer_to_dict(w) for w in wafers],
+    }
+
+
+def telescope_coverage(
+    flight_dir: str | Path,
+    telescope: dict[str, Any],
+    source_ghz: float,
+    start: float | None = None,
+    end: float | None = None,
+    max_points: int = MAX_POINTS,
+) -> dict[str, Any]:
+    """:func:`flight_coverage` of a telescope described by :func:`describe_telescope`."""
+    wafers = [wafer_from_dict(w) for w in telescope["wafers"]]
+    model = focal_plane_model(
+        SimpleNamespace(
+            name=telescope["name"],
+            wafers=wafers if telescope["own_wafers"] else [],
+            wafer_type=telescope["wafer_type"],
+            beam_fwhm_arcmin=telescope["beam_fwhm_arcmin"],
+        )
+    )
+    return flight_coverage(
+        flight_dir,
+        telescope["name"],
+        source_ghz,
+        wafers=wafers,
+        focal_plane=model,
+        beam_fraction=telescope["beam_fraction"],
+        az_offset_deg=telescope["az_offset_deg"],
+        start=start,
+        end=end,
+        max_points=max_points,
+    )
