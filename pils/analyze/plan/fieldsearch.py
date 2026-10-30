@@ -204,3 +204,75 @@ def sun_safe(times: list[str], separation: np.ndarray, threshold: float, day: in
     sep = np.asarray(separation, float)
     unsafe = (sep < threshold).any(axis=0) if day is None else sep[day] < threshold
     return _segments(~unsafe, hours, step)
+
+
+def _safe_rows(sun: dict[str, Any], label: str) -> list[list[list[float]]]:
+    """Per campaign day, the Sun-safe stretches of one scan of a field's Sun data (none if never usable)."""
+    scan = next(s for s in sun["scans"] if s["label"] == label)
+    if not scan["usable"]:
+        return [[] for _ in sun["dates"]]
+    sep = np.asarray(sun["separation"][label], float)
+    return [sun_safe(sun["times"], sep, sun["threshold_deg"], d) for d in range(len(sun["dates"]))]
+
+
+def _mask(hours: np.ndarray, spans) -> np.ndarray:
+    out = np.zeros(len(hours), bool)
+    for h0, h1 in spans:
+        out |= (hours >= h0) & (hours < h1)
+    return out
+
+
+def field_overview(suns: dict[str, Any], protected: dict[str, dict[str, list]], calibratable: set | None = None) -> dict[str, Any]:
+    """One field, every telescope: per date, a lane per telescope where at least one wafer it can calibrate
+    is Sun-safe at some boresight and it is off its protected scans -- when the field can be flown for it.
+    A telescope without Sun avoidance (None) is usable all day but its protected scans. `calibratable`:
+    the (telescope, wafer, boresight) the drone can calibrate at all."""
+    first = next((x for x in suns.values() if x is not None), None)
+    if first is None:
+        return {"dates": [], "lanes": []}
+    dates = first["dates"]
+    hours = np.array([int(t[:2]) + int(t[3:]) / 60 for t in first["times"]])
+    step = float(hours[1] - hours[0]) if len(hours) > 1 else 1 / 30
+    lanes = []
+    for tel, sun in suns.items():
+        prot = protected.get(tel) or {}
+        if calibratable is not None and not any(c[0] == tel for c in calibratable):
+            lanes.append({"telescope": tel, "note": "no wafer can be calibrated here (threshold, ceiling)", "rows": []})
+            continue
+        if sun is not None and sun["scans"] and not any(s["usable"] for s in sun["scans"]):
+            lanes.append({"telescope": tel, "note": f"cannot point here (el {sun['scans'][0]['el']:.1f}° < {sun['min_el_deg']:g}°)", "rows": []})
+            continue
+        safe = {} if sun is None else {s["label"]: _safe_rows(sun, s["label"]) for s in sun["scans"]
+                                       if calibratable is None or (tel, s["wafer"], s["boresight"]) in calibratable}
+        rows = []
+        for i, d in enumerate(dates):
+            ok = np.ones(len(hours), bool) if sun is None else np.zeros(len(hours), bool)
+            for spans in safe.values():
+                ok |= _mask(hours, spans[i])
+            ok &= ~_mask(hours, prot.get(d, []))
+            rows.append(_segments(ok, hours, step))
+        lanes.append({"telescope": tel, "note": "no Sun avoidance" if sun is None else None, "rows": rows})
+    return {"dates": dates, "start": float(hours[0]), "end": float(hours[-1] + step), "lanes": lanes}
+
+
+def field_campaign(sun: dict[str, Any], wafer: str, protected: dict[str, list] | None = None,
+                   calibratable: set | None = None) -> dict[str, Any]:
+    """One telescope, field and wafer over the campaign: per date, a line per boresight where its scan is
+    Sun-safe (the rotations it can calibrate), and the telescope's protected scans; a note when the wafer
+    cannot be calibrated here or the telescope cannot point."""
+    hours = np.array([int(t[:2]) + int(t[3:]) / 60 for t in sun["times"]])
+    step = float(hours[1] - hours[0]) if len(hours) > 1 else 1 / 30
+    every = sorted((s for s in sun["scans"] if s["wafer"] == wafer), key=lambda s: s["boresight"])
+    scans = [s for s in every if calibratable is None or (sun["telescope"], s["wafer"], s["boresight"]) in calibratable]
+    note = None
+    if every and not scans:
+        note = (f"{wafer} cannot be calibrated here at any rotation: it looks below the elevation threshold or, "
+                "at the minimum distance, above the ceiling")
+    elif scans and not any(s["usable"] for s in scans):
+        note = f"{sun['telescope']} cannot point here: the field is at el {scans[0]['el']:.1f}°, below its {sun['min_el_deg']:g}° limit"
+    return {
+        "dates": sun["dates"], "start": float(hours[0]), "end": float(hours[-1] + step), "note": note,
+        "threshold_deg": sun["threshold_deg"],
+        "lines": [{"boresight": s["boresight"], "rows": _safe_rows(sun, s["label"])} for s in scans],
+        "protected": [(protected or {}).get(d, []) for d in sun["dates"]],
+    }
