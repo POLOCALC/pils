@@ -17,6 +17,23 @@ EARTH_RADIUS_M = 6_371_000.0
 ENU_REFERENCE_SITE = "so_lat"
 
 
+# so3g's own sites: a location given for one of them is refused, not silently moved
+SO_SITES = frozenset(("act", "so_lat", "so_sat1", "so_sat2", "so_sat3", "so", "_default"))
+
+
+def register_site(key: str, lon: float, lat: float, elev: float) -> None:
+    """Add a site that is not in so3g's registry (e.g. CLASS's) under ``key``, at ``lon``, ``lat``
+    (degrees east, north) and ``elev`` (metres): everything that places a telescope then finds it like
+    an SO site. Moving one of so3g's own sites is refused."""
+    import so3g.proj.coords as coords
+
+    new = coords.EarthlySite(float(lon), float(lat), float(elev))
+    old = coords.SITES.get(key)
+    if old is not None and key in SO_SITES and (old.lon, old.lat, old.elev) != (new.lon, new.lat, new.elev):
+        raise ValueError(f"site {key!r} is an so3g site; give a new key for another location")
+    coords.SITES[key] = new
+
+
 def site_enu(site_key, ref_key: str = ENU_REFERENCE_SITE) -> np.ndarray:
     """Return (E, N, U) of a site in metres relative to the reference site.
 
