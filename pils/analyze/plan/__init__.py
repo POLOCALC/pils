@@ -20,6 +20,8 @@ impact
     The other telescopes' scans the drone disturbs, for how long, and what would change it.
 distance
     How close an observing telescope's boresight comes to the drone, flight by flight.
+fieldsearch
+    What a field search found: its fields, when each can be flown, the landscape, the Sun.
 """
 
 from pils.analyze.plan.reader import PlanRun, project_name
