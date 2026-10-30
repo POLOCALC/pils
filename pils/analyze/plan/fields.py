@@ -80,13 +80,17 @@ def ground_points(schedule: pl.DataFrame, fields: pl.DataFrame, summary: pl.Data
 
 def telescope_sites(config: dict[str, Any]) -> pl.DataFrame:
     """Every telescope of the configuration (its telescopes, then the observing ones not among them):
-    telescope, E_m, N_m from the LAT."""
-    from pils.geometry.site import site_enu
+    telescope, E_m, N_m from the LAT. A telescope with a ``location`` (lon, lat, elev) is placed there,
+    under its ``site`` key, as the planner does."""
+    from pils.geometry.site import register_site, site_enu
 
     sites: dict[str, tuple[float, float]] = {}
     for section in ("telescopes", "observing_telescopes"):
         for name, t in (config.get(section) or {}).items():
             site = (t or {}).get("site")
+            loc = (t or {}).get("location")
+            if isinstance(site, str) and isinstance(loc, dict) and {"lon", "lat", "elev"} <= set(loc):
+                register_site(site, loc["lon"], loc["lat"], loc["elev"])  # a site not in so3g's registry
             if site is not None and name not in sites:
                 e, n = (float(x) for x in site_enu(site)[:2])
                 sites[name] = (e, n)
