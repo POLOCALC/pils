@@ -18,6 +18,8 @@ coverage
     The wafers and detectors reached, how often, at which rotations, and for how long.
 impact
     The other telescopes' scans the drone disturbs, for how long, and what would change it.
+distance
+    How close an observing telescope's boresight comes to the drone, flight by flight.
 """
 
 from pils.analyze.plan.reader import PlanRun, project_name
