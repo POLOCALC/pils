@@ -16,6 +16,8 @@ fields
     The fields flown: what was flown where and when, on the site and in each telescope's sky.
 coverage
     The wafers and detectors reached, how often, at which rotations, and for how long.
+impact
+    The other telescopes' scans the drone disturbs, for how long, and what would change it.
 """
 
 from pils.analyze.plan.reader import PlanRun, project_name
