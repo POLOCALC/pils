@@ -41,3 +41,16 @@ def test_the_sun_and_the_landscape():
                          "separation_deg": [20.0, 19.0, 18.0], "exclusion_deg": [10.0] * 3})
     s = FS.separation(conf, ["S45"], "d1")
     assert s["days"] == ["d1", "d2"] and s["series"][0]["separation_deg"] == [20.0, 19.0] and s["exclusion_deg"] == 10.0
+
+
+def test_a_field_over_the_campaign_for_every_telescope():
+    sun = {"telescope": "satp1", "dates": ["d1"], "times": ["08:00", "08:30", "09:00", "09:30"], "threshold_deg": 45.0,
+           "min_el_deg": 40.0, "scans": [{"label": "ws0 bs 0", "wafer": "ws0", "boresight": 0, "usable": True, "el": 50.0}],
+           "separation": {"ws0 bs 0": [[50, 50, 40, 50]]}}
+    ov = FS.field_overview({"satp1": sun, "CLASS": None}, {"satp1": {"d1": [[9.5, 10.0]]}, "CLASS": {}})
+    assert ov["lanes"][0]["rows"] == [[[8.0, 9.0]]] and ov["lanes"][1]["note"] == "no Sun avoidance"
+    assert ov["lanes"][1]["rows"] == [[[8.0, 10.0]]]
+    assert FS.field_overview({"satp1": sun}, {}, calibratable=set())["lanes"][0]["note"].startswith("no wafer")
+    c = FS.field_campaign(sun, "ws0", {"d1": [[9.5, 10.0]]})
+    assert c["lines"][0]["rows"] == [[[8.0, 9.0], [9.5, 10.0]]] and c["protected"] == [[[9.5, 10.0]]] and c["note"] is None
+    assert FS.field_campaign(sun, "ws0", calibratable=set())["note"].startswith("ws0 cannot be calibrated")
