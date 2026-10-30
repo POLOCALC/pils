@@ -12,6 +12,8 @@ reader
     A run's tables and its configuration (POLOCALC_ENG_PRE / _POST read as one project).
 schedule
     The campaign day by day: the Gantt's flights, its empty blocks, a project's shared window.
+fields
+    The fields flown: what was flown where and when, on the site and in each telescope's sky.
 """
 
 from pils.analyze.plan.reader import PlanRun, project_name
