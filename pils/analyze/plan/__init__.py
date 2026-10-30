@@ -1,0 +1,19 @@
+"""The analysis of a planned campaign: a planner's run (GOSE) read and shaped for its plots.
+
+A planner writes its plan as tables (CSV) in a run folder (``<run>/plan/``):
+the schedule, the empty blocks, the coverage of the detectors, the impact on
+the other telescopes. These modules read them (:mod:`.reader`) and turn them
+into plot-ready tables -- one function per chart or table of the planner's
+pages; the drawing is the interface's.
+
+Modules
+-------
+reader
+    A run's tables and its configuration (POLOCALC_ENG_PRE / _POST read as one project).
+schedule
+    The campaign day by day: the Gantt's flights, its empty blocks, a project's shared window.
+"""
+
+from pils.analyze.plan.reader import PlanRun, project_name
+
+__all__ = ["PlanRun", "project_name"]
