@@ -69,6 +69,10 @@ where = ["."]
 include = ["pils*"]
 exclude = ["tests*", "site*", "plans*", "examples*", "docs*", "htmlcov*"]
 
+[tool.setuptools.package-data]
+# The SO detector layouts (pils.geometry.detectors)
+pils = ["geometry/data/focal_planes/*.npz"]
+
 [tool.ruff]
 line-length = 88
 target-version = "py311"
