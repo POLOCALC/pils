@@ -172,6 +172,21 @@ def _quicklook(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
+def _telescope(args: argparse.Namespace) -> int:
+    from pils.telescope_pointing import run
+
+    failed = 0
+    for flight in args.flights:
+        print(Path(flight).name)
+        for r in run(Path(flight), args.telescope, args.so_data, save=not args.dry_run):
+            print(
+                f"  {r.telescope}: {r.status} -- {r.detail}"
+                + (f" -> {r.path}" if r.path else "")
+            )
+            failed += r.status == "failed"
+    return 1 if failed else 0
+
+
 def _migrate(args: argparse.Namespace) -> int:
     from pils.migrate import migrate_lab, migrate_proc
 
@@ -296,6 +311,22 @@ def build_parser() -> argparse.ArgumentParser:
         "--lab-root",
         help="Lab data root for --power (default: PILS_LAB_DATA_PATH or STOUT)",
     )
+    telescope = sub.add_parser(
+        "telescope",
+        help="The SO SATs' own pointing (encoders) during a flight, in proc/telescope/",
+    )
+    telescope.add_argument("flights", nargs="+", help="Flight folders")
+    telescope.add_argument(
+        "-t",
+        "--telescope",
+        action="append",
+        help="This SAT only (repeatable; default SATP1, SATP2, SATP3)",
+    )
+    telescope.add_argument(
+        "--so-data",
+        help="SO's books (default: <campaigns>/telescope_data/SO/data beside the flight's campaign)",
+    )
+    telescope.add_argument("--dry-run", action="store_true", help="Read without saving")
     quicklook = sub.add_parser(
         "quicklook", help="Markdown report of a flight's data and their quality"
     )
@@ -358,6 +389,8 @@ def main(argv: list[str] | None = None) -> int:
         return _package(args)
     if args.command == "quicklook":
         return _quicklook(args)
+    if args.command == "telescope":
+        return _telescope(args)
     if args.command == "migrate":
         return _migrate(args)
     if args.command == "prune":
