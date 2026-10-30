@@ -14,6 +14,8 @@ schedule
     The campaign day by day: the Gantt's flights, its empty blocks, a project's shared window.
 fields
     The fields flown: what was flown where and when, on the site and in each telescope's sky.
+coverage
+    The wafers and detectors reached, how often, at which rotations, and for how long.
 """
 
 from pils.analyze.plan.reader import PlanRun, project_name
