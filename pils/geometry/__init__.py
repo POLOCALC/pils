@@ -14,6 +14,8 @@ focal_plane
     A telescope's wafers, and where they lie under a boresight rotation.
 detectors
     A telescope's detectors: positions, bands and beams (the SO layouts shipped).
+detector_tables
+    A focal plane read from a detector table (CLASS, the LAT) instead.
 crossings
     The drone in the focal plane, and the detectors it crosses.
 """
