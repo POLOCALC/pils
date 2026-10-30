@@ -14,6 +14,8 @@ import polars as pl
 
 def _flown(schedule: pl.DataFrame) -> pl.DataFrame:
     """The schedule's telescope flights at a field."""
+    if not {"telescope", "field", "date"} <= set(schedule.columns):
+        return schedule.clear()
     return schedule.filter(
         pl.col("telescope").is_not_null() & pl.col("field").is_not_null() & (pl.col("field").cast(pl.Utf8) != "")
     )
@@ -51,7 +53,7 @@ def field_summary(schedule: pl.DataFrame, fields: pl.DataFrame) -> pl.DataFrame:
             "distance [m]": float(distance[0]) if len(distance) else None,
             "flights": g.height,
             "telescopes": _counts(tels),
-            "projects": _counts(g["project"].to_list()),
+            "projects": _counts(g["project"].to_list()) if "project" in g.columns else "",
             "days": len(dates),
             "dates": ", ".join(dt.date.fromisoformat(d).strftime("%d %b") for d in dates),
             "hours": f"{g['start'].min()}–{g['end'].max()}",
