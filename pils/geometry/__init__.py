@@ -10,6 +10,8 @@ Modules
 -------
 site
     Positions on the site (the telescopes, the drone) and how one sees the other.
+focal_plane
+    A telescope's wafers, and where they lie under a boresight rotation.
 crossings
     The drone in the focal plane, and the detectors it crosses.
 """
