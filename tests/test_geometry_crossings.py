@@ -87,3 +87,16 @@ def test_the_same_as_gose_s_planner():
         rotate(pixels[:, 0], pixels[:, 1], -30),
         gose.rotate(pixels[:, 0], pixels[:, 1], -30),
     )
+
+
+def test_the_shortest_crossing_a_hwp_demodulation_follows():
+    from pils.geometry.crossings import demod_limit_s
+
+    assert demod_limit_s(None) is None and demod_limit_s(0) is None
+    # faster HWP: shorter crossings still demodulated; a wider circle: longer passes needed
+    assert demod_limit_s(2.0) < demod_limit_s(1.0) < demod_limit_s(1.0, beam_fraction=1.0)
+    try:
+        from gose.crossings import demod_limit_s as gose_limit
+    except ImportError:
+        return
+    assert demod_limit_s(2.0, 0.5) == gose_limit(2.0, 0.5)

@@ -119,3 +119,22 @@ def crossing_times(
     if not idx_out:
         return np.zeros(0, int), np.zeros(0)
     return np.concatenate(idx_out), np.concatenate(dur_out)
+
+
+def demod_limit_s(
+    hwp_hz: float | None, beam_fraction: float = 0.5, kept: float = 0.95
+) -> float | None:
+    """Return the shortest crossing straight through a beam that a HWP demodulation still follows.
+
+    Below it, the low-pass at 0.95 x the rotation (sotodlib's demod_tod) keeps
+    less than ``kept`` of the peak. A central pass through the circle of
+    ``beam_fraction`` x FWHM lasts 2 x beam_fraction x FWHM / v and its Gaussian
+    has sigma_t = FWHM / 2.355 / v; the peak kept is
+    erf(sqrt(2) pi sigma_t f_c). None without a HWP.
+    """
+    from scipy.special import erfinv
+
+    if not hwp_hz:
+        return None
+    sigma_t = erfinv(kept) / (np.sqrt(2) * np.pi * 0.95 * float(hwp_hz))
+    return float(2 * beam_fraction * 2 * np.sqrt(2 * np.log(2)) * sigma_t)
