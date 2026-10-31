@@ -32,6 +32,16 @@ Rows without a pointing solution (nan offsets), rows whose wafer is not named
 non-optical detectors (only `optical_types` count; CLASS's DD/DS darks sit on
 feed 0 with no horn) are left out.
 
+The CLASS and LAT tables the planner uses are shipped with pils
+(``data/detector_tables``, see :data:`BUNDLED_TABLES` and :func:`bundled_table`):
+
+  * ``class_focal_plane_w1_band.txt``, ``class_focal_plane_w2_band.txt``: the
+    CLASS W-band cameras;
+  * ``lat_mf_inner_wafer.txt``: the SO LAT mid-frequency wafer closest to the
+    boresight (w16 of inner tube i1, sotodlib's nominal hardware model).
+
+A configuration names one as ``pils:<name>`` (:data:`BUNDLED_PREFIX`).
+
 Requires: numpy, scipy.
 """
 
@@ -40,6 +50,7 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 from collections.abc import Sequence
+from pathlib import Path
 
 import numpy as np
 from scipy.spatial import ConvexHull
@@ -53,6 +64,41 @@ _HEX_DIRS = np.array(
 )  # axial lattice steps, CCW
 _COLUMNS = ("det_uid", "wafer", "feed", "type", "az_off", "el_off")
 _MISSING = {"", "nan", "none", "null", "-"}
+
+BUNDLED_DIR = Path(__file__).parent / "data" / "detector_tables"
+# The detector tables shipped with pils, by name
+BUNDLED_TABLES = (
+    "class_focal_plane_w1_band.txt",
+    "class_focal_plane_w2_band.txt",
+    "lat_mf_inner_wafer.txt",
+)
+# How a configuration names a shipped table: "pils:<name>"
+BUNDLED_PREFIX = "pils:"
+
+
+def bundled_table(name: str) -> Path:
+    """Return the path of a detector table shipped with pils.
+
+    Parameters
+    ----------
+    name : str
+        One of :data:`BUNDLED_TABLES`, with or without ``.txt`` and the
+        ``pils:`` prefix.
+
+    Raises
+    ------
+    KeyError
+        If no such table is shipped.
+    """
+    if name.startswith(BUNDLED_PREFIX):
+        name = name[len(BUNDLED_PREFIX) :]
+    if not name.endswith(".txt"):
+        name += ".txt"
+    if name not in BUNDLED_TABLES:
+        raise KeyError(
+            f"No detector table {name!r} shipped with pils (has: {', '.join(BUNDLED_TABLES)})"
+        )
+    return BUNDLED_DIR / name
 
 
 def read_detector_table(path: str) -> list[dict]:

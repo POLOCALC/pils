@@ -70,8 +70,12 @@ include = ["pils*"]
 exclude = ["tests*", "site*", "plans*", "examples*", "docs*", "htmlcov*"]
 
 [tool.setuptools.package-data]
-# The SO detector layouts (pils.geometry.detectors)
-pils = ["geometry/data/focal_planes/*.npz"]
+# The SO detector layouts (pils.geometry.detectors) and the CLASS/LAT
+# detector tables (pils.geometry.detector_tables)
+pils = [
+    "geometry/data/focal_planes/*.npz",
+    "geometry/data/detector_tables/*.txt",
+]
 
 [tool.ruff]
 line-length = 88
