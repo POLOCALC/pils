@@ -81,3 +81,11 @@ def test_the_same_as_gose_s_planner():
             mine = rotated_pixels(DEFAULT_WAFERS, wafer_type, bs)
             theirs = crossings.rotated_pixels(DEFAULT_WAFERS, wafer_type, bs)
             assert all(np.array_equal(mine[w], theirs[w]) for w in mine)
+
+
+def test_band_of_a_measured_frequency():
+    from pils.geometry.detectors import band_of_frequency
+
+    assert band_of_frequency(90) == "SAT_f090" and band_of_frequency(93.0) == "SAT_f090"
+    assert band_of_frequency(144) == "SAT_f150" and band_of_frequency(225) == "SAT_f230"
+    assert band_of_frequency(280) == "SAT_f290" and band_of_frequency(60) is None
