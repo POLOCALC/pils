@@ -1407,6 +1407,10 @@ class TestRTKCorrectionByDroneFormat:
         }
 
         flight._Flight__drone_model = "dji"
+        # Synchronized from the RTK columns
+        flight.sync_position_columns = {
+            "drone": {"lat": "rtk_lat_deg", "lon": "rtk_lon_deg", "alt": "rtk_h_ell_m"}
+        }
 
         from pils.analyze.azel import AZELAnalysis
 
@@ -1487,6 +1491,10 @@ class TestRTKCorrectionByDroneFormat:
         }
 
         flight._Flight__drone_model = "litchi"
+        # Synchronized from the RTK columns
+        flight.sync_position_columns = {
+            "drone": {"lat": "rtk_lat_deg", "lon": "rtk_lon_deg", "alt": "rtk_h_ell_m"}
+        }
 
         from pils.analyze.azel import AZELAnalysis
 
