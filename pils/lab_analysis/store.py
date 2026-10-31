@@ -22,6 +22,7 @@ from typing import Any
 import numpy as np
 import polars as pl
 
+import pils.integrations.stout as stout_db
 from pils.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -89,25 +90,20 @@ def default_lab_root() -> Path:
     if env:
         return Path(env)
     try:
-        from stout.config import Config  # type: ignore
-
-        return Path(Config.MAIN_DATA_PATH) / "lab"
-    except ImportError:
+        return stout_db.data_path() / "lab"
+    except stout_db.StoutUnavailable:
         return DEFAULT_LAB_ROOT
 
 
 def _stout_item(item_id: str) -> Item:
     try:
-        from stout.exceptions import NotFoundError  # type: ignore
-        from stout.services.inventory.service import InventoryService  # type: ignore
-    except ImportError as e:
-        raise ImportError(
+        return stout_db.inventory_item(item_id)
+    except stout_db.StoutUnavailable as e:
+        raise stout_db.StoutUnavailable(
             "Looking up items by id needs STOUT (pip install pils[stout]); "
             "or pass the item dicts directly."
         ) from e
-    try:
-        return InventoryService().get_item_by_id(item_id)
-    except NotFoundError as e:
+    except stout_db.StoutNotFound as e:
         raise LabDataNotFound(f"No inventory item {item_id}") from e
 
 

@@ -16,6 +16,7 @@ import numpy as np
 import polars as pl
 from scipy.interpolate import RegularGridInterpolator
 
+import pils.integrations.stout as stout_db
 from pils import store as result_store
 from pils.analyze.power.rf_chain import (
     RFChain,
@@ -150,10 +151,9 @@ class PowerAnalysis:
         if not payload_id:
             raise ValueError("No payload given and the flight has no payload_id")
         try:
-            from stout.services.campaigns import CampaignService  # type: ignore
-        except ImportError as e:
-            raise ImportError("Pass the payload or install STOUT") from e
-        found = CampaignService().get_payload_by_id(payload_id)
+            found = stout_db.payload(payload_id)
+        except stout_db.StoutUnavailable as e:
+            raise stout_db.StoutUnavailable("Pass the payload or install STOUT") from e
         if found is None:
             raise ValueError(f"Payload {payload_id} not found")
         return found
