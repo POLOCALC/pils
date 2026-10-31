@@ -24,7 +24,7 @@ import polars as pl
 from pils import store
 from pils.geometry.crossings import crossings, relative_path
 from pils.geometry.detectors import (
-    SOURCE_BAND,
+    band_of_frequency,
     FocalPlaneModel,
     focal_plane_model,
     rotated_pixels,
@@ -144,18 +144,24 @@ def flight_coverage(
     hi = min(end if end is not None else np.inf, float(drone["timestamp"].max()))
     keep = (t >= lo) & (t <= hi)
     if keep.sum() < 2:
-        raise ValueError(f"{name} has no pointing while the drone was seen (or in the window)")
+        raise ValueError(
+            f"{name} has no pointing while the drone was seen (or in the window)"
+        )
     t = t[keep]
     tel_az = pointing["az_enc_deg"].to_numpy()[keep] - az_offset_deg
     tel_el = pointing["el_enc_deg"].to_numpy()[keep]
     boresight = float(np.median(pointing["boresight_enc_deg"].to_numpy()[keep]))
     # The drone where the telescope's samples are (its azimuth unwrapped, for 0/360)
     dt = drone["timestamp"].to_numpy()
-    dr_az = np.interp(t, dt, np.unwrap(np.radians(drone["az_deg"].to_numpy()))) * 180 / np.pi
+    dr_az = (
+        np.interp(t, dt, np.unwrap(np.radians(drone["az_deg"].to_numpy())))
+        * 180
+        / np.pi
+    )
     dr_el = np.interp(t, dt, drone["el_deg"].to_numpy())
     xi, eta = relative_path(tel_az, tel_el, dr_az, dr_el)
 
-    band = SOURCE_BAND.get(int(source_ghz))
+    band = band_of_frequency(float(source_ghz))
     fwhm = focal_plane.fwhm_arcmin.get(band) if band else None
     if fwhm is None:
         raise ValueError(
@@ -165,7 +171,11 @@ def flight_coverage(
     pixels = rotated_pixels(wafers, focal_plane.wafer_type, boresight)
     names, xs, ys, counts = [], [], [], []
     for wafer, xy in pixels.items():
-        n = crossings(np.asarray(xi), np.asarray(eta), xy, radius) if len(xy) else np.zeros(0, int)
+        n = (
+            crossings(np.asarray(xi), np.asarray(eta), xy, radius)
+            if len(xy)
+            else np.zeros(0, int)
+        )
         names += [wafer] * len(xy)
         xs += np.round(xy[:, 0], 4).tolist()
         ys += np.round(xy[:, 1], 4).tolist()

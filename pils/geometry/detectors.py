@@ -41,6 +41,17 @@ SOURCE_BAND = {
     290: "SAT_f290",
 }
 
+# A source's measured frequency (GHz) -> the band whose passband it falls in: approximate edges of
+# the SO bands (the drone's source is tuned within them: 84-102 GHz in f090, 135-153 in f150...)
+BAND_EDGES_GHZ = (
+    (20.0, 34.0, "SAT_f030"),
+    (34.0, 50.0, "SAT_f040"),
+    (75.0, 112.0, "SAT_f090"),
+    (120.0, 175.0, "SAT_f150"),
+    (190.0, 255.0, "SAT_f230"),
+    (255.0, 320.0, "SAT_f290"),
+)
+
 # which bands a wafer of each type carries -- the same information the hardware
 # model gives, without needing sotodlib to answer "can this SAT see that source?"
 TYPE_BANDS = {
@@ -60,6 +71,14 @@ WAFER_TYPES = tuple(TYPE_BANDS)
 def sees(wafer_type: str, source: float | str) -> bool:
     """Tell whether a telescope carrying ``wafer_type`` detectors has a band for this drone source."""
     return band_of_source(source) in TYPE_BANDS[wafer_type]
+
+
+def band_of_frequency(ghz: float) -> str | None:
+    """Name the band a source tuned to ``ghz`` falls in (:data:`BAND_EDGES_GHZ`), or None."""
+    named = SOURCE_BAND.get(int(round(ghz)))
+    if named is not None:
+        return named
+    return next((band for lo, hi, band in BAND_EDGES_GHZ if lo <= ghz < hi), None)
 
 
 def band_of_source(source: float | str) -> str:
