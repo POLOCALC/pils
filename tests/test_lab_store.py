@@ -2,6 +2,7 @@
 
 import sys
 import types
+from datetime import UTC
 from unittest.mock import patch
 
 import h5py
@@ -314,3 +315,73 @@ def test_legacy_and_saved_runs_listed_and_migrated(tmp_path):
     )
     assert tables["summary"].equals(table) and metadata == {"a": 1}
     assert analysis.results_path.is_file()  # kept
+
+
+class TestAsOf:
+    """The measurements valid at a flight, and the record of what was read."""
+
+    @pytest.fixture
+    def two(self, lab):
+        folder = lab / "WR10" / "coupler" / "COU_001" / "transmission"
+        (folder / "20260729_154400.csv").write_text(
+            "Frequency,S12 avg [dB],S12 std [dB]\n93,-0.50,0.01\n"
+        )
+        return lab
+
+    def test_measured_at_and_choose(self):
+        from datetime import datetime
+
+        from pils.lab_analysis.store import choose, measured_at
+
+        assert measured_at("20251021_gain_processed.csv") == datetime(
+            2025, 10, 21, tzinfo=UTC
+        )
+        assert measured_at("notes.csv") is None
+        names = ["20260617_140000.csv", "20260729_154400.csv"]
+        assert choose(names, None) == ("20260729_154400.csv", False)
+        july = datetime(2026, 7, 1)  # naive: UTC
+        assert choose(names, july) == ("20260617_140000.csv", False)
+        assert choose(names, datetime(2025, 1, 1)) == ("20260617_140000.csv", True)
+        assert choose(["a.csv", "b.csv"], july) == ("b.csv", False)
+
+    def test_store_reads_as_of_and_records(self, two):
+        from datetime import datetime
+
+        latest = LabStore(two)
+        assert latest.transmission(COUPLER, "transmission", 93) == (-0.50, 0.01)
+        then = LabStore(two, as_of=datetime(2026, 7, 1))
+        assert then.transmission(COUPLER, "transmission", 93) == (-0.72, 0.01)
+        assert then.used == [
+            {
+                "item": "COU_001",
+                "category": "coupler",
+                "test_type": "transmission",
+                "measurement": "20260617_140000.csv",
+                "measured_at": "2026-06-17T14:00:00+00:00",
+                "after": False,
+                "source": "file",
+                "path": "WR10/coupler/COU_001/transmission/20260617_140000.csv",
+            }
+        ]
+        early = LabStore(two, as_of=datetime(2025, 1, 1))
+        early.transmission(COUPLER, "transmission", 93)
+        assert early.used[0]["after"] is True
+
+    def test_power_inputs_check(self, two):
+        from datetime import datetime
+
+        from pils.analyze.power import inputs
+
+        payload = {"items": [COUPLER, ANTENNA]}
+        rows = inputs.check(payload, 93, LabStore(two), as_of=datetime(2025, 1, 1))
+        by = {(r["quantity"], r["item"]): r for r in rows}
+        assert by[("coupler transmission", "COU_001")]["status"] == "after"
+        assert by[("coupler transmission", "COU_001")]["measurement"] == (
+            "20260617_140000.csv"
+        )
+        assert by[("antenna gain", "ANT_001")]["status"] == "missing"
+        assert by[("diode responsivity", None)]["status"] == "no item"
+        assert not any(r["category"] == "attenuator" for r in rows)  # optional
+        rows = inputs.check(payload, 93, LabStore(two), as_of=datetime(2026, 7, 1))
+        by = {(r["quantity"], r["item"]): r for r in rows}
+        assert by[("coupler transmission", "COU_001")]["status"] == "ok"

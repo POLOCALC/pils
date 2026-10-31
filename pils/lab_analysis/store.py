@@ -5,10 +5,17 @@ each quantity the store returns a standard table, read from the latest PILS
 analysis run when there is one (``proc/<analysis>/<stem>/rev_*/``, or a
 legacy ``<analysis>_solution.h5``), otherwise from the processed files written
 before PILS had lab analyses (``*.csv``, ``*_processed.*``).
+
+A measurement is named by when it was taken (``YYYYMMDD[_HHMMSS]...``). With
+``as_of`` (a flight's take-off) the store takes the latest measurement made
+before then; when every one was made after, the earliest, said in what it
+used. Each measurement read is listed in :attr:`LabStore.used`.
 """
 
 import os
+import re
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +29,45 @@ logger = get_logger(__name__)
 DEFAULT_LAB_ROOT = Path("/mnt/data/POLOCALC/lab")
 
 Item = dict[str, Any]
+
+_MEASURED = re.compile(r"^(\d{8})(?:_(\d{6}))?")
+
+
+def measured_at(name: str) -> datetime | None:
+    """When a measurement was taken, from its name (UTC), or None."""
+    match = _MEASURED.match(name)
+    if match is None:
+        return None
+    try:
+        return datetime.strptime(
+            match[1] + (match[2] or "000000"), "%Y%m%d%H%M%S"
+        ).replace(tzinfo=UTC)
+    except ValueError:
+        return None
+
+
+def _utc(when: datetime) -> datetime:
+    return when if when.tzinfo else when.replace(tzinfo=UTC)
+
+
+def choose(names: list[str], as_of: datetime | None) -> tuple[str, bool]:
+    """Pick the measurement to use, and say whether it was made after ``as_of``.
+
+    Without ``as_of``, the latest. With it, the latest made by then, else the
+    earliest made after; names without a date count only when no other has one.
+    """
+    names = sorted(names)
+    if as_of is None:
+        return names[-1], False
+    dated = [(measured_at(n), n) for n in names]
+    dated = [(t, n) for t, n in dated if t is not None]
+    if not dated:
+        return names[-1], False
+    as_of = _utc(as_of)
+    before = [n for t, n in dated if t <= as_of]
+    if before:
+        return before[-1], False
+    return min(dated)[1], True
 
 
 class LabDataNotFound(LookupError):
@@ -87,6 +133,16 @@ class LabStore:
         Lab data root; see :func:`default_lab_root`.
     get_item : callable, optional
         ``item_id -> item dict``; defaults to STOUT's inventory.
+    as_of : datetime, optional
+        Use the measurements valid then (a flight's take-off), not the latest.
+
+    Attributes
+    ----------
+    used : list[dict]
+        Each measurement read: ``item``, ``category``, ``test_type``,
+        ``measurement`` (its stem or file), ``measured_at`` (ISO, or None),
+        ``after`` (made after ``as_of``), ``source`` (``run <rev>`` or the
+        file) and ``path`` (from the lab root).
 
     Examples
     --------
@@ -98,9 +154,36 @@ class LabStore:
         self,
         root: str | Path | None = None,
         get_item: Callable[[str], Item] | None = None,
+        as_of: datetime | None = None,
     ) -> None:
         self.root = Path(root) if root is not None else default_lab_root()
         self._get_item = get_item or _stout_item
+        self.as_of = as_of
+        self.used: list[dict[str, Any]] = []
+
+    def _record(
+        self, folder: Path, measurement: str, after: bool, source: str, path: Path
+    ) -> None:
+        try:
+            parts = folder.relative_to(self.root).parts
+        except ValueError:
+            parts = folder.parts[-4:]
+        category, item, test_type = (list(parts[-3:]) + ["", "", ""])[:3]
+        when = measured_at(measurement)
+        entry = {
+            "item": item,
+            "category": category,
+            "test_type": test_type,
+            "measurement": measurement,
+            "measured_at": when.isoformat() if when else None,
+            "after": after,
+            "source": source,
+            "path": str(
+                path.relative_to(self.root) if path.is_relative_to(self.root) else path
+            ),
+        }
+        if entry not in self.used:
+            self.used.append(entry)
 
     # -- items and folders -------------------------------------------------
 
@@ -148,18 +231,29 @@ class LabStore:
     def _latest_run(
         self, folder: Path, analysis: str
     ) -> tuple[dict[str, pl.DataFrame], dict[str, Any]] | None:
-        from pils.lab_analysis.base import latest_run
+        from pils.lab_analysis.base import load_run, measurement_runs
 
-        return latest_run(folder / "proc" / analysis, analysis)
+        results = folder / "proc" / analysis
+        runs = measurement_runs(results, analysis)
+        if not runs:
+            return None
+        stem, after = choose(list(runs), self.as_of)
+        self._record(
+            folder, stem, after, f"run {runs[stem]}", results / stem / runs[stem]
+        )
+        return load_run(results, analysis, stem, runs[stem])
 
-    @staticmethod
-    def _legacy_file(folder: Path, *patterns: str) -> Path:
+    def _legacy_file(self, folder: Path, *patterns: str) -> Path:
         for pattern in patterns:
-            files = sorted(
-                p for p in folder.glob(pattern) if p.is_file() and "_raw" not in p.name
-            )
+            files = {
+                p.name: p
+                for p in folder.glob(pattern)
+                if p.is_file() and "_raw" not in p.name
+            }
             if files:
-                return files[-1]  # latest measurement
+                name, after = choose(list(files), self.as_of)
+                self._record(folder, name, after, "file", files[name])
+                return files[name]
         raise LabDataNotFound(f"No result ({', '.join(patterns)}) in {folder}")
 
     # -- quantities ----------------------------------------------------------

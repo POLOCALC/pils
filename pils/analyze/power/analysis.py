@@ -158,6 +158,25 @@ class PowerAnalysis:
             raise ValueError(f"Payload {payload_id} not found")
         return found
 
+    def _takeoff(self) -> datetime.datetime | None:
+        """Return the flight's take-off (UTC), from its record or its folder name."""
+        info = self.flight.flight_info or {}
+        when = info.get("takeoff_datetime") or info.get("takeoff_time")
+        if isinstance(when, str):
+            try:
+                when = datetime.datetime.fromisoformat(when.replace("Z", "+00:00"))
+            except ValueError:
+                when = None
+        if isinstance(when, datetime.datetime):
+            return when if when.tzinfo else when.replace(tzinfo=datetime.UTC)
+        name = self.flight_path.name
+        try:
+            return datetime.datetime.strptime(name[7:20], "%Y%m%d_%H%M").replace(
+                tzinfo=datetime.UTC
+            )
+        except ValueError:
+            return None
+
     def _frequency(self) -> float:
         info = self.flight.flight_info.get("flight_info") or {}
         if info.get("frequency") in (None, "", 0):
@@ -249,6 +268,7 @@ class PowerAnalysis:
         config: dict[str, Any] | None = None,
         save_data: bool = False,
         plot: bool = False,
+        lab_as_of: datetime.datetime | str | None = "takeoff",
     ) -> PowerVersion:
         """Compute the expected power on ``telescope``/``wafer_slot`` detectors.
 
@@ -277,6 +297,10 @@ class PowerAnalysis:
             Drop ADC samples above this many standard deviations.
         impedance_dataset : str
             Antenna impedance-matching set-up used for the mismatch loss.
+        lab_as_of : datetime | "takeoff" | None
+            The lab measurements valid then (the default: the flight's
+            take-off), or None for the latest. What was used is in the
+            metadata's ``lab_inputs``.
 
         Returns
         -------
@@ -291,6 +315,8 @@ class PowerAnalysis:
         """
         config = config or load_config()
         store = store or LabStore()
+        store.as_of = self._takeoff() if lab_as_of == "takeoff" else lab_as_of
+        store.used = []
         payload = self._payload(payload)
         frequency = self._frequency()
         multiplier = payload_item(payload, "multiplier")
@@ -455,6 +481,8 @@ class PowerAnalysis:
                 "adc_clip_sigma": adc_clip_sigma,
                 "envelope_window": ENVELOPE_WINDOW[band],
                 "impedance_dataset": impedance_dataset,
+                "lab_as_of": store.as_of.isoformat() if store.as_of else None,
+                "lab_inputs": list(store.used),
                 "created": datetime.datetime.now().isoformat(),
             },
         )

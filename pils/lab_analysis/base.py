@@ -164,10 +164,8 @@ def load_run(
     return hdf5.load_version(legacy, version_name, parent=stem)
 
 
-def latest_run(
-    results_dir: Path, analysis: str
-) -> tuple[dict[str, pl.DataFrame], dict[str, Any]] | None:
-    """Latest run of the latest measurement with runs, saved or legacy HDF5."""
+def measurement_runs(results_dir: Path, analysis: str) -> dict[str, str]:
+    """List the measurements (stems) with runs, oldest first, and their latest run."""
     legacy = results_dir / f"{analysis}_solution.h5"
     stems: set[str] = set()
     if results_dir.is_dir():
@@ -177,11 +175,23 @@ def latest_run(
 
         with h5py.File(legacy, "r") as f:
             stems |= set(f.keys())
-    for stem in sorted(stems, reverse=True):  # latest measurement first
+    runs = {}
+    for stem in sorted(stems):
         versions = sorted(
             set(result_store.list_versions(results_dir, parent=stem))
             | set(hdf5.list_versions(legacy, parent=stem))
         )
         if versions:
-            return load_run(results_dir, analysis, stem, versions[-1])
-    return None
+            runs[stem] = versions[-1]
+    return runs
+
+
+def latest_run(
+    results_dir: Path, analysis: str
+) -> tuple[dict[str, pl.DataFrame], dict[str, Any]] | None:
+    """Latest run of the latest measurement with runs, saved or legacy HDF5."""
+    runs = measurement_runs(results_dir, analysis)
+    if not runs:
+        return None
+    stem = list(runs)[-1]  # latest measurement
+    return load_run(results_dir, analysis, stem, runs[stem])
