@@ -1,4 +1,4 @@
-# A new commit on main: TRIPEL releases its desktop app again, with this
+# A new commit on main (or the branch TRIPEL packages): TRIPEL releases its desktop app again, with this
 # commit inside (TRIPEL's release.yml, on its repository_dispatch).
 #
 # The secret TRIPEL_DISPATCH_TOKEN is a fine-grained token on POLOCALC/tripel
@@ -8,7 +8,8 @@ name: Notify TRIPEL
 
 on:
   push:
-    branches: [main]
+    # flight_package too while TRIPEL packages it (until it is merged into main)
+    branches: [main, flight_package]
 
 permissions: {}
 
