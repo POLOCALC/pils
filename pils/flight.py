@@ -308,6 +308,10 @@ class Flight:
         # The reference timebase: "payload_gps" or "drone_gps"
         self.sync_reference: str | None = None
         self.sync_rates: dict[str, float] = {}
+        # The drone table's columns the synchronized positions (lat_deg,
+        # lon_deg, h_ell_m) come from, e.g. {"lat": "rtk_lat_deg", ...}:
+        # RTK positions or the drone's own GNSS receiver
+        self.sync_position_columns: dict[str, dict[str, str]] = {}
         self.adc_gain_config = None
         # Set by the loaders; saved with the raw data
         self.__drone_model: str | None = None
@@ -1057,6 +1061,7 @@ class Flight:
 
         # Create synchronizer
         sync = Synchronizer()
+        position_columns: dict[str, str] | None = None
 
         # Add drone GPS if available
         drone_data = self.raw_data.drone_data.drone
@@ -1115,6 +1120,7 @@ class Flight:
             # Positions only where the receiver has a solution (DJI RTK rows
             # without one are at 0, 0, 0)
             drone_df = _valid_positions(drone_df, lat_col, lon_col)
+            position_columns = {"lat": lat_col, "lon": lon_col, "alt": alt_col}
             if gps_data is not None:
                 coverage = _time_coverage(gps_data["timestamp"], drone_df["timestamp"])
                 if coverage < MIN_REFERENCE_COVERAGE:
@@ -1265,6 +1271,9 @@ class Flight:
         self.sync_reference = sync.reference
         # Rates (Hz) of the synchronized tables, as used
         self.sync_rates = dict(sync.rates)
+        self.sync_position_columns = (
+            {"drone": position_columns} if position_columns is not None else {}
+        )
 
         return self.sync_data
 
@@ -1358,6 +1367,7 @@ class Flight:
                 "time_offset_details": self.sync_offset_details,
                 "reference": self.sync_reference,
                 "rates": self.sync_rates,
+                "position_columns": self.sync_position_columns,
                 **(sync_metadata or {}),
             },
             kind="flight_sync",
@@ -1423,6 +1433,7 @@ class Flight:
                 flight.sync_offset_details = sync_meta.get("time_offset_details", {})
                 flight.sync_reference = sync_meta.get("reference")
                 flight.sync_rates = sync_meta.get("rates", {})
+                flight.sync_position_columns = sync_meta.get("position_columns", {})
         return flight
 
     def to_hdf5(
