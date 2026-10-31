@@ -16,6 +16,33 @@ from pils.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+# DJI RTK solution type (rtk_pos_flag_1): 50 is a fixed solution (34 float,
+# 16 single, 0 none; see pils.analyze.quicklook.DJI_RTK_FLAGS)
+RTK_FIX_COLUMN = "rtk_pos_flag_1"
+RTK_FIXED = 50
+
+
+def _positions_are_rtk(
+    data_source: str, drone_df: pl.DataFrame, position_columns: dict | None
+) -> bool:
+    """Whether the drone positions AZEL reads are the RTK ones.
+
+    The raw table is read through its ``rtk_*`` columns. The synchronized
+    one has the columns its positions came from recorded by
+    :meth:`pils.flight.Flight.sync` (``sync_position_columns``); a sync saved
+    without that record is judged from its columns: the RTK latitude is
+    renamed to ``lat_deg`` when it is used, so an ``rtk_lat_deg`` left in
+    the table (or no ``rtk_*`` column at all) means the drone GNSS was.
+    """
+    if data_source != "sync_data":
+        return True
+    lat = (position_columns or {}).get("lat")
+    if lat is not None:
+        return str(lat).startswith("rtk_")
+    if "rtk_lat_deg" in drone_df.columns:
+        return False
+    return any(column.startswith("rtk_") for column in drone_df.columns)
+
 
 @dataclass
 class AZELVersion:
@@ -163,7 +190,14 @@ class AZELAnalysis:
     def _compute_rtk_correction(
         dji_base_geod: dict[str, float], dji_broadcast_geod: dict[str, float]
     ) -> tuple[float, float, float]:
-        """Compute RTK correction offset between actual and broadcast base positions.
+        """Compute the RTK correction: the surveyed base minus the broadcast one.
+
+        A DJI RTK rover solves its position as a baseline from the base
+        position the base broadcasts. When that position is off, the rover
+        is off by the same amount, the other way: it reports
+        ``true_rover - (true_base - broadcast_base)``. The correction (the
+        surveyed base in the ENU frame of the broadcast one) is therefore
+        *added* to the drone positions.
 
         Parameters
         ----------
@@ -177,15 +211,15 @@ class AZELAnalysis:
         Returns
         -------
         tuple[float, float, float]
-            Tuple of (delta_east, delta_north, delta_up) offset in meters
-            to subtract from drone ENU coordinates.
+            Tuple of (delta_east, delta_north, delta_up) in meters, in the
+            ENU frame of the broadcast base: to add to the drone positions.
 
         Examples
         --------
         >>> actual = {'lat': 40.0, 'lon': -105.0, 'alt': 1000.0}
         >>> broadcast = {'lat': 40.001, 'lon': -105.0, 'alt': 1000.0}
         >>> de, dn, du = AZELAnalysis._compute_rtk_correction(actual, broadcast)
-        >>> # Offset is ~111m south (broadcast is north of actual)
+        >>> # ~111 m south: the drone is reported ~111 m north of where it is
         """
         delta_e, delta_n, delta_u = pm.geodetic2enu(
             dji_base_geod["lat"],
@@ -211,6 +245,12 @@ class AZELAnalysis:
         Loads drone RTK data, computes reference positions from EMLID survey data,
         applies RTK corrections, and computes azimuth-elevation angles for telescope
         tracking. Uses vectorized pymap3d operations for efficient coordinate transforms.
+
+        The RTK correction (see :meth:`_compute_rtk_correction`) is applied
+        only to RTK positions: not when the synchronized drone positions are
+        the drone's own GNSS (``rtk_applied`` false, ``position_columns`` in
+        the metadata). Of RTK positions, only the RTK-fixed epochs are kept
+        when the table has the DJI fix flag (``rtk_pos_flag_1`` = 50).
 
         Parameters
         ----------
@@ -369,6 +409,30 @@ class AZELAnalysis:
             logger.warning("No valid position data found (all lat=0 or NaN)")
             return None
 
+        # RTK positions, or the drone GNSS the sync fell back to
+        position_columns = (
+            (getattr(self.flight, "sync_position_columns", None) or {}).get("drone")
+            if data_source == "sync_data"
+            else {"lat": lat_col, "lon": lon_col, "alt": alt_col}
+        )
+        positions_rtk = _positions_are_rtk(data_source, drone_df, position_columns)
+        rtk_fixed_only = positions_rtk and RTK_FIX_COLUMN in valid_rtk.columns
+        if rtk_fixed_only:
+            fixed = valid_rtk.filter(pl.col(RTK_FIX_COLUMN) == RTK_FIXED)
+            logger.info(
+                f"RTK-fixed epochs: {fixed.height} of {valid_rtk.height} "
+                f"({RTK_FIX_COLUMN} = {RTK_FIXED})"
+            )
+            valid_rtk = fixed
+            if valid_rtk.height == 0:
+                logger.warning("No RTK-fixed position")
+                return None
+        elif not positions_rtk:
+            logger.warning(
+                "The drone positions are the drone GNSS, not RTK: "
+                "no RTK base correction"
+            )
+
         logger.info(f"Filtered to {valid_rtk.height} valid position samples")
         timestamps_ctime = valid_rtk[timestamp_col].to_list()
 
@@ -391,9 +455,11 @@ class AZELAnalysis:
         )
 
         # 5. Compute RTK correction offset (conditional based on drone format)
-        # RTK correction only applies to DJI and Litchi (NOT BlackSquare), and
-        # needs the campaign's surveyed DJI base
-        rtk_applied = format_type in ["dji", "litchi"] and base_geod is not None
+        # RTK correction only applies to DJI and Litchi (NOT BlackSquare)
+        # RTK positions, and needs the campaign's surveyed DJI base
+        rtk_applied = (
+            format_type in ["dji", "litchi"] and positions_rtk and base_geod is not None
+        )
 
         if rtk_applied:
             assert base_geod is not None
@@ -404,27 +470,47 @@ class AZELAnalysis:
                 f"RTK correction offset: dE={delta_e:.3f}m, dN={delta_n:.3f}m, dU={delta_u:.3f}m"
             )
         else:
-            # BlackSquare: no RTK correction
+            # BlackSquare, drone GNSS or no surveyed base: no RTK correction
             delta_e, delta_n, delta_u = 0.0, 0.0, 0.0
             logger.info(
-                f"Skipping RTK correction for {format_type} format (not RTK-capable)"
+                f"Skipping RTK correction ({format_type} format, "
+                f"RTK positions: {positions_rtk}, surveyed base: "
+                f"{base_geod is not None})"
             )
 
-        e, n, u = pm.geodetic2enu(
-            valid_rtk[lat_col],
-            valid_rtk[lon_col],
-            valid_rtk[alt_col],
+        # 6. Drone positions (ECEF), corrected: the rover is off by minus
+        # (surveyed base - broadcast base), so that difference is added,
+        # as an ECEF vector (exact, whatever the distance between the frames)
+        x, y, z = pm.geodetic2ecef(
+            valid_rtk[lat_col].to_numpy(),
+            valid_rtk[lon_col].to_numpy(),
+            valid_rtk[alt_col].to_numpy(),
+        )
+        if rtk_applied:
+            assert base_geod is not None
+            base_ecef = np.array(
+                pm.geodetic2ecef(base_geod["lat"], base_geod["lon"], base_geod["alt"])
+            )
+            broadcast_ecef = np.array(
+                pm.geodetic2ecef(
+                    dji_broadcast_geod["lat"],
+                    dji_broadcast_geod["lon"],
+                    dji_broadcast_geod["alt"],
+                )
+            )
+            dx, dy, dz = base_ecef - broadcast_ecef
+            x, y, z = x + dx, y + dy, z + dz
+            logger.info("Applied RTK correction (added) to the drone positions")
+
+        # 7. ENU of the telescope
+        e_corrected, n_corrected, u_corrected = pm.ecef2enu(
+            x,
+            y,
+            z,
             telescope_geod["lat"],
             telescope_geod["lon"],
             telescope_geod["alt"],
         )
-
-        # 7. Apply RTK correction (subtract offset from ENU positions)
-        e_corrected = e - delta_e
-        n_corrected = n - delta_n
-        u_corrected = u - delta_u
-
-        logger.info("Applied RTK correction to ENU positions")
 
         azimuth, elevation, slant_range = pm.enu2aer(
             e_corrected, n_corrected, u_corrected
@@ -477,6 +563,10 @@ class AZELAnalysis:
                 "delta_u": delta_u,
             },
             "rtk_applied": rtk_applied,
+            # The rover's position minus the truth is minus this correction
+            "rtk_correction_sign": "added",
+            "position_columns": position_columns,
+            "rtk_fixed_only": rtk_fixed_only,
             **positions.as_metadata(),
             "drone_format": format_type,
             "timezone_offset_hours": drone_timezone_hours,
