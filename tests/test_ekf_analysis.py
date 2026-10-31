@@ -1180,7 +1180,7 @@ class TestEKFRealDataIntegration:
             )
 
     def test_ekf_comparison_plot(
-        self, mock_flight, real_imu_df, real_photo_df, real_photo_euler
+        self, mock_flight, real_imu_df, real_photo_df, real_photo_euler, tmp_path
     ):
         """Run EKF, compare against photogrammetry reference, save comparison plot."""
         import matplotlib
@@ -1305,7 +1305,7 @@ class TestEKFRealDataIntegration:
                 ax.set_xlabel("Time (s)" if ax.get_xlabel() == "" else ax.get_xlabel())
 
         plt.tight_layout()
-        output_path = _TEST_DATA_DIR / "ekf_comparison.png"
+        output_path = tmp_path / "ekf_comparison.png"
         plt.savefig(output_path, dpi=150, bbox_inches="tight")
         plt.close(fig)
         print(f"\nComparison plot saved → {output_path}")
