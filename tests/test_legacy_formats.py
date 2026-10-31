@@ -339,3 +339,13 @@ def test_payload_gps_epochs_without_a_fix_are_dropped():
     flight.sync(target_rate={"drone": 5.0, "payload": 10.0})
     assert flight.sync_reference == "payload_gps"
     assert flight.sync_offset_details["drone_gps"]["correlation"] > 0.9
+
+
+def test_sync_records_the_drone_position_columns(tmp_path):
+    flight = flight_with(gps_span=(0.0, 300.0))
+    flight.sync(target_rate={"drone": 5.0, "payload": 10.0})
+    columns = {"lat": "lat_deg", "lon": "lon_deg", "alt": "h_ell_m"}
+    assert flight.sync_position_columns == {"drone": columns}
+    flight.save(tmp_path)
+    loaded = type(flight).load(tmp_path)
+    assert loaded.sync_position_columns == {"drone": columns}
