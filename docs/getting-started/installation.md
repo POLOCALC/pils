@@ -85,7 +85,6 @@ print("All modules imported successfully")
 
 | Package | Purpose | Install |
 |---------|---------|---------|
-| `opencv-python` | Video/image processing | `pip install opencv-python` |
 | `pymavlink` | ArduPilot log parsing | `pip install pymavlink` |
 | `matplotlib` | Plotting and visualization | `pip install matplotlib` |
 | `rtklib` | PPK processing | System install required |
