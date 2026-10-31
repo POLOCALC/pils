@@ -14,6 +14,7 @@ from pils.datahandler import DataHandler, Payload, Drone
 # Report generation (optional dependencies)
 try:
     from pils.report import FlightReport, quick_report
+
     _REPORT_AVAILABLE = True
 except ImportError:
     _REPORT_AVAILABLE = False
