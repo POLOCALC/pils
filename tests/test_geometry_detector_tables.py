@@ -1,11 +1,14 @@
 """A focal plane read from a detector table: CLASS's, the LAT's (pils.geometry.detector_tables)."""
 
-from pathlib import Path
-
 import numpy as np
 import pytest
 
-from pils.geometry.detector_tables import read_detector_table, wafers_from_table
+from pils.geometry.detector_tables import (
+    BUNDLED_TABLES,
+    bundled_table,
+    read_detector_table,
+    wafers_from_table,
+)
 
 TABLE = """# offsets relative to boresight, degrees
  det_uid wafer feed type  az_off  el_off
@@ -19,8 +22,6 @@ TABLE = """# offsets relative to boresight, degrees
        7    WB    1    V     nan     nan
        8    WB    2    V  +10.00  +0.000
 """
-# The planner's real tables, when its checkout is here
-GOSE_CONFIGS = Path("/home/polocalc_software/gose/configs")
 
 
 @pytest.fixture
@@ -52,15 +53,42 @@ def test_a_wafer_per_named_module_of_its_optical_feeds(table):
     )
 
 
-@pytest.mark.skipif(not GOSE_CONFIGS.is_dir(), reason="GOSE's tables are not here")
-def test_the_same_wafers_as_gose_s_planner():
-    gose = pytest.importorskip("gose.focal_plane_file")
-    for path in sorted(GOSE_CONFIGS.glob("*/*.txt")):
-        mine, theirs = wafers_from_table(str(path)), gose.wafers_from_table(str(path))
-        assert [(w.name, w.xi, w.eta, w.outline) for w in mine] == [
-            (w.name, w.xi, w.eta, w.outline) for w in theirs
-        ]
-        assert all(
-            np.array_equal(a.pixels, b.pixels)
-            for a, b in zip(mine, theirs, strict=True)
-        )
+def test_the_shipped_tables_are_found_by_name():
+    assert len(BUNDLED_TABLES) == 3
+    for name in BUNDLED_TABLES:
+        path = bundled_table(name)
+        assert path.is_file() and path.name == name
+        assert bundled_table(f"pils:{name}") == path
+        assert bundled_table(name.removesuffix(".txt")) == path
+    with pytest.raises(KeyError):
+        bundled_table("pils:no_such_table")
+
+
+@pytest.mark.parametrize(
+    "name, wafers",
+    [
+        (
+            "class_focal_plane_w1_band.txt",
+            {
+                "W2-1": 28,
+                "W2-2": 31,
+                "W2-3": 32,
+                "W2-4": 26,
+                "W3": 34,
+                "W6": 37,
+                "W7": 27,
+            },
+        ),
+        ("class_focal_plane_w2_band.txt", {"W1": 37, "W2": 37, "W3": 37, "W5": 37}),
+        ("lat_mf_inner_wafer.txt", {"LAT-MF": 430}),
+    ],
+)
+def test_the_shipped_tables_read_as_their_wafers(name, wafers):
+    read = wafers_from_table(str(bundled_table(name)))
+    assert {w.name: w.pixels.shape[0] for w in read} == wafers
+    for w in read:
+        assert np.isfinite(w.pixels).all() and w.outline
+        # radians, within 20 degrees of the boresight; the centre among its feeds
+        assert np.abs(w.pixels).max() < np.radians(20)
+        lo, hi = w.pixels.min(axis=0), w.pixels.max(axis=0)
+        assert lo[0] <= w.xi <= hi[0] and lo[1] <= w.eta <= hi[1]
