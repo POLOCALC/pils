@@ -20,7 +20,7 @@ TABLE = """# offsets relative to boresight, degrees
        8    WB    2    V  +10.00  +0.000
 """
 # The planner's real tables, when its checkout is here
-GOSE_CONFIGS = Path("/home/gabriele/gose/configs")
+GOSE_CONFIGS = Path("/home/polocalc_software/gose/configs")
 
 
 @pytest.fixture
