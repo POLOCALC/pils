@@ -11,6 +11,7 @@ Examples
     pils package flight_20251208_1927 flight_20251208_2010
     pils package /mnt/data/POLOCALC/campaigns/202511/20251208/flight_20251208_1927
     pils quicklook flight_20251208_1927 --ppk optimized.conf
+    pils timing /mnt/data/POLOCALC/campaigns/202511/20251208/flight_20251208_1927
 
 Runs are saved (results file + plots) unless ``--dry-run``; ``--output-dir``
 writes them somewhere else than the data folders.
@@ -172,6 +173,33 @@ def _quicklook(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
+def _timing(args: argparse.Namespace) -> int:
+    import json
+
+    from pils.analyze.timing import check
+
+    worst = 0
+    for flight in args.flights:
+        result = check(Path(flight))
+        if args.json:
+            print(json.dumps({"flight": Path(flight).name, **result}, default=str))
+            continue
+        print(f"{Path(flight).name}: {result['status']}")
+        for c in result["checks"]:
+            print(f"  {c['status']:<4}  {c['name']}: {c['detail']}")
+        for s in result["sensitivity"]:
+            print(
+                f"  1 ms is {s['arcsec_per_ms']:.1f} arcsec as {s['telescope']} sees the drone"
+                + (
+                    f"; the offset left, {s['residual_arcmin']:.1f} arcmin"
+                    if s.get("residual_arcmin") is not None
+                    else ""
+                )
+            )
+        worst = max(worst, {"bad": 1}.get(result["status"], 0))
+    return worst
+
+
 def _telescope(args: argparse.Namespace) -> int:
     from pils.telescope_pointing import run
 
@@ -327,6 +355,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="SO's books (default: <campaigns>/telescope_data/SO/data beside the flight's campaign)",
     )
     telescope.add_argument("--dry-run", action="store_true", help="Read without saving")
+    timing = sub.add_parser(
+        "timing",
+        help="How well a packaged flight's clocks are tied to GPS time, and what an error costs",
+    )
+    timing.add_argument("flights", nargs="+", help="Flight folders")
+    timing.add_argument("--json", action="store_true", help="One JSON line per flight")
     quicklook = sub.add_parser(
         "quicklook", help="Markdown report of a flight's data and their quality"
     )
@@ -389,6 +423,8 @@ def main(argv: list[str] | None = None) -> int:
         return _package(args)
     if args.command == "quicklook":
         return _quicklook(args)
+    if args.command == "timing":
+        return _timing(args)
     if args.command == "telescope":
         return _telescope(args)
     if args.command == "migrate":
