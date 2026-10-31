@@ -3,7 +3,7 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - python>=3.10
+  - python>=3.11
   - polars>=0.20.0
   - numpy>=1.23.0
   - opencv>=4.6.0

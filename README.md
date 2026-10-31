@@ -198,7 +198,7 @@ base_data_path/
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.11+
 - polars >= 0.19.0
 - STOUT >= 2.0.0 (optional, for database integration)
 - RTKLIB (optional, for PPK analysis - requires `rnx2rtkp` binary)
