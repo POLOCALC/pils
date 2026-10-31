@@ -290,6 +290,9 @@ def test_power_analysis_end_to_end(tmp_path, monkeypatch):
     )
     assert version.metadata["temperature_source"] == "lm76"
     assert version.metadata["temperature_outside_calibration_fraction"] == 0.0
+    # The lab results as of the take-off (here from the folder name), listed
+    assert "lab_as_of" in version.metadata
+    assert version.metadata["lab_inputs"] == []
 
     assert analysis.list_versions("satp1", "ws0") == [version.version_name]
     loaded = analysis.get_latest_version("SATP1", "ws0")
