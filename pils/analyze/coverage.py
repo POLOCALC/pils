@@ -19,6 +19,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
+import polars as pl
 
 from pils import store
 from pils.geometry.crossings import crossings, relative_path
@@ -52,6 +53,40 @@ def latest_dataset(flight_dir: str | Path, dataset: str) -> Path | None:
     return root / rev if rev else None
 
 
+def _pointing(flight_dir: str | Path, name: str) -> tuple[pl.DataFrame, Path]:
+    """Read the telescope's pointing during the flight.
+
+    Its encoders (``telescope/<T>``), or for a planned flight (GOSE) the pointing planned
+    (``plan``'s telescope table, when it is this telescope's): ``timestamp``,
+    ``az_enc_deg``, ``el_enc_deg``, ``boresight_enc_deg``.
+    """
+    pointing_dir = latest_dataset(flight_dir, f"telescope/{name}")
+    if pointing_dir is not None:
+        pointing = store.read_columns(
+            pointing_dir,
+            "pointing",
+            ["timestamp", "az_enc_deg", "el_enc_deg", "boresight_enc_deg", "flagged"],
+        )
+        return pointing.filter(~pointing["flagged"]).drop_nulls(), pointing_dir
+    plan_dir = latest_dataset(flight_dir, "plan")
+    if plan_dir is not None:
+        row = (store.read_manifest(plan_dir).get("metadata") or {}).get("row") or {}
+        if str(row.get("telescope", "")).upper() == name:
+            planned = store.read_columns(
+                plan_dir,
+                "telescope",
+                ["timestamp", "az_encoder_deg", "el_deg", "boresight_deg"],
+            ).drop_nulls()
+            return planned.rename(
+                {
+                    "az_encoder_deg": "az_enc_deg",
+                    "el_deg": "el_enc_deg",
+                    "boresight_deg": "boresight_enc_deg",
+                }
+            ), plan_dir
+    raise ValueError(f"no telescope/{name} in {flight_dir} (pils telescope)")
+
+
 def flight_coverage(
     flight_dir: str | Path,
     telescope: str,
@@ -70,7 +105,8 @@ def flight_coverage(
     Parameters
     ----------
     flight_dir : str or Path
-        The flight's folder (its ``proc/azel/<TELESCOPE>`` and ``proc/telescope/<TELESCOPE>``).
+        The flight's folder (its ``proc/azel/<TELESCOPE>`` and ``proc/telescope/<TELESCOPE>``),
+        or a planned flight's (GOSE: its ``proc/plan`` has the pointing planned).
     telescope : str
         The telescope's name, as the datasets have it (upper case).
     source_ghz : float
@@ -97,20 +133,12 @@ def flight_coverage(
     """
     name = telescope.upper()
     azel_dir = latest_dataset(flight_dir, f"azel/{name}")
-    pointing_dir = latest_dataset(flight_dir, f"telescope/{name}")
     if azel_dir is None:
         raise ValueError(f"no azel/{name} in {flight_dir} (pils package)")
-    if pointing_dir is None:
-        raise ValueError(f"no telescope/{name} in {flight_dir} (pils telescope)")
+    pointing, pointing_dir = _pointing(flight_dir, name)
     drone = store.read_columns(
         azel_dir, "azel_data", ["timestamp", "az_deg", "el_deg"]
     ).drop_nulls()
-    pointing = store.read_columns(
-        pointing_dir,
-        "pointing",
-        ["timestamp", "az_enc_deg", "el_enc_deg", "boresight_enc_deg", "flagged"],
-    )
-    pointing = pointing.filter(~pointing["flagged"]).drop_nulls()
     t = pointing["timestamp"].to_numpy()
     lo = max(start if start is not None else -np.inf, float(drone["timestamp"].min()))
     hi = min(end if end is not None else np.inf, float(drone["timestamp"].max()))
