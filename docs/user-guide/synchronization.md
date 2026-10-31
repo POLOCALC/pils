@@ -82,56 +82,49 @@ Interpolated signals:
 - $E_1(t), N_1(t), U_1(t)$ - Reference GPS in ENU
 - $E_2(t), N_2(t), U_2(t)$ - Target GPS in ENU
 
-#### Step 3: Cross-Correlation Per Axis
+#### Step 3: Coarse Offset from the Cross-Correlation
 
-Cross-correlation for each spatial axis:
-
-$$
-R_{xy}[\tau] = \sum_{t} x(t) \cdot y(t + \tau)
-$$
-
-Normalized correlation:
+The means are removed from each axis, so a constant position difference
+between the two receivers (the lever arm between payload and drone antennas)
+does not matter:
 
 $$
-\rho_{xy}[\tau] = \frac{R_{xy}[\tau]}{\sqrt{\sum_t x^2(t) \cdot \sum_t y^2(t)}}
+x(t) = E_1(t) - \overline{E_1}, \quad y(t) = E_2(t) - \overline{E_2}
 $$
 
-Applied to each axis:
-- $\rho_E[\tau]$ - East correlation
-- $\rho_N[\tau]$ - North correlation  
-- $\rho_U[\tau]$ - Up correlation
-
-#### Step 4: Sub-Sample Peak Detection
-
-Find sub-sample peak using parabolic interpolation around integer peak:
+The cross-correlations of the three axes are summed:
 
 $$
-\begin{aligned}
-i_{\text{peak}} &= \arg\max_i |\rho[\tau_i]| \\
-y_1 &= |\rho[\tau_{i-1}]|, \quad y_2 = |\rho[\tau_i]|, \quad y_3 = |\rho[\tau_{i+1}]| \\
-\\
-\delta &= \frac{y_1 - y_3}{2(y_1 - 2y_2 + y_3)} \\
-\tau_{\text{peak}} &= \tau_i + \delta \cdot \Delta t
-\end{aligned}
+R[k] = \sum_{\text{axes}} \sum_{t} x(t + k\,\Delta t) \cdot y(t)
 $$
 
-#### Step 5: Weighted Average Time Offset
+The peak of $|R[k]|$, refined by a parabola through the three samples around
+it, gives the coarse offset $\tau_0 = k_{\text{peak}}\,\Delta t$. The sum runs
+over fewer samples at larger lags, which pulls the peak towards zero lag. That
+keeps a repeat of the flight pattern from matching, and the bias is removed by
+the next step.
 
-Combine offsets from all three axes weighted by correlation strength:
+#### Step 4: Least-Squares Offset
 
-$$
-\begin{aligned}
-w_E &= |\rho_E[\tau_E]|, \quad w_N = |\rho_N[\tau_N]|, \quad w_U = |\rho_U[\tau_U]| \\
-\\
-\tau_{\text{offset}} &= \frac{w_E \cdot \tau_E + w_N \cdot \tau_N + w_U \cdot \tau_U}{w_E + w_N + w_U}
-\end{aligned}
-$$
-
-Overall correlation quality:
+The offset minimizes the mean-removed residual at the reference samples:
 
 $$
-\rho_{\text{combined}} = \frac{w_E + w_N + w_U}{3}
+\tau_{\text{offset}} = \arg\min_{\tau}\;
+\frac{1}{N} \sum_{i} \left\| \mathbf{r}_i(\tau) - \overline{\mathbf{r}(\tau)} \right\|^2,
+\qquad
+\mathbf{r}_i(\tau) = \mathbf{p}_1(t_{1,i}) - \mathbf{p}_2(t_{1,i} - \tau)
 $$
+
+where $\mathbf{p}_2$ is linearly interpolated from the original target samples.
+$\tau$ is scanned in steps of $\Delta t$ over
+$\tau_0 \pm \max(2\text{ s}, |\tau_0|)$, and the minimum is refined between
+the neighbouring steps.
+
+#### Step 5: Correlation
+
+The reported correlation is the Pearson correlation of the mean-removed
+positions after alignment, over all axes (`correlation`) and per axis
+(`correlations_enu`). `offsets_enu` are the coarse offsets of each axis.
 
 #### Step 6: Spatial Offset After Time Alignment
 
@@ -163,27 +156,14 @@ $$
 \end{aligned}
 $$
 
-#### Step 2: Cross-Correlation
+#### Step 2: Offset
 
-$$
-R_{\theta\theta}[\tau] = \sum_{t} \theta_1(t) \cdot \theta_2(t + \tau)
-$$
+The same two steps as for positions: coarse offset from the cross-correlation
+of the mean-removed pitch, then least squares. A constant pitch bias does not
+matter. If the two pitch signals have opposite signs (the peak of the
+correlation is negative), the target pitch is flipped first.
 
-Normalized:
-
-$$
-\rho_{\theta}[\tau] = \frac{R_{\theta\theta}[\tau]}{\sqrt{\sum_t \theta_1^2(t) \cdot \sum_t \theta_2^2(t)}}
-$$
-
-#### Step 3: Sub-Sample Peak Detection
-
-Same parabolic interpolation as NED method:
-
-$$
-\tau_{\text{pitch}} = \tau_{i_{\text{peak}}} + \delta \cdot \Delta t
-$$
-
-#### Step 4: Chained Time Offset
+#### Step 3: Chained Time Offset
 
 Total time offset to align Inclinometer with GPS payload:
 
@@ -193,6 +173,60 @@ $$
 
 This two-stage approach allows synchronization even when Inclinometer and GPS don't share overlapping spatial trajectories, using Litchi gimbal as an intermediate reference.
 
+#### Step 4: Payload Clock
+
+The other payload sensors (ADC, LM76, IMU) are stamped with the payload
+computer's clock. Their offset (`offsets["payload_clock"]`, with the method
+used) depends on the inclinometer:
+
+- **IMX-5**: its timestamps come from the payload computer, so the
+  inclinometer offset applies (`method: "inclinometer"`).
+- **Kernel-100**: its time is the log start time plus a sample counter, a
+  clock of its own. On flight_20250428_1625 it is 1.05 s from the payload
+  clock. The payload IMU gyroscope is aligned to the inclinometer's, axis by
+  axis, and the best-correlated axis ties the two clocks
+  (`method: "imu_gyro"`).
+- **Kernel-100 without a payload IMU**: no offset is applied
+  (`method: "none"`, with a warning); in both campaigns with a payload IMU
+  the payload clock is within 0.2 s of GPS time.
+
+- **No Litchi gimbal pitch** (no Litchi log, or a log of another flight):
+  an inclinometer stamped by the payload computer (IMX-5, 2022 payload)
+  keeps its time (`offsets["inclinometer"]["method"]: "payload_clock"`,
+  with a warning). The drone's own attitude does not replace Litchi: the
+  payload hangs below the drone and moves differently (correlations of
+  0.1-0.7, with offsets that differ between axes).
+
+#### Without a payload GPS
+
+The payload GPS is the reference when it covers at least
+[`MIN_REFERENCE_COVERAGE`][pils.flight.MIN_REFERENCE_COVERAGE] of the drone
+GPS time. Otherwise the drone GPS (RTK solution
+for DJI drones) is the reference (`flight.sync_reference == "drone_gps"`,
+saved as `reference` in the revision's manifest): the drone offset is zero
+(`method: "reference"`), there is no `reference_gps` table, and the payload
+sensors keep the payload computer's time. This is the case for
+
+- 2022 (no payload GPS) and February 2023 (the GPS file holds no data);
+- payload GPS files with a few epochs only, or stopped before the flight
+  (April 2024 flight_20240429_1601: 2 minutes, an hour away from the
+  flight; April 2025 flight_20250428_1524: stops 3 minutes before take-off).
+
+Without the payload GPS the DJI main receiver heights (above mean sea
+level) are not converted to the ellipsoid; the RTK heights are ellipsoidal.
+
+`flight.sync_offset_details` keeps every offset with its method and
+correlation (`time_offset_details` in the manifest).
+
+!!! warning "Litchi's attitude lags"
+    The inclinometer offset comes from Litchi's gimbal pitch. Litchi's
+    aircraft yaw lags the drone's flight controller by about 0.19 s
+    (flight_20251208_1927), while its position, used for the Litchi offset,
+    does not; if the gimbal pitch lags in the same way, the payload timing
+    inherits it. On flight_20250428_1625 the payload gyroscope aligned to the
+    drone's gives a payload clock 0.5 s from the inclinometer route, but only
+    through the gimbal's yaw following (correlation 0.74), so it is not used.
+
 #### Physical Interpretation
 
 - **Time Offset** ($\tau$): Seconds to add to target timestamp to align with reference
@@ -201,3 +235,65 @@ This two-stage approach allows synchronization even when Inclinometer and GPS do
     - $0.7 < \rho < 0.9$: Good
     - $\rho < 0.7$: Questionable
 - **Spatial Offset** ($d$): Residual position error after time alignment (should be < 5m for good GPS)
+
+## Resampling
+
+With `common_time=True` every source is resampled on the reference time base
+at its rate, by the same rules:
+
+- **Time**: `timestamp` (UNIX seconds) is the only time column. Date and
+  time columns, text columns, the other clocks (`unix_time_ms`,
+  `timestamp_us`, `timestamp_ns`, `monotonic_ns`, `datetime_relative`), GNSS
+  `date`/`time` fields (`rtk_date`, `gps_time`, ...) and `msg_type` are
+  dropped; they stay in the raw data.
+- **Missing values** are null: outside the time range of a source, and where
+  the source has no value.
+- **States, flags and counts** hold the last value and keep their type, so
+  that a status bit field is never averaged. A column is one by its name
+  (any case): it contains `status`, `flag`, `flg`, `state`, `mode` or
+  `sats`, has a part starting with `num` or `svn`, or is `is_flying` or
+  `week`; booleans too. Examples: `ins_status`, `rtk_pos_flag_0`,
+  `gps_num_sv`, `status_rfront`.
+- **Angle columns** are interpolated the short way across the wrap: from
+  179° to −179° the midpoint is −180°, not 0°. A column is an angle by its
+  name: `yaw`, `roll`, `pitch` or `heading` followed by `_deg` (degrees) or
+  `_rad` (radians), e.g. `yaw_deg`, `rtk_yaw_deg`, `gimbal_heading_deg`,
+  `roll_rad`. The result keeps the range of the input, [−180°, 180°) or
+  [0°, 360°).
+- **Everything else** is interpolated linearly, as Float64.
+
+| Table | Source | Rate key (default in `pils package`) |
+|-------|--------|--------------------------------------|
+| `drone` | drone table (DJI RTK solution) | `drone` (100 Hz) |
+| `litchi` | Litchi log | `litchi` (100 Hz; the drone rate if not given) |
+| `inclinometer` | inclinometer `ins` table | `inclinometer` (100 Hz) |
+| `adc`, `lm76`, `imu_<sensor>` | payload sensors | `payload` (100 Hz) |
+| `drone_<record>` | DJI `.dat` records | `drone_records` (the drone rate) |
+| `reference_gps` | payload GPS, the reference (absent when the drone GPS is) | `reference_gps` (100 Hz) |
+| `camera` | camera | its own frame rate |
+
+The position columns of `drone`, `litchi` and `reference_gps` are
+`lat_deg`, `lon_deg` and `h_ell_m` (height above the ellipsoid). `litchi`
+also keeps `h_rel_m`, its height above take-off; its `h_ell_m` is that height
+plus the first ellipsoidal height of the reference GPS.
+
+`flight.sync_rates` keeps the rates used; `Flight.save` writes them in the
+synchronized revision's manifest (`rates`). The raw payload GPS, at its own
+2 Hz, is in `raw_data`.
+
+**Drone records** (DJI `.dat`, see [DJI Drone](dji-drone.md)) take the
+drone GPS offset, since they are on the same clock. `Flight.sync`
+synchronizes `imu_atti_0`, the flight controller attitude, by default, as
+`drone_imu_atti_0`; pass `drone_records=[...]` (DJI names such as
+`"IMU_ATTI(0)"` work too) or `drone_records="all"` for others.
+
+```python
+flight.sync(target_rate={"drone": 100.0}, drone_records=["imu_atti_0", "motor"])
+flight.sync_data["drone_imu_atti_0"]  # roll_deg, pitch_deg, yaw_deg, acc_x_g, ...
+flight.sync_offsets  # {"drone_gps": 0.233, "litchi_gps": -0.187, "inclinometer": 0.306}
+```
+
+`flight.sync_offsets` keeps the detected offsets in seconds; as in the
+offsets above, the inclinometer and camera ones are relative to Litchi.
+`Flight.save` writes them in the synchronized revision's manifest
+(`time_offsets`).

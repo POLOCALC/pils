@@ -1,18 +1,17 @@
 """AZEL (Azimuth-Elevation) analysis module for flight data."""
 
 import datetime
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import h5py
 import numpy as np
 import polars as pl
 import pymap3d as pm
 
+from pils import store
 from pils.flight import Flight
-from pils.sensors.emlid import Emlid
+from pils.sensors.emlid import reference_positions
 from pils.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -54,20 +53,15 @@ class AZELAnalysis:
     Manages azimuth-elevation calculations for telescope tracking of drone
     flights. Completely separate from Flight class.
 
-    File Structure
+    File Structure (see :mod:`pils.store`)
     --------------
     flight_dir/proc/azel/
-    └── azel_solution.h5  # HDF5 with telescope-grouped structure
-
-    HDF5 Structure
-    --------------
-    azel_solution.h5
-    ├── SATP1/                     # Telescope group
-    │   ├── rev_20260302_120000/   # Revision 1
-    │   │   ├── azel_data/         # DataFrame columns
-    │   │   └── metadata           # JSON metadata
-    │   └── rev_20260302_130000/   # Revision 2
-    └── SATP2/                     # Another telescope
+    ├── SATP1/
+    │   ├── rev_20260302_120000/
+    │   │   ├── manifest.json      # metadata, code version, columns
+    │   │   └── azel_data.parquet  # timestamp, az_deg, el_deg, srange_m, e/n/u_m
+    │   └── rev_20260302_130000/
+    └── SATP2/
         └── rev_20260302_120000/
 
     Attributes
@@ -101,7 +95,7 @@ class AZELAnalysis:
     >>> latest = azel.get_latest_version(telescope_name='SATP1')
     """
 
-    def __init__(self, flight: Flight) -> None:
+    def __init__(self, flight: Flight, output_dir: str | Path | None = None) -> None:
         """Initialize AZEL analysis with Flight object.
 
         Creates the proc/azel directory structure if it doesn't exist.
@@ -110,6 +104,9 @@ class AZELAnalysis:
         ----------
         flight : Flight
             Flight object with valid flight_path attribute.
+        output_dir : str | Path, optional
+            Base folder for the results instead of the flight folder
+            (results go to ``<output_dir>/proc/azel``).
 
         Raises
         ------
@@ -155,7 +152,8 @@ class AZELAnalysis:
         self.flight_path = flight_path
 
         # Create AZEL directory
-        self.azel_dir = self.flight_path / "proc" / "azel"
+        base = Path(output_dir) if output_dir is not None else self.flight_path
+        self.azel_dir = base / "proc" / "azel"
         self.azel_dir.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"Initialized AZEL analysis for flight: {self.flight_path}")
@@ -206,6 +204,7 @@ class AZELAnalysis:
         drone_timezone_hours: float = 0.0,
         save_data: bool = False,
         additional_metadata: dict[str, Any] | None = None,
+        telescope_source: str = "survey",
     ) -> AZELVersion | None:
         """Run AZEL analysis for drone telescope tracking.
 
@@ -222,9 +221,8 @@ class AZELAnalysis:
             Broadcast DJI base position dict with keys 'lat', 'lon', 'alt'.
             Values in WGS84 degrees (lat, lon) and meters (alt).
         drone_timezone_hours : float, optional
-            Timezone offset for drone timestamps in hours.
-            Only applied to raw_data; sync_data is assumed UTC.
-            Default is 0.0 (UTC).
+            Not used: the drone timestamps are UTC (kept for compatibility,
+            and recorded in the metadata).
         save_data : bool, optional
             Whether to save the data and create new version.
             Default is False.
@@ -232,6 +230,11 @@ class AZELAnalysis:
             Additional metadata to include in the version metadata.
             This can include experiment details, weather conditions, etc.
             Default is None.
+        telescope_source : {"survey", "so3g"}, default="survey"
+            Where the telescope position comes from: the campaign's survey or,
+            without it, the newest survey of another campaign; or the ``so3g``
+            site (2-3 m off, see ``pils.sensors.emlid``). The source is in the
+            metadata (``telescope_position_source``).
 
         Returns
         -------
@@ -260,7 +263,6 @@ class AZELAnalysis:
         >>> # Shows: timestamp, az, el, srange columns
         >>> print(version.metadata['weather'])  # 'clear'
         """
-
         logger.info("Starting AZEL analysis...")
 
         # 1. Determine data source (sync_data preferred, fallback to raw_data)
@@ -312,7 +314,9 @@ class AZELAnalysis:
             )
 
         # 2. Detect drone format from flight's drone_model attribute
-        drone_model = getattr(self.flight, "_Flight__drone_model", "dji").lower()
+        drone_model = (
+            getattr(self.flight, "_Flight__drone_model", None) or "dji"
+        ).lower()
         logger.info(f"Detected drone model: {drone_model}")
 
         # Determine format type
@@ -341,41 +345,24 @@ class AZELAnalysis:
         logger.info(f"Using drone format: {format_type}, data source: {data_source}")
         logger.info(f"Loaded drone data with {drone_df.height} rows")
 
-        # 3. Set column names based on data source
+        # 3. Positions (schema names, see pils.schema): the synchronized
+        # table has lat_deg/lon_deg/h_ell_m, the raw DJI table the RTK ones
         if data_source == "sync_data":
-            # sync_data uses standardized column names (as of coordinate standardization feature)
-            lat_col = "latitude"
-            lon_col = "longitude"
-            alt_col = "altitude"
-            timestamp_col = "timestamp"
-        else:  # raw_data
-            # raw_data uses original DJI column names
-            if "RTKdata:Lat_P" in drone_df.columns:
-                lat_col = "RTKdata:Lat_P"
-                lon_col = "RTKdata:Lon_P"
-                alt_col = "RTKdata:Hmsl_P"
-            elif "RTK:lat_p" in drone_df.columns:
-                lat_col = "RTK:lat_p"
-                lon_col = "RTK:lon_p"
-                alt_col = "RTK:hmsl_p"
-            else:
-                raise ValueError(
-                    "No RTK position columns found. Expected RTKdata:Lat_P or RTK:lat_p"
-                )
-            timestamp_col = None  # Will use GPS Date/Time conversion for raw_data
+            lat_col, lon_col, alt_col = "lat_deg", "lon_deg", "h_ell_m"
+        else:
+            lat_col, lon_col, alt_col = "rtk_lat_deg", "rtk_lon_deg", "rtk_h_ell_m"
+        timestamp_col = "timestamp"
 
-        # Validate required columns exist
-        required_cols = [lat_col, lon_col, alt_col]
-        if data_source == "sync_data":
-            required_cols.append(timestamp_col)
-
+        required_cols = [lat_col, lon_col, alt_col, timestamp_col]
         missing_cols = [col for col in required_cols if col not in drone_df.columns]
         if missing_cols:
             raise ValueError(f"Missing required columns: {missing_cols}")
 
-        # Filter valid position data (remove rows where lat=0 or NaN)
+        # Valid positions (lat=0 or missing are not)
         valid_rtk = drone_df.filter(
-            (pl.col(lat_col) != 0) & pl.col(lat_col).is_not_null()
+            (pl.col(lat_col) != 0)
+            & pl.col(lat_col).is_not_null()
+            & pl.col(timestamp_col).is_not_null()
         )
 
         if valid_rtk.height == 0:
@@ -383,84 +370,33 @@ class AZELAnalysis:
             return None
 
         logger.info(f"Filtered to {valid_rtk.height} valid position samples")
+        timestamps_ctime = valid_rtk[timestamp_col].to_list()
 
-        # 4. Extract timestamps
-        if data_source == "sync_data":
-            # sync_data already has UTC timestamps in the correct column
-            timestamps_ctime = valid_rtk[timestamp_col].to_list()
-            logger.info(
-                f"Extracted {len(timestamps_ctime)} UTC timestamps from sync_data"
-            )
-        else:
-            # raw_data: Convert GPS Date/Time to Unix timestamp
-            # Support both CSV format (GPS:Date) and DAT format (GPS:date or RTK:date)
-            date_col = None
-            time_col = None
-
-            if "GPS:Date" in valid_rtk.columns:
-                date_col = "GPS:Date"
-                time_col = "GPS:Time"
-            elif "GPS:date" in valid_rtk.columns:
-                date_col = "GPS:date"
-                time_col = "GPS:time"
-            elif "RTK:date" in valid_rtk.columns:
-                date_col = "RTK:date"
-                time_col = "RTK:time"
-            else:
-                raise ValueError(
-                    "No GPS date/time columns found. Expected GPS:Date or GPS:date or RTK:date"
-                )
-
-            # Convert GPS Date (YYYYMMDD int) and Time (HHMMSS int) to Unix timestamp
-            timestamps_ctime = []
-            timezone_correction = datetime.timedelta(hours=drone_timezone_hours)
-
-            for row in valid_rtk.select([date_col, time_col]).iter_rows():
-                date_int = int(row[0])
-                time_int = int(row[1])
-
-                # Format as strings with zero padding
-                ymd_str = f"{date_int:08d}"  # Ensure 8 digits YYYYMMDD
-                hms_str = f"{time_int:06d}"  # Ensure 6 digits HHMMSS
-
-                timestamp_str = ymd_str + hms_str
-
-                # Parse datetime and apply timezone correction
-                dt = datetime.datetime.strptime(timestamp_str, "%Y%m%d%H%M%S")
-                dt_corrected = dt - timezone_correction
-
-                # Convert to Unix timestamp
-                timestamps_ctime.append(dt_corrected.timestamp())
-
-            logger.info(
-                f"Converted {len(timestamps_ctime)} timestamps with timezone offset {drone_timezone_hours}h"
-            )
-
-        # 4. Load EMLID reference data
-        emlid = Emlid(self.flight)
-
-        ref_data = emlid.load_data(telescope_name=telescope_name)
-
-        # Extract scalar values from DataFrames
-        telescope_geod = ref_data["telescope"].row(0, named=True)
-
-        if format_type == "dji":
-            base_geod = ref_data["base"]["dji"].row(0, named=True)
-        else:
-            base_geod = ref_data["base"]["emlid"].row(0, named=True)
-
-        logger.info(
-            f"Telescope position: lat={telescope_geod['lat']:.6f}, lon={telescope_geod['lon']:.6f}, alt={telescope_geod['alt']:.2f}"
+        # 4. Telescope and DJI base positions (campaign survey, another
+        # campaign's survey, or so3g; see pils.sensors.emlid)
+        positions = reference_positions(
+            Path(self.flight.flight_path).parents[1],
+            telescope_name,
+            telescope_source=telescope_source,
         )
+        telescope_geod = positions.telescope
+        base_geod = positions.dji_base
+        for note in positions.notes:
+            logger.warning(note)
+
         logger.info(
-            f"DJI base position: lat={base_geod['lat']:.6f}, lon={base_geod['lon']:.6f}, alt={base_geod['alt']:.2f}"
+            f"Telescope position ({positions.telescope_source}): "
+            f"lat={telescope_geod['lat']:.6f}, lon={telescope_geod['lon']:.6f}, "
+            f"alt={telescope_geod['alt']:.2f}"
         )
 
         # 5. Compute RTK correction offset (conditional based on drone format)
-        # RTK correction only applies to DJI and Litchi (NOT BlackSquare)
-        rtk_applied = format_type in ["dji", "litchi"]
+        # RTK correction only applies to DJI and Litchi (NOT BlackSquare), and
+        # needs the campaign's surveyed DJI base
+        rtk_applied = format_type in ["dji", "litchi"] and base_geod is not None
 
         if rtk_applied:
+            assert base_geod is not None
             delta_e, delta_n, delta_u = self._compute_rtk_correction(
                 base_geod, dji_broadcast_geod
             )
@@ -500,33 +436,33 @@ class AZELAnalysis:
         azel_data = pl.DataFrame(
             {
                 "timestamp": np.asarray(timestamps_ctime),
-                "az": azimuth,
-                "el": elevation,
-                "srange": slant_range,
-                "E": e_corrected,
-                "N": n_corrected,
-                "U": u_corrected,
+                "az_deg": azimuth,
+                "el_deg": elevation,
+                "srange_m": slant_range,
+                "e_m": e_corrected,
+                "n_m": n_corrected,
+                "u_m": u_corrected,
             }
         ).with_columns(
             [
                 pl.col("timestamp").cast(pl.Float64),
-                pl.col("az").cast(pl.Float64),
-                pl.col("el").cast(pl.Float64),
-                pl.col("srange").cast(pl.Float64),
-                pl.col("E").cast(pl.Float64),
-                pl.col("N").cast(pl.Float64),
-                pl.col("U").cast(pl.Float64),
+                pl.col("az_deg").cast(pl.Float64),
+                pl.col("el_deg").cast(pl.Float64),
+                pl.col("srange_m").cast(pl.Float64),
+                pl.col("e_m").cast(pl.Float64),
+                pl.col("n_m").cast(pl.Float64),
+                pl.col("u_m").cast(pl.Float64),
             ]
         )
 
         mask_expr = (
             (~pl.col("timestamp").is_nan())
-            & (~pl.col("az").is_nan())
-            & (~pl.col("el").is_nan())
-            & (~pl.col("srange").is_nan())
-            & (~pl.col("E").is_nan())
-            & (~pl.col("N").is_nan())
-            & (~pl.col("U").is_nan())
+            & (~pl.col("az_deg").is_nan())
+            & (~pl.col("el_deg").is_nan())
+            & (~pl.col("srange_m").is_nan())
+            & (~pl.col("e_m").is_nan())
+            & (~pl.col("n_m").is_nan())
+            & (~pl.col("u_m").is_nan())
         )
         azel_data = azel_data.filter(mask_expr)
 
@@ -541,6 +477,7 @@ class AZELAnalysis:
                 "delta_u": delta_u,
             },
             "rtk_applied": rtk_applied,
+            **positions.as_metadata(),
             "drone_format": format_type,
             "timezone_offset_hours": drone_timezone_hours,
             "telescope_name": telescope_name,
@@ -565,186 +502,91 @@ class AZELAnalysis:
 
         # Save to HDF5 if requested
         if save_data:
-            self._save_to_hdf5(version, telescope_name=telescope_name)
+            self._save_version(version, telescope_name=telescope_name)
 
         return version
 
-    def _save_to_hdf5(self, version: AZELVersion, telescope_name: str) -> None:
-        """Save AZEL version to HDF5 file with telescope grouping.
-
-        Creates hierarchical structure: telescope_name/revision_name/data
+    def _save_version(self, version: AZELVersion, telescope_name: str) -> Path:
+        """Save a version: ``azel/<telescope>/<version>/`` (see :mod:`pils.store`).
 
         Parameters
         ----------
         version : AZELVersion
-            AZELVersion object to save to HDF5 file.
+            Version to save.
         telescope_name : str
-            Telescope name to use as parent group.
-
-        Examples
-        --------
-        >>> version = azel.run_analysis('SATP1', ...)
-        >>> azel._save_to_hdf5(version, telescope_name='SATP1')
-        """
-        hdf5_path = self.azel_dir / "azel_solution.h5"
-
-        with h5py.File(hdf5_path, "a") as f:
-            # Create telescope group if doesn't exist
-            if telescope_name not in f:
-                telescope_group = f.create_group(telescope_name)
-            else:
-                telescope_group = f[telescope_name]
-
-            # Create version group under telescope (overwrite if exists)
-            if version.version_name in telescope_group:
-                del telescope_group[version.version_name]
-
-            version_group = telescope_group.create_group(version.version_name)
-
-            # Save DataFrame columns
-            df_group = version_group.create_group("azel_data")
-            for col_name in version.azel_data.columns:
-                col_data = version.azel_data[col_name].to_numpy()
-                df_group.create_dataset(col_name, data=col_data)
-
-            # Save DataFrame schema info
-            df_group.attrs["columns"] = json.dumps(version.azel_data.columns)
-            df_group.attrs["dtypes"] = json.dumps(
-                [str(dtype) for dtype in version.azel_data.dtypes]
-            )
-
-            # Save metadata
-            version_group.attrs["metadata"] = json.dumps(version.metadata)
-
-        logger.info(
-            f"Saved AZEL version '{version.version_name}' for telescope '{telescope_name}' to HDF5"
-        )
-
-    def _load_from_hdf5(self, version_name: str, telescope_name: str) -> AZELVersion:
-        """Load AZEL version from HDF5 file.
-
-        Parameters
-        ----------
-        version_name : str
-            Name of version to load (e.g., 'rev_20260218_143022').
-        telescope_name : str
-            Telescope group name containing the version.
+            Telescope it is for.
 
         Returns
         -------
-        AZELVersion
-            Loaded AZELVersion object containing azel_data and metadata.
+        Path
+            The version's directory.
+        """
+        path = store.save_version(
+            self.azel_dir,
+            version.version_name,
+            {"azel_data": version.azel_data},
+            version.metadata,
+            parent=telescope_name,
+            kind="azel",
+        )
+        logger.info(f"Saved AZEL version '{version.version_name}' to {path}")
+        return path
+
+    def version_dir(self, version_name: str, telescope_name: str) -> Path:
+        """Directory of a version (its tables, manifest and CSV)."""
+        return self.azel_dir / telescope_name / version_name
+
+    def _load_version(self, version_name: str, telescope_name: str) -> AZELVersion:
+        """Load a saved version.
 
         Raises
         ------
-        FileNotFoundError
-            If HDF5 file doesn't exist.
         KeyError
-            If telescope_name or version_name not found in HDF5 file.
-
-        Examples
-        --------
-        >>> version = azel._load_from_hdf5('rev_20260218_143022', telescope_name='SATP1')
+            If the version is not saved for this telescope.
         """
-        hdf5_path = self.azel_dir / "azel_solution.h5"
-
-        if not hdf5_path.exists():
-            raise FileNotFoundError(f"HDF5 file not found: {hdf5_path}")
-
-        with h5py.File(hdf5_path, "r") as f:
-            if telescope_name not in f:
-                raise KeyError(f"Telescope '{telescope_name}' not found in HDF5")
-
-            telescope_group = f[telescope_name]
-
-            if version_name not in telescope_group:
-                raise KeyError(
-                    f"Version '{version_name}' not found under telescope '{telescope_name}' in HDF5"
-                )
-
-            version_group = telescope_group[version_name]
-            df_group = version_group["azel_data"]
-
-            # Reconstruct DataFrame from columns
-            columns = json.loads(df_group.attrs["columns"])
-            dtypes = json.loads(df_group.attrs["dtypes"])
-
-            data_dict = {}
-            for col_name in columns:
-                data_dict[col_name] = df_group[col_name][:]
-
-            azel_data = pl.DataFrame(data_dict)
-
-            # Cast to original dtypes
-            cast_exprs = []
-            for col_name, dtype_str in zip(columns, dtypes, strict=True):
-                if "Float64" in dtype_str:
-                    cast_exprs.append(pl.col(col_name).cast(pl.Float64))
-                elif "Int64" in dtype_str:
-                    cast_exprs.append(pl.col(col_name).cast(pl.Int64))
-
-            if cast_exprs:
-                azel_data = azel_data.with_columns(cast_exprs)
-
-            # Load metadata
-            metadata = json.loads(version_group.attrs["metadata"])
-
-        logger.info(
-            f"Loaded AZEL version '{version_name}' for telescope '{telescope_name}' from HDF5"
+        tables, metadata = store.load_version(
+            self.azel_dir, version_name, parent=telescope_name
         )
-
         return AZELVersion(
-            version_name=version_name, azel_data=azel_data, metadata=metadata
+            version_name=version_name,
+            azel_data=tables["azel_data"],  # type: ignore[arg-type]
+            metadata=metadata,
         )
 
     def list_versions(
         self, telescope_name: str | None = None
     ) -> list[str] | dict[str, list[str]]:
-        """List all AZEL versions in HDF5 file.
+        """List the saved AZEL versions.
 
         Parameters
         ----------
         telescope_name : str | None, optional
             If provided, returns versions for that telescope only.
             If None, returns a dictionary with all telescopes and their versions.
-            Default is None.
 
         Returns
         -------
         list[str] | dict[str, list[str]]
-            If telescope_name provided: List of version names for that telescope,
-            sorted chronologically. Empty list if telescope doesn't exist.
-            If telescope_name is None: Dictionary mapping telescope names to
-            their version lists. Empty dict if HDF5 file doesn't exist.
+            Version names, oldest first; or, without ``telescope_name``, the
+            versions of each telescope.
 
         Examples
         --------
-        >>> # List all versions for specific telescope
         >>> azel.list_versions(telescope_name='SATP1')
         ['rev_20260218_120000', 'rev_20260218_143022']
-        >>> # List all telescopes and their versions
         >>> azel.list_versions()
         {'SATP1': ['rev_20260218_120000'], 'SATP2': ['rev_20260218_130000']}
         """
-        hdf5_path = self.azel_dir / "azel_solution.h5"
-
-        if not hdf5_path.exists():
-            return [] if telescope_name is not None else {}
-
-        with h5py.File(hdf5_path, "r") as f:
-            if telescope_name is not None:
-                # Return versions for specific telescope
-                if telescope_name not in f:
-                    return []
-                telescope_group = f[telescope_name]
-                versions = sorted(list(telescope_group.keys()))
-                return versions
-            else:
-                # Return all telescopes with their versions
-                result = {}
-                for tel_name in f.keys():
-                    result[tel_name] = sorted(list(f[tel_name].keys()))
-                return result
+        if telescope_name is not None:
+            return store.list_versions(self.azel_dir, parent=telescope_name)
+        if not self.azel_dir.is_dir():
+            return {}
+        result = {}
+        for item in sorted(self.azel_dir.iterdir()):
+            versions = store.list_versions(self.azel_dir, parent=item.name)
+            if item.is_dir() and versions:
+                result[item.name] = versions
+        return result
 
     def get_latest_version(
         self, telescope_name: str | None = None
@@ -782,7 +624,7 @@ class AZELAnalysis:
                 return None
 
             latest_name = versions[-1]  # Sorted chronologically, last is latest
-            return self._load_from_hdf5(latest_name, telescope_name=telescope_name)
+            return self._load_version(latest_name, telescope_name=telescope_name)
         else:
             # Get latest across all telescopes
             all_versions = self.list_versions()
@@ -807,6 +649,6 @@ class AZELAnalysis:
             if latest_version_name is None:
                 return None
 
-            return self._load_from_hdf5(
+            return self._load_version(
                 latest_version_name, telescope_name=latest_telescope
             )

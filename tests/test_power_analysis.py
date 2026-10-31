@@ -222,27 +222,27 @@ def synthetic_flight(tmp_path, voltage_mv=50.0):
         "drone": pl.DataFrame(
             {
                 "timestamp": t,
-                "latitude": np.full(n, -22.96),
-                "longitude": np.full(n, -67.79),
-                "altitude": 100 + 5 * np.sin(2 * np.pi * t / 20),
+                "lat_deg": np.full(n, -22.96),
+                "lon_deg": np.full(n, -67.79),
+                "h_ell_m": 100 + 5 * np.sin(2 * np.pi * t / 20),
             }
         ),
         "litchi": pl.DataFrame(
             {
                 "timestamp": t,
-                "yaw(deg)": np.full(n, 180.0),
-                "gimbalYawRaw": np.zeros(n),
-                "gimbalPitchRaw": np.full(n, -10 * np.degrees(np.arctan2(300, 400))),
+                "yaw_deg": np.full(n, 180.0),
+                "gimbal_yaw_deg": np.zeros(n),
+                "gimbal_pitch_deg": np.full(n, -np.degrees(np.arctan2(300, 400))),
             }
         ),
-        "inclinometer": pl.DataFrame({"timestamp": t, "roll": np.zeros(n)}),
+        "inclinometer": pl.DataFrame({"timestamp": t, "roll_deg": np.zeros(n)}),
         "lm76": pl.DataFrame({"timestamp": t, "temperature_c": np.zeros(n)}),
     }
     t_adc = np.arange(0, 100, 1 / 1600)
     # 37 Hz chopping: ~22 samples per half period, many per envelope window
     square = np.where((np.arange(len(t_adc)) // 22) % 2, voltage_mv, 0.0)
     flight.raw_data.payload_data.adc = pl.DataFrame(
-        {"timestamp": t_adc, "amplitude": square}
+        {"timestamp": t_adc, "amplitude_mv": square}
     )
     return flight
 
@@ -252,9 +252,9 @@ def test_power_analysis_end_to_end(tmp_path, monkeypatch):
     azel = pl.DataFrame(
         {
             "timestamp": np.arange(0, 100, 0.01),
-            "E": np.zeros(10000),
-            "N": np.full(10000, 400.0),
-            "U": np.full(10000, 300.0),
+            "e_m": np.zeros(10000),
+            "n_m": np.full(10000, 400.0),
+            "u_m": np.full(10000, 300.0),
         }
     )
     monkeypatch.setattr(
@@ -290,17 +290,26 @@ def test_power_analysis_end_to_end(tmp_path, monkeypatch):
     )
     assert version.metadata["temperature_source"] == "lm76"
     assert version.metadata["temperature_outside_calibration_fraction"] == 0.0
+    # The lab results as of the take-off (here from the folder name), listed
+    assert "lab_as_of" in version.metadata
+    assert version.metadata["lab_inputs"] == []
 
     assert analysis.list_versions("satp1", "ws0") == [version.version_name]
     loaded = analysis.get_latest_version("SATP1", "ws0")
     assert loaded.power_data.equals(data)
     assert loaded.metadata["rf_chain"]["coupler"] == "COU_001"
-    figures = tmp_path / "out" / "proc" / "power" / "SATP1_ws0" / version.version_name
-    assert sorted(p.name for p in figures.iterdir()) == [
+    # One folder per run: the saved tables (pils.store) and the plots
+    folder = tmp_path / "out" / "proc" / "power" / "SATP1_ws0" / version.version_name
+    assert sorted(p.name for p in folder.iterdir()) == [
         "adc.png",
+        "manifest.json",
         "pointing.png",
         "power.png",
+        "power_data.parquet",
     ]
+    from pils import store
+
+    assert store.read_manifest(folder)["kind"] == "power"
     assert not (tmp_path / "flight_test" / "proc").exists()
 
 

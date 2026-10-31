@@ -16,6 +16,7 @@ import numpy as np
 import polars as pl
 from scipy.interpolate import RegularGridInterpolator
 
+from pils import store as result_store
 from pils.analyze.power.rf_chain import (
     RFChain,
     detector_power,
@@ -31,15 +32,21 @@ from pils.analyze.power.signal import (
 from pils.analyze.power.telescope import TelescopeBeam, load_config, telescope_beam
 from pils.flight import Flight
 from pils.lab_analysis.store import LabStore, value_at
+from pils.store import new_version_name
 from pils.utils import geometry
-from pils.utils.hdf5 import list_versions, load_version, new_version_name, save_version
 from pils.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
 # ADC samples per half period of the source modulation, per band
 ENVELOPE_WINDOW = {"WR10": 200, "WR06": 50}
-SYNC_RATES = {"drone": 100, "litchi": 100, "inclinometer": 100, "gps": 100}
+SYNC_RATES = {
+    "drone": 100.0,
+    "litchi": 100.0,
+    "inclinometer": 100.0,
+    "payload": 100.0,
+    "reference_gps": 100.0,
+}
 _BEAM_GRID_DEG = np.linspace(-90, 90, 501)
 
 
@@ -67,9 +74,9 @@ class PowerAnalysis:
 
     File Structure
     --------------
-    flight_dir/proc/power/
-    ├── power_solution.h5          # <TELESCOPE>_<wafer slot>/rev_*/power_data
-    └── SATP1_ws0/rev_*/           # plots of a run
+    flight_dir/proc/power/          # see pils.store
+    └── SATP1_ws0/                  # <TELESCOPE>_<wafer slot>
+        └── rev_*/                  # manifest.json, power_data.parquet, plots
 
     Examples
     --------
@@ -97,36 +104,38 @@ class PowerAnalysis:
             raise ValueError("Flight object must have a valid flight_path attribute")
         self.flight = flight
         self.flight_path = Path(flight.flight_path)
-        base = Path(output_dir) if output_dir is not None else self.flight_path
+        self.output_dir = Path(output_dir) if output_dir is not None else None
+        base = self.output_dir or self.flight_path
         self.power_dir = base / "proc" / "power"
-        self.results_path = self.power_dir / "power_solution.h5"
 
     @staticmethod
     def target_name(telescope: str, wafer_slot: str) -> str:
-        """HDF5 group of a telescope and wafer slot, e.g. ``SATP1_ws0``."""
+        """Folder of a telescope and wafer slot, e.g. ``SATP1_ws0``."""
         return f"{telescope.upper()}_{wafer_slot}"
 
     # -- versions -----------------------------------------------------------
 
     def list_versions(self, telescope: str, wafer_slot: str) -> list[str]:
-        """Runs for a telescope and wafer slot, oldest first."""
-        return list_versions(
-            self.results_path, parent=self.target_name(telescope, wafer_slot)
+        """List the runs for a telescope and wafer slot, oldest first."""
+        return result_store.list_versions(
+            self.power_dir, parent=self.target_name(telescope, wafer_slot)
         )
 
     def get_version(
         self, telescope: str, wafer_slot: str, version_name: str
     ) -> PowerVersion:
-        tables, metadata = load_version(
-            self.results_path,
+        """Load a saved run of a telescope and wafer slot."""
+        tables, metadata = result_store.load_version(
+            self.power_dir,
             version_name,
             parent=self.target_name(telescope, wafer_slot),
         )
-        return PowerVersion(version_name, tables["power_data"], metadata)
+        return PowerVersion(version_name, tables["power_data"], metadata)  # type: ignore[arg-type]
 
     def get_latest_version(
         self, telescope: str, wafer_slot: str
     ) -> PowerVersion | None:
+        """Load the most recent run of a telescope and wafer slot, or None."""
         versions = self.list_versions(telescope, wafer_slot)
         return (
             self.get_version(telescope, wafer_slot, versions[-1]) if versions else None
@@ -149,6 +158,25 @@ class PowerAnalysis:
             raise ValueError(f"Payload {payload_id} not found")
         return found
 
+    def _takeoff(self) -> datetime.datetime | None:
+        """Return the flight's take-off (UTC), from its record or its folder name."""
+        info = self.flight.flight_info or {}
+        when = info.get("takeoff_datetime") or info.get("takeoff_time")
+        if isinstance(when, str):
+            try:
+                when = datetime.datetime.fromisoformat(when.replace("Z", "+00:00"))
+            except ValueError:
+                when = None
+        if isinstance(when, datetime.datetime):
+            return when if when.tzinfo else when.replace(tzinfo=datetime.UTC)
+        name = self.flight_path.name
+        try:
+            return datetime.datetime.strptime(name[7:20], "%Y%m%d_%H%M").replace(
+                tzinfo=datetime.UTC
+            )
+        except ValueError:
+            return None
+
     def _frequency(self) -> float:
         info = self.flight.flight_info.get("flight_info") or {}
         if info.get("frequency") in (None, "", 0):
@@ -160,15 +188,15 @@ class PowerAnalysis:
     def _synced(self) -> dict[str, pl.DataFrame]:
         if self.flight.sync_data is None:
             self.flight.sync(
-                use_rtk_data=True, common_time=True, target_rate=SYNC_RATES
+                use_rtk_data=True, common_time=True, target_rate=dict(SYNC_RATES)
             )
         sync = self.flight.sync_data
         drone = sync["drone"]
         valid = (
-            drone["latitude"].is_not_null()
-            & drone["latitude"].is_not_nan()
-            & (drone["latitude"] != 0)
-            & drone["longitude"].is_not_null()
+            drone["lat_deg"].is_not_null()
+            & drone["lat_deg"].is_not_nan()
+            & (drone["lat_deg"] != 0)
+            & drone["lon_deg"].is_not_null()
         )
         return {
             k: (
@@ -189,12 +217,12 @@ class PowerAnalysis:
     ) -> tuple[pl.DataFrame, str]:
         from pils.analyze.azel import AZELAnalysis
 
-        azel = AZELAnalysis(self.flight)
+        azel = AZELAnalysis(self.flight, output_dir=self.output_dir)
         if azel_version is not None:
             names = azel.list_versions(telescope_name=telescope)
             if azel_version not in names:
                 raise ValueError(f"AZEL version {azel_version} not found ({names})")
-            version = azel._load_from_hdf5(azel_version, telescope_name=telescope)  # type: ignore[attr-defined]
+            version = azel._load_version(azel_version, telescope_name=telescope)
         else:
             version = azel.run_analysis(telescope, dji_broadcast_geod, save_data=save)
         if version is None:
@@ -211,11 +239,7 @@ class PowerAnalysis:
             return sync["lm76"]["temperature_c"].to_numpy(), "lm76"
         if source in ("auto", "inclinometer") and "inclinometer" in sync:
             column = next(
-                (
-                    c
-                    for c in ("Temper", "temperature", "temperature_c")
-                    if c in sync["inclinometer"].columns
-                ),
+                (c for c in ("temperature_c",) if c in sync["inclinometer"].columns),
                 None,
             )
             if column is not None:
@@ -244,6 +268,7 @@ class PowerAnalysis:
         config: dict[str, Any] | None = None,
         save_data: bool = False,
         plot: bool = False,
+        lab_as_of: datetime.datetime | str | None = "takeoff",
     ) -> PowerVersion:
         """Compute the expected power on ``telescope``/``wafer_slot`` detectors.
 
@@ -272,6 +297,10 @@ class PowerAnalysis:
             Drop ADC samples above this many standard deviations.
         impedance_dataset : str
             Antenna impedance-matching set-up used for the mismatch loss.
+        lab_as_of : datetime | "takeoff" | None
+            The lab measurements valid then (the default: the flight's
+            take-off), or None for the latest. What was used is in the
+            metadata's ``lab_inputs``.
 
         Returns
         -------
@@ -286,6 +315,8 @@ class PowerAnalysis:
         """
         config = config or load_config()
         store = store or LabStore()
+        store.as_of = self._takeoff() if lab_as_of == "takeoff" else lab_as_of
+        store.used = []
         payload = self._payload(payload)
         frequency = self._frequency()
         multiplier = payload_item(payload, "multiplier")
@@ -312,7 +343,7 @@ class PowerAnalysis:
         sync = self._synced()
         times = sync["drone"]["timestamp"].to_numpy()
         scan_start, scan_end = scanning_range(
-            times, sync["drone"]["altitude"].to_numpy(), config["scan_min_altitude_m"]
+            times, sync["drone"]["h_ell_m"].to_numpy(), config["scan_min_altitude_m"]
         )
         in_scan = (times > scan_start) & (times < scan_end)
         t_scan = times[in_scan]
@@ -327,15 +358,15 @@ class PowerAnalysis:
         enu = np.array(
             [
                 np.interp(t_scan, azel_t, azel_data[c].to_numpy())
-                for c in ("E", "N", "U")
+                for c in ("e_m", "n_m", "u_m")
             ]
         )
         distance = np.linalg.norm(enu, axis=0)
 
         litchi = sync["litchi"].filter(pl.Series(in_scan))
-        roll = sync["inclinometer"].filter(pl.Series(in_scan))["roll"].to_numpy()
-        yaw = (litchi["yaw(deg)"] + litchi["gimbalYawRaw"] / 10).to_numpy()
-        pitch = (litchi["gimbalPitchRaw"] / 10).to_numpy()
+        roll = sync["inclinometer"].filter(pl.Series(in_scan))["roll_deg"].to_numpy()
+        yaw = (litchi["yaw_deg"] + litchi["gimbal_yaw_deg"]).to_numpy()
+        pitch = litchi["gimbal_pitch_deg"].to_numpy()
         pointing_loss, rel_yaw, rel_pitch, poi = self._pointing_loss(
             enu, yaw, pitch, roll, store, payload_item(payload, "antenna"), frequency
         )
@@ -364,10 +395,10 @@ class PowerAnalysis:
             (pl.col("timestamp") > scan_start) & (pl.col("timestamp") < scan_end)
         )
         if adc_clip_sigma is not None:
-            amp = adc["amplitude"]
+            amp = adc["amplitude_mv"]
             adc = adc.filter(amp < adc_clip_sigma * amp.std())
         filtered, envelope, zero = adc_envelope(
-            adc["amplitude"].to_numpy(), ENVELOPE_WINDOW[band]
+            adc["amplitude_mv"].to_numpy(), ENVELOPE_WINDOW[band]
         )
         keep = ~np.isnan(envelope)
         adc_time = adc["timestamp"].to_numpy()[keep]
@@ -450,20 +481,21 @@ class PowerAnalysis:
                 "adc_clip_sigma": adc_clip_sigma,
                 "envelope_window": ENVELOPE_WINDOW[band],
                 "impedance_dataset": impedance_dataset,
+                "lab_as_of": store.as_of.isoformat() if store.as_of else None,
+                "lab_inputs": list(store.used),
                 "created": datetime.datetime.now().isoformat(),
             },
         )
         if save_data:
-            save_version(
-                self.results_path,
+            path = result_store.save_version(
+                self.power_dir,
                 version.version_name,
                 {"power_data": power_data},
                 version.metadata,
                 parent=self.target_name(telescope, wafer_slot),
+                kind="power",
             )
-            logger.info(
-                f"Saved power version {version.version_name} to {self.results_path}"
-            )
+            logger.info(f"Saved power version {version.version_name} to {path}")
         if plot:
             self._save_plots(
                 version,
@@ -477,7 +509,7 @@ class PowerAnalysis:
                     "rel_pitch": rel_pitch,
                     "pointing_loss": pointing_loss,
                     "adc_time": adc["timestamp"].to_numpy(),
-                    "adc_amplitude": adc["amplitude"].to_numpy(),
+                    "adc_amplitude": adc["amplitude_mv"].to_numpy(),
                     "adc_filtered": filtered,
                     "adc_envelope": envelope,
                     "adc_zero": zero,

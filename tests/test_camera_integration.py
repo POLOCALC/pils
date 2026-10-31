@@ -96,7 +96,7 @@ class TestCameraFlightIntegration:
 
         # Check columns
         assert "timestamp" in camera_df.columns
-        assert "pitch" in camera_df.columns
+        assert "pitch_deg" in camera_df.columns
 
     def test_flight_add_camera_sony_mode(self, mock_flight_info_sony):
         """Test Flight.add_camera_data() with Sony camera mode."""
@@ -135,9 +135,9 @@ class TestCameraFlightIntegration:
                 # Should have Sony telemetry columns
                 assert "gyro_x" in camera_df.columns
                 assert "accel_x" in camera_df.columns
-                assert "roll" in camera_df.columns
-                assert "pitch" in camera_df.columns
-                assert "yaw" in camera_df.columns
+                assert "roll_deg" in camera_df.columns
+                assert "pitch_deg" in camera_df.columns
+                assert "yaw_deg" in camera_df.columns
                 assert "timestamp" in camera_df.columns
 
     def test_flight_add_camera_alvium_mode(self, mock_flight_info_alvium):
@@ -207,7 +207,7 @@ class TestCameraSynchronizerIntegration:
                 "timestamp": [1000.0, 1001.0, 1002.0, 1003.0, 1004.0],
                 "lat": [40.7128, 40.7129, 40.7130, 40.7131, 40.7132],
                 "lon": [-74.0060, -74.0061, -74.0062, -74.0063, -74.0064],
-                "altitude": [100.0, 101.0, 102.0, 103.0, 104.0],
+                "h_ell_m": [100.0, 101.0, 102.0, 103.0, 104.0],
             }
         )
 
@@ -218,8 +218,8 @@ class TestCameraSynchronizerIntegration:
         camera_data = pl.DataFrame(
             {
                 "timestamp": [1000.5, 1001.5, 1002.5, 1003.5],
-                "pitch": [0.1, 0.2, 0.3, 0.4],
-                "roll": [0.05, 0.15, 0.25, 0.35],
+                "pitch_deg": [0.1, 0.2, 0.3, 0.4],
+                "roll_deg": [0.05, 0.15, 0.25, 0.35],
             }
         )
 
@@ -229,7 +229,7 @@ class TestCameraSynchronizerIntegration:
             timestamp_col="timestamp",
             lat_col="lat",
             lon_col="lon",
-            alt_col="altitude",
+            alt_col="h_ell_m",
         )
         sync.add_camera(camera_data, use_photogrammetry=True)
 
@@ -244,9 +244,9 @@ class TestCameraSynchronizerIntegration:
         camera_data = pl.DataFrame(
             {
                 "timestamp": [1000.5, 1001.5, 1002.5],
-                "pitch": [0.1, 0.2, 0.3],
-                "roll": [0.05, 0.15, 0.25],
-                "yaw": [1.5, 1.6, 1.7],
+                "pitch_deg": [0.1, 0.2, 0.3],
+                "roll_deg": [0.05, 0.15, 0.25],
+                "yaw_deg": [1.5, 1.6, 1.7],
                 "gyro_x": [0.1, 0.2, 0.3],
                 "gyro_y": [0.1, 0.2, 0.3],
                 "gyro_z": [0.1, 0.2, 0.3],
@@ -259,7 +259,7 @@ class TestCameraSynchronizerIntegration:
             timestamp_col="timestamp",
             lat_col="lat",
             lon_col="lon",
-            alt_col="altitude",
+            alt_col="h_ell_m",
         )
         sync.add_camera(camera_data, use_photogrammetry=False, camera_model="sony")
 
@@ -303,10 +303,10 @@ class TestCameraSynchronizerIntegration:
         assert camera_df is not None
         assert isinstance(camera_df, pl.DataFrame)
         assert len(camera_df) == 3
-        assert "pitch" in camera_df.columns
+        assert "pitch_deg" in camera_df.columns
 
         # Verify original data integrity
-        assert camera_df["pitch"][0] == 0.1
+        assert camera_df["pitch_deg"][0] == 0.1
         assert camera_df["timestamp"][0] == 1000.0
 
 
@@ -346,9 +346,9 @@ class TestCameraFlightSyncIntegration:
                     1732112415.323,
                     1732112415.423,
                 ],
-                "latitude": [40.7128, 40.7129, 40.7130, 40.7131],
-                "longitude": [-74.0060, -74.0061, -74.0062, -74.0063],
-                "altitude": [100.0, 101.0, 102.0, 103.0],
+                "lat_deg": [40.7128, 40.7129, 40.7130, 40.7131],
+                "lon_deg": [-74.0060, -74.0061, -74.0062, -74.0063],
+                "h_ell_m": [100.0, 101.0, 102.0, 103.0],
             }
         )
         gps_df.write_csv(gps_csv)

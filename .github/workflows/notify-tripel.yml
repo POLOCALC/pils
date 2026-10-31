@@ -1,0 +1,27 @@
+# A new commit on main (or the branch TRIPEL packages): TRIPEL releases its desktop app again, with this
+# commit inside (TRIPEL's release.yml, on its repository_dispatch).
+#
+# The secret TRIPEL_DISPATCH_TOKEN is a fine-grained token on POLOCALC/tripel
+# with Contents: read and write (what a repository_dispatch needs) and nothing
+# else. It is only sent to GitHub's API, never checked out or printed.
+name: Notify TRIPEL
+
+on:
+  push:
+    # flight_package too while TRIPEL packages it (until it is merged into main)
+    branches: [main, flight_package]
+
+permissions: {}
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask TRIPEL for a release
+        env:
+          GH_TOKEN: ${{ secrets.TRIPEL_DISPATCH_TOKEN }}
+        run: |
+          gh api repos/POLOCALC/tripel/dispatches \
+            -f event_type=pils-main \
+            -f "client_payload[repo]=pils" \
+            -f "client_payload[sha]=${GITHUB_SHA::7}"

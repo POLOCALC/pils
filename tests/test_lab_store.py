@@ -2,6 +2,7 @@
 
 import sys
 import types
+from datetime import UTC
 from unittest.mock import patch
 
 import h5py
@@ -114,6 +115,23 @@ class TestStore:
             store.item_folder({"category": "x", "name": "y", "specifications": {}})
         assert store.item("cou-1") is COUPLER
 
+    def test_item_folders_lists_existing_bands(self, lab):
+        (lab / "WR06" / "coupler" / "COU_001").mkdir(parents=True)
+        store = LabStore(lab)
+        both = {"input_band": "WR06", "output_band": "WR10", "x_band": "WR15"}
+        item = {"category": "coupler", "name": "COU_001", "specifications": both}
+        assert store.item_folders(item) == [
+            lab / "WR06" / "coupler" / "COU_001",
+            lab / "WR10" / "coupler" / "COU_001",
+        ]
+        same = {"input_band": "WR10", "output_band": "WR10"}
+        assert len(store.item_folders({**item, "specifications": same})) == 1
+        # Without a band: every band folder
+        item["specifications"] = {}
+        assert len(store.item_folders(item)) == 2
+        item["name"] = "missing"
+        assert store.item_folders(item) == []
+
     def test_legacy_vna_csv_is_relabelled(self, lab):
         store = LabStore(lab)
         # Legacy "S12" is the Touchstone S21 column
@@ -123,7 +141,23 @@ class TestStore:
         with pytest.raises(LabDataNotFound, match="available"):
             store.transmission(COUPLER, "transmission", 90)
 
-    def test_pils_run_takes_precedence(self, lab):
+    def test_saved_run_takes_precedence(self, lab):
+        from pils import store
+
+        folder = lab / "WR10" / "coupler" / "COU_001" / "transmission"
+        summary = pl.DataFrame(
+            {"frequency_ghz": [93.0], "s21_avg_db": [-0.4], "s21_std_db": [0.02]}
+        )
+        store.save_version(
+            folder / "proc" / "vna",
+            "rev_20260101_120000",
+            {"summary": summary},
+            {},
+            parent="20260617_140000",
+        )
+        assert LabStore(lab).transmission(COUPLER, "transmission", 93) == (-0.4, 0.02)
+
+    def test_legacy_hdf5_run_takes_precedence(self, lab):
         folder = lab / "WR10" / "coupler" / "COU_001" / "transmission"
         summary = pl.DataFrame(
             {"frequency_ghz": [93.0], "s21_avg_db": [-0.5], "s21_std_db": [0.03]}
@@ -235,3 +269,119 @@ class TestStoutItem:
         with patch.dict(sys.modules, {"stout": None}):
             with pytest.raises(ImportError, match="pils\\[stout\\]"):
                 _stout_item("det-1")
+
+
+def test_legacy_and_saved_runs_listed_and_migrated(tmp_path):
+    """Runs in a legacy <analysis>_solution.h5 are listed, loaded and migrated."""
+    from pils import store
+    from pils.lab_analysis.base import LabAnalysis
+    from pils.migrate import migrate_lab
+
+    class Fake(LabAnalysis):
+        analysis_name = "vna"
+
+    class Measurement:
+        folder = tmp_path
+        stem = "20260617_140000"
+
+    analysis = Fake(Measurement())  # type: ignore[arg-type]
+    table = pl.DataFrame({"frequency_ghz": [93.0], "s21_avg_db": [-0.5]})
+    save_version(
+        analysis.results_path,
+        "rev_20260101_000000",
+        {"summary": table},
+        {"a": 1},
+        parent="20260617_140000",
+    )
+    store.save_version(
+        analysis.results_dir,
+        "rev_20260202_000000",
+        {"summary": table},
+        {"b": 2},
+        parent="20260617_140000",
+    )
+    assert analysis.list_versions() == ["rev_20260101_000000", "rev_20260202_000000"]
+    assert analysis.get_version("rev_20260101_000000").metadata == {"a": 1}
+    assert analysis.get_latest_version().metadata == {"b": 2}
+
+    proc = tmp_path / "proc"
+    assert migrate_lab(proc, dry_run=True) == [
+        "vna 20260617_140000/rev_20260101_000000"
+    ]
+    assert migrate_lab(proc) == ["vna 20260617_140000/rev_20260101_000000"]
+    assert migrate_lab(proc) == []
+    tables, metadata = store.load_version(
+        proc / "vna", "rev_20260101_000000", parent="20260617_140000"
+    )
+    assert tables["summary"].equals(table) and metadata == {"a": 1}
+    assert analysis.results_path.is_file()  # kept
+
+
+class TestAsOf:
+    """The measurements valid at a flight, and the record of what was read."""
+
+    @pytest.fixture
+    def two(self, lab):
+        folder = lab / "WR10" / "coupler" / "COU_001" / "transmission"
+        (folder / "20260729_154400.csv").write_text(
+            "Frequency,S12 avg [dB],S12 std [dB]\n93,-0.50,0.01\n"
+        )
+        return lab
+
+    def test_measured_at_and_choose(self):
+        from datetime import datetime
+
+        from pils.lab_analysis.store import choose, measured_at
+
+        assert measured_at("20251021_gain_processed.csv") == datetime(
+            2025, 10, 21, tzinfo=UTC
+        )
+        assert measured_at("notes.csv") is None
+        names = ["20260617_140000.csv", "20260729_154400.csv"]
+        assert choose(names, None) == ("20260729_154400.csv", False)
+        july = datetime(2026, 7, 1)  # naive: UTC
+        assert choose(names, july) == ("20260617_140000.csv", False)
+        assert choose(names, datetime(2025, 1, 1)) == ("20260617_140000.csv", True)
+        assert choose(["a.csv", "b.csv"], july) == ("b.csv", False)
+
+    def test_store_reads_as_of_and_records(self, two):
+        from datetime import datetime
+
+        latest = LabStore(two)
+        assert latest.transmission(COUPLER, "transmission", 93) == (-0.50, 0.01)
+        then = LabStore(two, as_of=datetime(2026, 7, 1))
+        assert then.transmission(COUPLER, "transmission", 93) == (-0.72, 0.01)
+        assert then.used == [
+            {
+                "item": "COU_001",
+                "category": "coupler",
+                "test_type": "transmission",
+                "measurement": "20260617_140000.csv",
+                "measured_at": "2026-06-17T14:00:00+00:00",
+                "after": False,
+                "source": "file",
+                "path": "WR10/coupler/COU_001/transmission/20260617_140000.csv",
+            }
+        ]
+        early = LabStore(two, as_of=datetime(2025, 1, 1))
+        early.transmission(COUPLER, "transmission", 93)
+        assert early.used[0]["after"] is True
+
+    def test_power_inputs_check(self, two):
+        from datetime import datetime
+
+        from pils.analyze.power import inputs
+
+        payload = {"items": [COUPLER, ANTENNA]}
+        rows = inputs.check(payload, 93, LabStore(two), as_of=datetime(2025, 1, 1))
+        by = {(r["quantity"], r["item"]): r for r in rows}
+        assert by[("coupler transmission", "COU_001")]["status"] == "after"
+        assert by[("coupler transmission", "COU_001")]["measurement"] == (
+            "20260617_140000.csv"
+        )
+        assert by[("antenna gain", "ANT_001")]["status"] == "missing"
+        assert by[("diode responsivity", None)]["status"] == "no item"
+        assert not any(r["category"] == "attenuator" for r in rows)  # optional
+        rows = inputs.check(payload, 93, LabStore(two), as_of=datetime(2026, 7, 1))
+        by = {(r["quantity"], r["item"]): r for r in rows}
+        assert by[("coupler transmission", "COU_001")]["status"] == "ok"

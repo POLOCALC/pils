@@ -27,8 +27,9 @@ version.power_data   # timestamp, expected_det_power_pw, drone_power_pw, ...
 pils power flight_20251201_1515 -t satp1 -w ws0
 ```
 
-Results: `flight_dir/proc/power/power_solution.h5`, one group per telescope
-and wafer slot (`SATP1_ws0/rev_*`), plots in `proc/power/SATP1_ws0/rev_*/`.
+Results: one revision per run in `flight_dir/proc/power/SATP1_ws0/rev_*/`
+(telescope and wafer slot), with `manifest.json`, `power_data.parquet` and
+the plots (see [Data Schema and Storage](../../user-guide/data-schema.md)).
 
 ## Telescopes config
 

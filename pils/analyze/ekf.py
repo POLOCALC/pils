@@ -2,17 +2,16 @@
 
 import datetime
 import io
-import json
 import struct
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import h5py
 import polars as pl
 import pyarrow as pa
 
+from pils import store
 from pils.flight import Flight
 from pils.utils.logging_config import get_logger
 
@@ -66,6 +65,29 @@ EKF_OUTPUT_SCHEMA = pa.schema(
         ("euler_cov_2_2", pa.float64()),
     ]
 )
+
+
+# Output columns of the Rust binary renamed to the schema (pils.schema)
+EKF_OUTPUT_NAMES = {
+    "timestamp_s": "timestamp",
+    "timestamp_monotonic_ns": "monotonic_ns",
+}
+
+
+def _schema_output(df: pl.DataFrame) -> pl.DataFrame:
+    """EKF output with the schema's names: ``timestamp`` (UNIX s, UTC)."""
+    return df.rename({k: v for k, v in EKF_OUTPUT_NAMES.items() if k in df.columns})
+
+
+def _with_required(df: pl.DataFrame, required: list[str]) -> pl.DataFrame:
+    """Accept the schema's lower-case names (``pqr_p_rad_s``) for ``required``."""
+    lower = {c.lower(): c for c in required}
+    renames = {
+        c: lower[c]
+        for c in df.columns
+        if c in lower and lower[c] != c and lower[c] not in df.columns
+    }
+    return df.rename(renames) if renames else df
 
 
 @dataclass
@@ -233,7 +255,9 @@ class EKFAnalysis:
         imu_df : pl.DataFrame
             Polars DataFrame with IMU data. Expected columns:
             monotonic_ns, timestamp_ns, pqr_P_rad_s, pqr_Q_rad_s,
-            pqr_R_rad_s, acc_X_m_s2, acc_Y_m_s2, acc_Z_m_s2.
+            pqr_R_rad_s, acc_X_m_s2, acc_Y_m_s2, acc_Z_m_s2 (or their
+            schema names, as in ``flight.raw_data.payload_data.inclinometer
+            ["imu"]``: pqr_p_rad_s, ..., acc_x_m_s2, ...).
 
         Returns
         -------
@@ -269,6 +293,7 @@ class EKFAnalysis:
             "acc_Y_m_s2",
             "acc_Z_m_s2",
         ]
+        imu_df = _with_required(imu_df, required_cols)
         missing = [col for col in required_cols if col not in imu_df.columns]
         if missing:
             raise ValueError(f"IMU DataFrame missing required columns: {missing}")
@@ -457,8 +482,8 @@ class EKFAnalysis:
         Returns
         -------
         pl.DataFrame
-            DataFrame with EKF output columns matching EKF_OUTPUT_SCHEMA:
-            timestamp_s, timestamp_monotonic_ns, roll_deg, pitch_deg,
+            DataFrame with the EKF output (EKF_OUTPUT_SCHEMA) in the schema's
+            names: timestamp (UNIX s), monotonic_ns, roll_deg, pitch_deg,
             yaw_deg, euler_cov_0_0 through euler_cov_2_2.
 
         Raises
@@ -471,7 +496,7 @@ class EKFAnalysis:
         >>> result = EKFAnalysis._send_ipc_to_rust(...)
         >>> ekf_data = EKFAnalysis._load_ekf_output(result.stdout)
         >>> print(ekf_data.columns)
-        ['timestamp_s', 'timestamp_monotonic_ns', 'roll_deg', ...]
+        ['timestamp', 'monotonic_ns', 'roll_deg', ...]
         """
         _ARROW_MAGIC = b"ARROW1\x00\x00"
 
@@ -488,7 +513,7 @@ class EKFAnalysis:
             payload = ipc_bytes[8 : 8 + payload_len]
             if payload[:8] == _ARROW_MAGIC:
                 reader = pa.ipc.open_file(io.BytesIO(payload))
-                return pl.from_arrow(reader.read_all())
+                return _schema_output(pl.from_arrow(reader.read_all()))  # type: ignore[arg-type]
 
         # ── Fallback: scan for Arrow magic bytes ──────────────────────────────
         # Handles any stdout prepended before the IPC payload (e.g. stray
@@ -507,7 +532,7 @@ class EKFAnalysis:
             )
 
         reader = pa.ipc.open_file(io.BytesIO(ipc_bytes[idx:]))
-        return pl.from_arrow(reader.read_all())
+        return _schema_output(pl.from_arrow(reader.read_all()))  # type: ignore[arg-type]
 
     def run_analysis(
         self,
@@ -563,7 +588,6 @@ class EKFAnalysis:
         >>> print(version.ekf_data.head())
         >>> # Shows: timestamp, quaternion, Euler angle columns
         """
-
         logger.info("Starting EKF analysis...")
 
         # 1. Validate input DataFrames
@@ -646,140 +670,48 @@ class EKFAnalysis:
             version_name=version_name, ekf_data=ekf_data, metadata=metadata
         )
 
-        # Save to HDF5 if requested
+        # Save if requested
         if save_data:
-            self._save_to_hdf5(version)
+            self._save_version(version)
 
         return version
 
-    def _save_to_hdf5(self, version: EKFVersion) -> None:
-        """Save EKF version to HDF5 file.
+    def _save_version(self, version: EKFVersion) -> Path:
+        """Save a version: ``ekf/<version>/`` (see :mod:`pils.store`)."""
+        path = store.save_version(
+            self.ekf_dir,
+            version.version_name,
+            {"ekf_data": version.ekf_data},
+            version.metadata,
+            kind="ekf",
+        )
+        logger.info(f"Saved EKF version '{version.version_name}' to {path}")
+        return path
 
-        Parameters
-        ----------
-        version : EKFVersion
-            EKFVersion object to save to HDF5 file.
-
-        Examples
-        --------
-        >>> version = ekf.run_analysis(...)
-        >>> ekf._save_to_hdf5(version)
-        """
-        hdf5_path = self.ekf_dir / "ekf_solution.h5"
-
-        with h5py.File(hdf5_path, "a") as f:
-            # Create version group (overwrite if exists)
-            if version.version_name in f:
-                del f[version.version_name]
-
-            version_group = f.create_group(version.version_name)
-
-            # Save DataFrame columns
-            df_group = version_group.create_group("ekf_data")
-            for col_name in version.ekf_data.columns:
-                col_data = version.ekf_data[col_name].to_numpy()
-                df_group.create_dataset(col_name, data=col_data)
-
-            # Save DataFrame schema info
-            df_group.attrs["columns"] = json.dumps(version.ekf_data.columns)
-            df_group.attrs["dtypes"] = json.dumps(
-                [str(dtype) for dtype in version.ekf_data.dtypes]
-            )
-
-            # Save metadata
-            version_group.attrs["metadata"] = json.dumps(version.metadata)
-
-        logger.info(f"Saved EKF version '{version.version_name}' to HDF5")
-
-    def _load_from_hdf5(self, version_name: str) -> EKFVersion:
-        """Load EKF version from HDF5 file.
-
-        Parameters
-        ----------
-        version_name : str
-            Name of version to load (e.g., 'rev_20260218_143022').
-
-        Returns
-        -------
-        EKFVersion
-            Loaded EKFVersion object containing ekf_data and metadata.
+    def _load_version(self, version_name: str) -> EKFVersion:
+        """Load a saved version.
 
         Raises
         ------
-        FileNotFoundError
-            If HDF5 file doesn't exist.
         KeyError
-            If version_name not found in HDF5 file.
-
-        Examples
-        --------
-        >>> version = ekf._load_from_hdf5('rev_20260218_143022')
+            If the version is not saved.
         """
-        hdf5_path = self.ekf_dir / "ekf_solution.h5"
-
-        if not hdf5_path.exists():
-            raise FileNotFoundError(f"HDF5 file not found: {hdf5_path}")
-
-        with h5py.File(hdf5_path, "r") as f:
-            if version_name not in f:
-                raise KeyError(f"Version '{version_name}' not found in HDF5")
-
-            version_group = f[version_name]
-            df_group = version_group["ekf_data"]
-
-            # Reconstruct DataFrame from columns
-            columns = json.loads(df_group.attrs["columns"])
-            dtypes = json.loads(df_group.attrs["dtypes"])
-
-            data_dict = {}
-            for col_name in columns:
-                data_dict[col_name] = df_group[col_name][:]
-
-            ekf_data = pl.DataFrame(data_dict)
-
-            # Cast to original dtypes
-            cast_exprs = []
-            for col_name, dtype_str in zip(columns, dtypes, strict=True):
-                if "Float64" in dtype_str:
-                    cast_exprs.append(pl.col(col_name).cast(pl.Float64))
-                elif "Int64" in dtype_str:
-                    cast_exprs.append(pl.col(col_name).cast(pl.Int64))
-
-            if cast_exprs:
-                ekf_data = ekf_data.with_columns(cast_exprs)
-
-            # Load metadata
-            metadata = json.loads(version_group.attrs["metadata"])
-
-        logger.info(f"Loaded EKF version '{version_name}' from HDF5")
-
+        tables, metadata = store.load_version(self.ekf_dir, version_name)
         return EKFVersion(
-            version_name=version_name, ekf_data=ekf_data, metadata=metadata
+            version_name=version_name,
+            ekf_data=tables["ekf_data"],  # type: ignore[arg-type]
+            metadata=metadata,
         )
 
     def list_versions(self) -> list[str]:
-        """List all EKF versions in HDF5 file.
-
-        Returns
-        -------
-        list[str]
-            List of version names, sorted chronologically.
-            Empty list if HDF5 file doesn't exist.
+        """List the saved EKF versions, oldest first.
 
         Examples
         --------
         >>> ekf.list_versions()
         ['rev_20260218_120000', 'rev_20260218_143022']
         """
-        hdf5_path = self.ekf_dir / "ekf_solution.h5"
-
-        if not hdf5_path.exists():
-            return []
-
-        with h5py.File(hdf5_path, "r") as f:
-            versions = sorted(list(f.keys()))
-
-        return versions
+        return store.list_versions(self.ekf_dir)
 
     def get_latest_version(self) -> EKFVersion | None:
         """Get the most recent EKF version.
@@ -801,4 +733,4 @@ class EKFAnalysis:
             return None
 
         latest_name = versions[-1]  # Sorted chronologically, last is latest
-        return self._load_from_hdf5(latest_name)
+        return self._load_version(latest_name)

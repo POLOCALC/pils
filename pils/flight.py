@@ -1,20 +1,28 @@
+"""Flight: load, synchronize, save and load the data of one flight."""
+
 import glob
 import json
 import logging
+import re
+import warnings
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional, Union, overload
+from typing import Any, Literal, Optional, Union, overload
 
 import h5py
+import numpy as np
 import polars as pl
 
+from pils import schema
 from pils.drones.BlackSquareDrone import BlackSquareDrone
 from pils.drones.DJIDrone import DJIDrone
 from pils.drones.litchi import Litchi
 from pils.sensors.camera import Camera
 from pils.sensors.sensors import sensor_config
 from pils.synchronizer import Synchronizer
-from pils.utils.tools import get_path_from_keyword
+from pils.utils.hdf5 import read_table, write_table
+from pils.utils.tools import get_path_from_keyword, standardize_datetimes
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +54,109 @@ def _get_package_version() -> str:
         return getattr(pils, "__version__", "unknown")
     except Exception:
         return "unknown"
+
+
+def _standardize(data: Any, kind: str | None = None) -> Any:
+    """Rename a loaded table, or dict of tables, to the schema (:mod:`pils.schema`).
+
+    Columns get the schema's names and units, datetimes are UTC microseconds,
+    and the tables of a dict get ``snake_case`` names.
+    """
+    if isinstance(data, pl.DataFrame):
+        return standardize_datetimes(schema.canonical(data, kind))
+    if isinstance(data, dict):
+        return {
+            schema.snake_case(key): _standardize(value, kind)
+            for key, value in data.items()
+        }
+    return data
+
+
+_LEGACY_SYNC_COORDINATES = {
+    "latitude": "lat_deg",
+    "longitude": "lon_deg",
+    "altitude": "h_ell_m",
+}
+_SYNC_KINDS = {"drone": "dji", "reference_gps": "gps"}
+
+MIN_REFERENCE_COVERAGE = 0.5
+"""Minimum fraction of the drone GPS time covered by the payload GPS.
+
+The payload GPS is the sync reference when it covers at least this fraction;
+otherwise (missing, stopped early, another session) the drone GPS is.
+"""
+
+
+MAX_GPS_H_ACC_M = 50.0
+"""Largest horizontal accuracy (u-blox ``h_acc_m``) of a payload GPS epoch used to sync.
+
+Epochs without a real fix carry positions thousands of km off, with an
+accuracy estimate to match (April 2024: 4000 km, against 5 m with a fix).
+"""
+
+
+def _valid_positions(
+    frame: pl.DataFrame, lat_col: str, lon_col: str, acc_col: str | None = None
+) -> pl.DataFrame:
+    """Keep rows with a position: not null, not at 0, 0, accurate enough.
+
+    ``acc_col`` (if in the table) must be at most :data:`MAX_GPS_H_ACC_M`.
+    """
+    lat, lon = pl.col(lat_col), pl.col(lon_col)
+    keep = lat.is_not_null() & lon.is_not_null() & ~((lat == 0) & (lon == 0))
+    if acc_col is not None and acc_col in frame.columns:
+        keep = keep & (pl.col(acc_col) <= MAX_GPS_H_ACC_M)
+    return frame.filter(keep)
+
+
+def _time_coverage(times: pl.Series, reference: pl.Series) -> float:
+    """Fraction of the span of ``reference`` covered by the span of ``times``."""
+    ref = reference.drop_nulls().to_numpy().astype(float)
+    own = times.drop_nulls().to_numpy().astype(float)
+    if ref.size < 2 or ref.max() <= ref.min():
+        return 1.0
+    if own.size == 0:
+        return 0.0
+    overlap = min(ref.max(), own.max()) - max(ref.min(), own.min())
+    return float(max(overlap, 0.0) / (ref.max() - ref.min()))
+
+
+def _legacy_sync_table(key: str, df: pl.DataFrame) -> tuple[str, pl.DataFrame]:
+    """Rename a synchronized table from a file written before the schema."""
+    df = df.rename(
+        {k: v for k, v in _LEGACY_SYNC_COORDINATES.items() if k in df.columns}
+    )
+    if key.startswith("drone_"):
+        record = key.removeprefix("drone_")
+        return f"drone_{schema.record_name(record)}", schema.canonical(
+            df, record=record
+        )
+    kind = _SYNC_KINDS.get(key, key.split("_")[0])  # imu_barometer -> imu
+    return key, schema.canonical(df, kind)
+
+
+def _standardize_records(records: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
+    """DJI .dat record tables in the schema, e.g. ``imu_atti_0``."""
+    return {
+        schema.record_name(name): standardize_datetimes(
+            schema.canonical(table, record=name)
+        )
+        for name, table in records.items()
+    }
+
+
+def _parse_temporal_dtype(dtype: str) -> pl.DataType:
+    """Polars temporal dtype from its string form, e.g. ``Datetime(time_unit='us', time_zone='UTC')``."""
+    unit_match = re.search(r"time_unit='(\w+)'", dtype)
+    unit = unit_match.group(1) if unit_match else "us"
+    if dtype.startswith("Datetime"):
+        zone_match = re.search(r"time_zone='([^']+)'", dtype)
+        return pl.Datetime(unit, zone_match.group(1) if zone_match else None)  # type: ignore[arg-type]
+    if dtype.startswith("Duration"):
+        return pl.Duration(unit)  # type: ignore[arg-type]
+    if dtype.startswith("Date"):
+        return pl.Date()
+    return pl.Time()
 
 
 def _serialize_for_hdf5(obj: Any) -> Any:
@@ -109,9 +220,11 @@ def _deserialize_from_hdf5(value: Any, hint: str | None = None) -> Any:
 
 class Flight:
     """
-    This class provides a hierarchical structure to store and access drone flight data
-    and sensor payloads. Data is stored in RAM for fast access using both attribute
-    and dictionary-style notation.
+    Data of one flight: drone, payload sensors and synchronized tables.
+
+    A hierarchical structure to store and access drone flight data and sensor
+    payloads. Data is stored in RAM for fast access using both attribute and
+    dictionary-style notation.
 
     Attributes
     ----------
@@ -189,7 +302,18 @@ class Flight:
 
         self.raw_data = RawData()
         self.sync_data: dict[str, pl.DataFrame] | None = None
+        self.sync_offsets: dict[str, float] = {}
+        # Each offset with how it was found (method, correlation, ...)
+        self.sync_offset_details: dict[str, dict[str, Any]] = {}
+        # The reference timebase: "payload_gps" or "drone_gps"
+        self.sync_reference: str | None = None
+        self.sync_rates: dict[str, float] = {}
         self.adc_gain_config = None
+        # Set by the loaders; saved with the raw data
+        self.__drone_model: str | None = None
+        self.__inclinometer: str | None = None
+        self.__camera_model: str | None = None
+        self.__use_photogrammetry = False
 
     @classmethod
     def from_hdf5(
@@ -238,7 +362,6 @@ class Flight:
         >>> # Load only metadata and raw data
         >>> flight = Flight.from_hdf5('flight_001.h5', sync_version=False)
         """
-
         filepath = Path(filepath)
 
         if not filepath.exists():
@@ -305,7 +428,9 @@ class Flight:
                         if df is not None:
                             sync_dict[key] = df
                     if sync_dict:
-                        flight.sync_data = sync_dict
+                        flight.sync_data = dict(
+                            _legacy_sync_table(key, df) for key, df in sync_dict.items()
+                        )
 
         return flight
 
@@ -352,7 +477,6 @@ class Flight:
         flight : Flight
             Flight object to populate
         """
-
         # Load drone data
         if "drone_data" in raw_group:
             drone_group = raw_group["drone_data"]
@@ -370,8 +494,24 @@ class Flight:
                 assert isinstance(litchi_data, h5py.Group)
                 litchi_df = Flight._load_dataframe_from_hdf5(litchi_data)
 
+            records = {}
+            if "dat_records" in drone_group:
+                for record_name, item in drone_group["dat_records"].items():
+                    table = Flight._load_dataframe_from_hdf5(item)
+                    if table is not None:
+                        records[record_name] = table
+
+            # Files written before the schema: rename to it (no-op otherwise)
+            if drone_df is not None:
+                drone_df = schema.canonical(drone_df, "dji")
+            if litchi_df is not None:
+                litchi_df = schema.canonical(litchi_df, "litchi")
+            records = {
+                schema.record_name(name): schema.canonical(table, record=name)
+                for name, table in records.items()
+            }
             if drone_df is not None or litchi_df is not None:
-                flight.raw_data.drone_data = DroneData(drone_df, litchi_df)
+                flight.raw_data.drone_data = DroneData(drone_df, litchi_df, records)
 
         # Load payload data
         if "payload_data" in raw_group:
@@ -384,7 +524,25 @@ class Flight:
                 assert isinstance(sensor_data, h5py.Group)
                 sensor_df = Flight._load_dataframe_from_hdf5(sensor_data)
                 if sensor_df is not None:
-                    setattr(flight.raw_data.payload_data, sensor_name, sensor_df)
+                    setattr(
+                        flight.raw_data.payload_data,
+                        sensor_name,
+                        schema.canonical(sensor_df, sensor_name),
+                    )
+                    continue
+                # A group of tables (e.g. the inclinometer message types)
+                tables = {
+                    name: Flight._load_dataframe_from_hdf5(item)
+                    for name, item in sensor_data.items()
+                    if isinstance(item, h5py.Group)
+                }
+                tables = {
+                    schema.snake_case(k): schema.canonical(v, sensor_name)
+                    for k, v in tables.items()
+                    if v is not None
+                }
+                if tables:
+                    setattr(flight.raw_data.payload_data, sensor_name, tables)
 
     @staticmethod
     def _load_dataframe_from_hdf5(
@@ -396,36 +554,18 @@ class Flight:
         Parameters
         ----------
         dataset_group : h5py.Group
-            Group containing column datasets
+            Group containing column datasets (see
+            :func:`pils.utils.hdf5.write_table`)
 
         Returns
         -------
         pl.DataFrame or None
             Polars DataFrame if data found, None otherwise
         """
-
         if "columns" not in dataset_group.attrs:
             return None
-
-        columns_attr = dataset_group.attrs["columns"]
-        # Handle different attr types
-        if isinstance(columns_attr, bytes):
-            columns = json.loads(columns_attr.decode())
-        else:
-            columns = json.loads(str(columns_attr))
-
-        data_dict = {}
-
-        for col_name in columns:
-            if col_name in dataset_group:
-                col_dataset = dataset_group[col_name]
-                assert isinstance(col_dataset, h5py.Dataset)
-                data_dict[col_name] = col_dataset[:]
-
-        if not data_dict:
-            return None
-
-        return pl.DataFrame(data_dict)
+        df = read_table(dataset_group)
+        return df if df.width else None
 
     def set_metadata(self, metadata: dict[str, Any] | None = None) -> None:
         """
@@ -594,7 +734,6 @@ class Flight:
         >>> # Alternative: use dictionary access
         >>> drone_data = flight['raw_data']['drone_data']['drone']
         """
-
         # Resolve drone folder
         if not isinstance(self.flight_info, dict):
             raise ValueError(
@@ -612,6 +751,9 @@ class Flight:
 
         # Find candidate files
         available_files = glob.glob(str(drone_folder) + "/*")
+        if not available_files:
+            raise FileNotFoundError(f"No drone log in {drone_folder} (empty folder)")
+        records: dict[str, pl.DataFrame] = {}  # other .dat records (DJI)
 
         if isinstance(self.__drone_model, str) and "dji" in self.__drone_model.lower():
             drone_data_path = None
@@ -630,10 +772,15 @@ class Flight:
                 if fname.endswith("litchi.csv") and "dji" in self.__drone_model.lower():
                     litchi_data_path = file
 
+            if drone_data_path is None:
+                raise FileNotFoundError(
+                    f"No DJI drone log (*drone.dat, *drone.csv) in {drone_folder}"
+                )
             logger.info(f"Drone : {drone_data_path}")
             drone = DJIDrone(drone_data_path)
             drone.load_data(use_dat=dji_dat_loader)
             drone_data = drone.data
+            records = drone.records
 
             litchi_data = None
 
@@ -665,7 +812,17 @@ class Flight:
                 drone_data = drone.data
                 litchi_data = None
 
-        self.raw_data.drone_data = DroneData(drone_data, litchi_data)
+        drone_kind = (
+            "blacksquare"
+            if isinstance(self.__drone_model, str)
+            and "black" in self.__drone_model.lower()
+            else "dji"
+        )
+        self.raw_data.drone_data = DroneData(
+            _standardize(drone_data, drone_kind),
+            _standardize(litchi_data, "litchi"),
+            _standardize_records(records),
+        )
 
     def _read_sensor_data(self, sensor_name: str, sensor_folder: Path) -> Any | None:
         """
@@ -739,14 +896,26 @@ class Flight:
 
             for sensor in sensor_name:
                 sensor_data = self._read_sensor_data(sensor, sensor_path)
-                if isinstance(sensor_data, dict) and (sensor != "inclinometer"):
-                    setattr(self.raw_data.payload_data, sensor, sensor_data["data"])
+                # {"data", "metadata"} (e.g. GPS); the inclinometer and the IMU
+                # are dicts of tables
+                if isinstance(sensor_data, dict) and {"data", "metadata"} <= set(
+                    sensor_data
+                ):
+                    setattr(
+                        self.raw_data.payload_data,
+                        sensor,
+                        _standardize(sensor_data["data"], sensor),
+                    )
                     self.flight_info["flight_info"].update(
                         {f"{sensor}_metadata": sensor_data["metadata"]}
                     )
 
                 else:
-                    setattr(self.raw_data.payload_data, sensor, sensor_data)
+                    setattr(
+                        self.raw_data.payload_data,
+                        sensor,
+                        _standardize(sensor_data, sensor),
+                    )
         else:
             logger.info("Sensor datasets are not available")
 
@@ -783,7 +952,6 @@ class Flight:
         >>> # Load camera video data without computing angles
         >>> flight.add_camera_data(use_photogrammetry=False, get_sony_angles=False)
         """
-
         self.__use_photogrammetry = use_photogrammetry
         if use_photogrammetry:
             self.__camera_data_type = "photogrammetry"
@@ -797,7 +965,7 @@ class Flight:
 
             camera.load_data()
 
-            self.raw_data.payload_data.camera = camera.data[0]
+            self.raw_data.payload_data.camera = _standardize(camera.data[0], "camera")
 
             self.__camera_model = camera.data[1]
 
@@ -809,6 +977,7 @@ class Flight:
         target_rate: dict[str, float] | None = None,
         use_rtk_data: bool = True,
         common_time: bool = True,
+        drone_records: Sequence[str] | Literal["all"] = ("imu_atti_0",),
         **kwargs,
     ) -> dict[str, pl.DataFrame]:
         """
@@ -830,6 +999,11 @@ class Flight:
             Interpolate all the data at a common time, with a sampliing frequency
             determined by the target_rate. If False, the time is just shifted and the
             other columns are not touched
+        drone_records : sequence of str or "all", default=("imu_atti_0",)
+            Other drone records (DJI .dat, see ``raw_data.drone_data.records``)
+            to synchronize, each as ``drone_<name>``; they take the drone GPS
+            offset. The default is the flight controller attitude (200 Hz).
+            DJI names such as ``"IMU_ATTI(0)"`` are accepted too.
         **kwargs : dict
             Additional arguments passed to Synchronizer.synchronize()
 
@@ -854,81 +1028,149 @@ class Flight:
         >>> # Synchronization is stored in flight.sync_data as a dict of DataFrames
         >>> print(list(flight.sync_data.keys()))
         """
-
-        # Check if GPS payload data is available
-        if not self.raw_data.payload_data or "gps" not in self.raw_data.payload_data:
-            raise ValueError(
-                "GPS payload data is required as reference timebase. "
-                "Call flight.add_sensor_data(['gps']) first."
-            )
+        # The payload GPS is the reference timebase; without it (not
+        # recorded, or empty) the drone GPS is
+        gps_data = None
+        if self.raw_data.payload_data and "gps" in self.raw_data.payload_data:
+            gps_sensor = self.raw_data.payload_data["gps"]
+            gps_data = gps_sensor.data if hasattr(gps_sensor, "data") else gps_sensor
+            required = {"timestamp", "lat_deg", "lon_deg", "h_ell_m"}
+            if not isinstance(gps_data, pl.DataFrame) or gps_data.is_empty():
+                logger.warning(
+                    "Payload GPS has no data: the drone GPS is the reference"
+                )
+                gps_data = None
+            elif not required <= set(gps_data.columns):
+                logger.warning(
+                    "Payload GPS has no position "
+                    f"({sorted(required - set(gps_data.columns))} missing): "
+                    "the drone GPS is the reference"
+                )
+                gps_data = None
+            else:
+                gps_data = _valid_positions(gps_data, "lat_deg", "lon_deg", "h_acc_m")
+                if gps_data.is_empty():
+                    logger.warning(
+                        "Payload GPS has no position fix: the drone GPS is the reference"
+                    )
+                    gps_data = None
 
         # Create synchronizer
         sync = Synchronizer()
-
-        # Add GPS payload as reference (mandatory)
-        gps_sensor = self.raw_data.payload_data["gps"]
-        gps_data = gps_sensor.data if hasattr(gps_sensor, "data") else gps_sensor
-        sync.add_gps_reference(
-            gps_data,
-            timestamp_col="timestamp",
-            alt_col="posllh_height",
-            lat_col="posllh_lat",
-            lon_col="posllh_lon",
-        )
 
         # Add drone GPS if available
         drone_data = self.raw_data.drone_data.drone
         drone_has_data = (isinstance(drone_data, dict) and len(drone_data) > 0) or (
             isinstance(drone_data, pl.DataFrame) and len(drone_data) > 0
         )
+        if gps_data is None and not drone_has_data:
+            raise ValueError(
+                "No reference timebase: no payload GPS data and no drone GPS. "
+                "Call flight.add_sensor_data(['gps']) or flight.add_drone_data() first."
+            )
 
-        if target_rate is None:
-            target_rate = {}
+        # A copy: the defaults below must not change the caller's dict
+        target_rate = dict(target_rate or {})
 
         if drone_has_data:
             # Ensure target_rate dict has drone key with default 10 Hz
             if "drone" not in target_rate:
                 target_rate["drone"] = 10.0
             drone_df = drone_data
+            if isinstance(drone_df, dict):  # ArduPilot messages
+                drone_df = drone_df.get("gps", next(iter(drone_df.values())))
 
-            if "dji" in self.__drone_model.lower():
-                timestamp_col = "timestamp"
-
-                if use_rtk_data:
-                    lat_col = "RTK:lat_p"
-                    lon_col = "RTK:lon_p"
-                    alt_col = "RTK:hmsl_p"
-                else:
-                    lat_col = "GPS:Latitude"
-                    lon_col = "GPS:Longitude"
-                    alt_col = "GPS:heightMSL"
-
+            model = (self.__drone_model or "").lower()
+            records_gps = (self.raw_data.drone_data.records or {}).get("gps")
+            if "dji" in model and use_rtk_data and "rtk_lat_deg" in drone_df.columns:
+                lat_col, lon_col, alt_col = "rtk_lat_deg", "rtk_lon_deg", "rtk_h_ell_m"
             else:
-                timestamp_col = "timestamp"
-                lat_col = "Latitude"
-                lon_col = "Longitude"
-                alt_col = "heightMSL"
+                # The main receiver: in the drone table (DatCon CSV,
+                # BlackSquare) or, for DJI .dat files, its own record
+                if "gps_lat_deg" in drone_df.columns:
+                    prefix = "gps_"
+                elif "dji" in model and records_gps is not None:
+                    drone_df, prefix = records_gps, ""
+                else:
+                    prefix = ""
+                lat_col, lon_col = f"{prefix}lat_deg", f"{prefix}lon_deg"
+                alt_col = f"{prefix}h_ell_m"
+                if alt_col not in drone_df.columns:
+                    # Heights above mean sea level: to the ellipsoid with the
+                    # geoid separation of the payload receiver (without it,
+                    # heights stay above mean sea level)
+                    separation = (
+                        (gps_data["h_ell_m"] - gps_data["h_msl_m"]).median()
+                        if gps_data is not None and "h_msl_m" in gps_data.columns
+                        else 0.0
+                    )
+                    if gps_data is None:
+                        logger.warning(
+                            "No payload GPS: drone heights are above mean sea "
+                            "level, not the ellipsoid"
+                        )
+                    drone_df = drone_df.with_columns(
+                        (pl.col(f"{prefix}h_msl_m") + separation).alias(alt_col)
+                    )
+            # Positions only where the receiver has a solution (DJI RTK rows
+            # without one are at 0, 0, 0)
+            drone_df = _valid_positions(drone_df, lat_col, lon_col)
+            if gps_data is not None:
+                coverage = _time_coverage(gps_data["timestamp"], drone_df["timestamp"])
+                if coverage < MIN_REFERENCE_COVERAGE:
+                    logger.warning(
+                        f"Payload GPS covers {100 * coverage:.0f} % of the drone "
+                        "GPS time: the drone GPS is the reference"
+                    )
+                    gps_data = None
+            if gps_data is None:
+                sync.add_gps_reference(
+                    drone_df,
+                    timestamp_col="timestamp",
+                    lat_col=lat_col,
+                    lon_col=lon_col,
+                    alt_col=alt_col,
+                )
+                sync.reference = "drone_gps"
 
             sync.add_drone_gps(
                 drone_df,
-                timestamp_col=timestamp_col,
+                timestamp_col="timestamp",
                 lat_col=lat_col,
                 lon_col=lon_col,
                 alt_col=alt_col,
             )
 
-        # Add litchi GPS if available
-        if len(self.raw_data.drone_data.litchi) > 0:
-            litchi_df = self.raw_data.drone_data.litchi
-            if (
-                isinstance(litchi_df, pl.DataFrame)
-                and "latitude" in litchi_df.columns
-                and "longitude" in litchi_df.columns
-            ):
-                if "drone" not in target_rate:
-                    target_rate["drone"] = 10.0
+        if gps_data is not None:
+            sync.add_gps_reference(
+                gps_data,
+                timestamp_col="timestamp",
+                lat_col="lat_deg",
+                lon_col="lon_deg",
+                alt_col="h_ell_m",
+            )
 
-                sync.add_litchi_gps(litchi_df)
+        # Add litchi GPS if available
+        litchi_df = self.raw_data.drone_data.litchi
+        if (
+            isinstance(litchi_df, pl.DataFrame)
+            and litchi_df.height > 0
+            and {"lat_deg", "lon_deg"} <= set(litchi_df.columns)
+        ):
+            if "drone" not in target_rate:
+                target_rate["drone"] = 10.0
+            sync.add_litchi_gps(litchi_df)
+
+        # Add other drone records (DJI .dat attitude, motors, ...)
+        records = getattr(self.raw_data.drone_data, "records", None) or {}
+        if drone_has_data and records:
+            if drone_records != "all":
+                wanted = {schema.record_name(name) for name in drone_records}
+                missing = sorted(wanted - set(records))
+                if missing:
+                    logger.warning(f"Drone records not found: {missing}")
+                records = {k: v for k, v in records.items() if k in wanted}
+            sync.add_drone_records(records)
 
         # Add inclinometer if available
         if "inclinometer" in self.raw_data.payload_data:
@@ -939,9 +1181,19 @@ class Flight:
             incl_data = (
                 incl_sensor.data if hasattr(incl_sensor, "data") else incl_sensor
             )
-            if self.__inclinometer == "imx5":
-                incl_data = incl_data["INS"]
-            sync.add_inclinometer(incl_data, self.__inclinometer)
+            if isinstance(incl_data, dict):  # IMX-5: the INS table
+                incl_data = incl_data.get("ins")
+            # The Kernel-100 has its own clock (log start + counter); the
+            # IMX-5 and the 2022 payload are stamped with the payload
+            # computer's clock
+            if isinstance(incl_data, pl.DataFrame) and not incl_data.is_empty():
+                sync.add_inclinometer(
+                    incl_data,
+                    self.__inclinometer,
+                    clock="own" if self.__inclinometer == "kernel" else "payload",
+                )
+            else:
+                logger.warning("Inclinometer has no data: not synchronized")
 
         # Add Camera data if available
 
@@ -961,7 +1213,10 @@ class Flight:
                 target_rate["payload"] = 100.0
             adc_sensor = payload["adc"]
             adc_data = adc_sensor.data if hasattr(adc_sensor, "data") else adc_sensor
-            sync.add_payload_sensor("adc", adc_data)
+            if isinstance(adc_data, pl.DataFrame) and not adc_data.is_empty():
+                sync.add_payload_sensor("adc", adc_data)
+            else:
+                logger.warning("ADC has no data: not synchronized")
 
         # Add LM76 if available
         if "lm76" in payload:
@@ -971,28 +1226,21 @@ class Flight:
             lm76_data = (
                 lm76_sensor.data if hasattr(lm76_sensor, "data") else lm76_sensor
             )
-            sync.add_payload_sensor("lm76", lm76_data)
+            if isinstance(lm76_data, pl.DataFrame) and not lm76_data.is_empty():
+                sync.add_payload_sensor("lm76", lm76_data)
+            else:
+                logger.warning("LM76 has no data: not synchronized")
 
-        # Add IMU sensors if available
-        if "imu" in payload:
+        # Add IMU sensors if available ({"barometer": df, ...})
+        if "imu" in payload and payload["imu"] is not None:
             if "payload" not in target_rate:
                 target_rate["payload"] = 100.0
-
-            imu_sensor = payload["imu"]
-            if hasattr(imu_sensor, "barometer") and imu_sensor.barometer is not None:
-                sync.add_payload_sensor("imu_barometer", imu_sensor.barometer)
-            if (
-                hasattr(imu_sensor, "accelerometer")
-                and imu_sensor.accelerometer is not None
-            ):
-                sync.add_payload_sensor("imu_accelerometer", imu_sensor.accelerometer)
-            if hasattr(imu_sensor, "gyroscope") and imu_sensor.gyroscope is not None:
-                sync.add_payload_sensor("imu_gyroscope", imu_sensor.gyroscope)
-            if (
-                hasattr(imu_sensor, "magnetometer")
-                and imu_sensor.magnetometer is not None
-            ):
-                sync.add_payload_sensor("imu_magnetometer", imu_sensor.magnetometer)
+            imu_data = payload["imu"]
+            if not isinstance(imu_data, dict):  # an IMU object
+                imu_data = imu_data.data or {}
+            for name, table in imu_data.items():
+                if isinstance(table, pl.DataFrame) and not table.is_empty():
+                    sync.add_payload_sensor(f"imu_{name}", table)
 
         # Perform synchronization
         self.sync_data = sync.synchronize(
@@ -1000,8 +1248,182 @@ class Flight:
             common_time=common_time,
             **kwargs,
         )
+        # Detected time offsets in seconds, as in Synchronizer.offsets: the
+        # inclinometer and camera offsets are relative to Litchi
+        self.sync_offsets = {
+            name: float(offset["time_offset"])
+            for name, offset in sync.offsets.items()
+            if "time_offset" in offset
+        }
+        self.sync_offset_details = {
+            name: {
+                k: (v.tolist() if isinstance(v, np.ndarray) else v)
+                for k, v in offset.items()
+            }
+            for name, offset in sync.offsets.items()
+        }
+        self.sync_reference = sync.reference
+        # Rates (Hz) of the synchronized tables, as used
+        self.sync_rates = dict(sync.rates)
 
         return self.sync_data
+
+    # -- storage (pils.store) ------------------------------------------------
+
+    def _raw_tables(self) -> dict[str, Any]:
+        drone = self.raw_data.drone_data
+        tables: dict[str, Any] = {"drone": {}, "payload": {}}
+        if drone is not None:
+            if isinstance(drone.drone, pl.DataFrame | dict) and len(drone.drone):
+                tables["drone"]["drone"] = drone.drone
+            if isinstance(drone.litchi, pl.DataFrame) and drone.litchi.height:
+                tables["drone"]["litchi"] = drone.litchi
+            if drone.records:
+                tables["drone"]["records"] = drone.records
+        for name in self.raw_data.payload_data.list_loaded_sensors():
+            data = self.raw_data.payload_data[name]
+            data = data.data if hasattr(data, "data") else data
+            if isinstance(data, pl.DataFrame | dict):
+                tables["payload"][name] = data
+        return {k: v for k, v in tables.items() if v}
+
+    def save(
+        self,
+        directory: str | Path,
+        sync_metadata: dict[str, Any] | None = None,
+        revision: str | None = None,
+    ) -> str | None:
+        """Save the flight: raw data and a new synchronized revision.
+
+        Layout (see :mod:`pils.store`)::
+
+            <directory>/
+            ├── raw/                      # replaced at each save
+            │   ├── manifest.json         # flight info, loaders, code version
+            │   ├── drone/drone.parquet, drone/litchi.parquet,
+            │   │   drone/records/<record>.parquet
+            │   └── payload/<sensor>.parquet, payload/<sensor>/<table>.parquet
+            └── sync/
+                └── rev_YYYYMMDD_hhmmss/  # one per save with sync_data
+                    ├── manifest.json     # offsets, rates, raw data used
+                    └── <table>.parquet
+
+        Parameters
+        ----------
+        directory : str or Path
+            Folder of the flight's products, e.g. ``<flight>/proc/flight``.
+        sync_metadata : dict, optional
+            Stored in the synchronized revision's manifest (e.g. the run).
+        revision : str, optional
+            Name of the synchronized revision (default: the current time).
+
+        Returns
+        -------
+        str or None
+            Name of the synchronized revision, or None without sync_data.
+        """
+        from pils import store
+
+        directory = Path(directory)
+        raw = store.write_tables(
+            directory / "raw",
+            self._raw_tables(),
+            metadata={
+                "flight_info": self.flight_info,
+                "flight_metadata": self.metadata,
+                "drone_model": self.__drone_model,
+                "inclinometer": self.__inclinometer,
+                "camera_model": self.__camera_model,
+                "use_photogrammetry": self.__use_photogrammetry,
+            },
+            kind="flight_raw",
+            replace=True,
+        )
+        if not self.sync_data:
+            return None
+        if revision is None:
+            revision = store.new_version_name()
+            while (directory / "sync" / revision).exists():
+                import time
+
+                time.sleep(1)
+                revision = store.new_version_name()
+        store.save_version(
+            directory / "sync",
+            revision,
+            dict(self.sync_data),
+            metadata={
+                "raw_saved_at": store.read_manifest(raw)["saved_at"],
+                "time_offsets": self.sync_offsets,
+                "time_offset_details": self.sync_offset_details,
+                "reference": self.sync_reference,
+                "rates": self.sync_rates,
+                **(sync_metadata or {}),
+            },
+            kind="flight_sync",
+        )
+        return revision
+
+    @classmethod
+    def load(
+        cls, directory: str | Path, sync_revision: str | None | bool = None
+    ) -> "Flight":
+        """Load a flight saved with :meth:`save`.
+
+        Parameters
+        ----------
+        directory : str or Path
+            Folder given to :meth:`save`.
+        sync_revision : str, None or False, default=None
+            Synchronized revision to load: None for the latest, False for
+            none.
+
+        Returns
+        -------
+        Flight
+            The flight, ready to be synchronized again.
+        """
+        from pils import store
+
+        directory = Path(directory)
+        tables, manifest = store.read_tables(directory / "raw")
+        meta = manifest["metadata"]
+        flight = cls(meta["flight_info"])
+        flight.metadata.update(meta.get("flight_metadata") or {})
+        flight.__drone_model = meta.get("drone_model")
+        flight.__inclinometer = meta.get("inclinometer")
+        flight.__camera_model = meta.get("camera_model")
+        flight.__use_photogrammetry = bool(meta.get("use_photogrammetry"))
+
+        drone: dict[str, Any] = tables.get("drone", {})  # type: ignore[assignment]
+        if drone:
+            flight.raw_data.drone_data = DroneData(
+                drone.get("drone", pl.DataFrame()),
+                drone.get("litchi"),
+                drone.get("records"),
+            )
+        payload: dict[str, Any] = tables.get("payload", {})  # type: ignore[assignment]
+        for name, data in payload.items():
+            setattr(flight.raw_data.payload_data, name, data)
+
+        if sync_revision is not False:
+            revisions = store.list_versions(directory / "sync")
+            if sync_revision is None and revisions:
+                sync_revision = revisions[-1]
+            if sync_revision:
+                if sync_revision not in revisions:
+                    raise ValueError(
+                        f"Sync revision '{sync_revision}' not found: {revisions}"
+                    )
+                sync_tables, sync_meta = store.load_version(
+                    directory / "sync", sync_revision
+                )
+                flight.sync_data = sync_tables  # type: ignore[assignment]
+                flight.sync_offsets = sync_meta.get("time_offsets", {})
+                flight.sync_offset_details = sync_meta.get("time_offset_details", {})
+                flight.sync_reference = sync_meta.get("reference")
+                flight.sync_rates = sync_meta.get("rates", {})
+        return flight
 
     def to_hdf5(
         self,
@@ -1010,6 +1432,10 @@ class Flight:
     ) -> str:
         """
         Save flight data to HDF5 file.
+
+        .. deprecated::
+            Use :meth:`save` (Parquet tables, see :mod:`pils.store`);
+            :meth:`from_hdf5` still reads HDF5 files.
 
         Saves metadata and raw_data hierarchy.
 
@@ -1047,6 +1473,11 @@ class Flight:
         >>> # ... add other sources ...
         >>> result = sync.synchronize(target_rate={'drone': 10.0, 'payload': 100.0})
         """
+        warnings.warn(
+            "Flight.to_hdf5 is deprecated: use Flight.save (Parquet, pils.store)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
         if filepath:
             filepath = Path(filepath)
@@ -1111,12 +1542,15 @@ class Flight:
         h5file : h5py.File
             Open HDF5 file handle
         """
-
         if "raw_data" not in h5file:
             raw_data_group = h5file.create_group("raw_data")
         else:
             raw_data_group = h5file["raw_data"]
             assert isinstance(raw_data_group, h5py.Group)
+        # Raw data is replaced at each save: the sync revisions record which
+        # raw data (saved_at) they were made from
+        raw_data_group.attrs["saved_at"] = _get_current_timestamp()
+        raw_data_group.attrs["pils_version"] = _get_package_version()
 
         # Save drone data
         drone_has_data = (
@@ -1148,6 +1582,14 @@ class Flight:
                     drone_group, "litchi", self.raw_data.drone_data.litchi
                 )
 
+            records = getattr(self.raw_data.drone_data, "records", None) or {}
+            if records:
+                if "dat_records" in drone_group:
+                    del drone_group["dat_records"]
+                records_group = drone_group.create_group("dat_records")
+                for record_name, table in records.items():
+                    self._save_dataframe_to_hdf5(records_group, record_name, table)
+
         # Save payload data
         if len(self.raw_data.payload_data.list_loaded_sensors()) > 0:
             if "payload_data" not in raw_data_group:
@@ -1158,7 +1600,17 @@ class Flight:
 
             for sensor_name in self.raw_data.payload_data.list_loaded_sensors():
                 sensor_data = getattr(self.raw_data.payload_data, sensor_name)
-                if sensor_data is not None:
+                if isinstance(sensor_data, dict):
+                    # e.g. the inclinometer: one table per message type
+                    if sensor_name in payload_group:
+                        del payload_group[sensor_name]
+                    sensor_group = payload_group.create_group(sensor_name)
+                    for table_name, table in sensor_data.items():
+                        if isinstance(table, pl.DataFrame):
+                            self._save_dataframe_to_hdf5(
+                                sensor_group, table_name, table
+                            )
+                elif sensor_data is not None:
                     self._save_dataframe_to_hdf5(
                         payload_group, sensor_name, sensor_data
                     )
@@ -1201,6 +1653,10 @@ class Flight:
             revision_group.attrs["created_at"] = revision_name
             revision_group.attrs["n_keys"] = len(self.sync_data)
         revision_group.attrs["pils_version"] = _get_package_version()
+        if "raw_data" in h5file:
+            revision_group.attrs["raw_data_saved_at"] = h5file["raw_data"].attrs.get(
+                "saved_at", ""
+            )
 
         # Save user-provided metadata
         if sync_metadata:
@@ -1214,7 +1670,7 @@ class Flight:
         self, parent_group: "h5py.Group", name: str, df: "pl.DataFrame"
     ) -> None:
         """
-        Save a Polars DataFrame to HDF5.
+        Save a Polars DataFrame to HDF5 (see :func:`pils.utils.hdf5.write_table`).
 
         Parameters
         ----------
@@ -1225,24 +1681,7 @@ class Flight:
         df : pl.DataFrame
             DataFrame to save
         """
-
-        # Convert to arrow and save as HDF5 dataset
-        if name in parent_group:
-            del parent_group[name]
-
-        # Create group for columns
-        column_group = parent_group.create_group(name)
-
-        for col_name in df.columns:
-            col_data = df[col_name].to_numpy()
-            if col_name in column_group:
-                del column_group[col_name]
-            column_group.create_dataset(col_name, data=col_data)
-
-        # Save column order and dtypes as attrs
-        column_group.attrs["columns"] = json.dumps(df.columns)
-        column_group.attrs["dtypes"] = json.dumps([str(dtype) for dtype in df.dtypes])
-        column_group.attrs["n_rows"] = len(df)
+        write_table(parent_group, name, df)
 
     def __getitem__(self, key):
         """
@@ -1380,6 +1819,7 @@ class DroneData:
         self,
         drone_df: Union[dict[str, "pl.DataFrame"], "pl.DataFrame", None] = None,
         litchi_df: Optional["pl.DataFrame"] = None,
+        records: dict[str, "pl.DataFrame"] | None = None,
     ) -> None:
         """
         Initialize DroneData container.
@@ -1391,6 +1831,9 @@ class DroneData:
             Can be a single DataFrame or a dict of DataFrames keyed by sensor name.
         litchi_df : Optional[pl.DataFrame], default=None
             Litchi flight log DataFrame
+        records : dict[str, pl.DataFrame], optional
+            Other DJI .dat records (IMU attitude, motors, battery, ...), one
+            table per record, with ``tick`` and drone-clock UTC ``timestamp``
         """
         # Initialize with empty DataFrames to avoid Optional types
         self.drone: dict[str, pl.DataFrame] | pl.DataFrame = (
@@ -1399,6 +1842,7 @@ class DroneData:
         self.litchi: pl.DataFrame = (
             litchi_df if litchi_df is not None else pl.DataFrame()
         )
+        self.records: dict[str, pl.DataFrame] = records or {}
 
     def __getitem__(self, key: str) -> Union["pl.DataFrame", dict[str, "pl.DataFrame"]]:
         """

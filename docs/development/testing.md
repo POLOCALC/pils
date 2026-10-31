@@ -247,20 +247,16 @@ def test_dataframe_schema(sample_gps_df):
     assert schema['lat'] == pl.Float64
 ```
 
-### Testing HDF5
+### Testing Save and Load
 
 ```python
-def test_hdf5_roundtrip(sample_flight, tmp_path):
-    """Test saving and loading HDF5."""
-    filepath = tmp_path / "flight.h5"
-    
-    # Save
-    sample_flight.to_hdf5(filepath)
-    assert filepath.exists()
-    
-    # Load
-    loaded = Flight.from_hdf5(filepath)
-    
+def test_save_load_roundtrip(sample_flight, tmp_path):
+    """Test saving and loading a flight (Parquet revisions)."""
+    sample_flight.save(tmp_path / "flight")
+    assert (tmp_path / "flight" / "raw" / "manifest.json").exists()
+
+    loaded = Flight.load(tmp_path / "flight")
+
     assert loaded.flight_info['flight_id'] == sample_flight.flight_info['flight_id']
 ```
 

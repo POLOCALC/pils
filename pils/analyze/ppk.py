@@ -45,13 +45,94 @@ from typing import Any
 import h5py
 import polars as pl
 
+from pils import store
+from pils.analyze.ppk_tuning import rtklib_binary, tune
 from pils.analyze.ppkdata.PPK.pos_analyzer import POSAnalyzer
 from pils.analyze.ppkdata.PPK.report import RTKLIBReport
 from pils.analyze.ppkdata.PPK.stat_analyzer import STATAnalyzer
 from pils.analyze.ppkdata.RINEX.report import RINEXReport
 from pils.flight import Flight
+from pils.utils.hdf5 import read_table
 
 logger = logging.getLogger(__name__)
+
+# Position and statistics tables saved before the schema (pils.schema)
+LEGACY_POSITION_NAMES = {
+    "lat": "lat_deg",
+    "lon": "lon_deg",
+    "height": "h_ell_m",
+    "Q": "quality",
+    "ns": "num_sats",
+    "sdn": "sd_n_m",
+    "sde": "sd_e_m",
+    "sdu": "sd_u_m",
+    "age": "age_s",
+    "east": "e_m",
+    "north": "n_m",
+    "up": "u_m",
+}
+LEGACY_STATISTICS_NAMES = {
+    "tow": "tow_s",
+    "azimuth": "az_deg",
+    "elevation": "el_deg",
+    "resid_code": "resid_code_m",
+    "resid_phase": "resid_phase_m",
+    "snr": "snr_dbhz",
+}
+
+
+def legacy_ppk_tables(
+    position: pl.DataFrame, statistics: pl.DataFrame
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Position and statistics tables saved before the schema, renamed to it.
+
+    The old position ``time`` was GPS time (the parser only read GPST
+    files) and becomes ``datetime`` (UTC) and ``timestamp``; heights were
+    ellipsoidal (RTKLIB's default, and the POLOCALC configuration). The old
+    statistics had no GPS week: it is taken from the first position epoch,
+    and gives their ``timestamp``. Tables already in the schema are returned
+    unchanged.
+    """
+    from pils.analyze.ppkdata.utils import GPS_EPOCH_UNIX, gps_utc_offset, to_utc
+
+    position = position.rename(
+        {k: v for k, v in LEGACY_POSITION_NAMES.items() if k in position.columns}
+    )
+    if "time" in position.columns:
+        position = (
+            position.with_columns(to_utc(pl.col("time"), "GPST").alias("datetime"))
+            .with_columns((pl.col("datetime").dt.epoch("us") / 1e6).alias("timestamp"))
+            .select(
+                "datetime", "timestamp", pl.exclude("time", "datetime", "timestamp")
+            )
+        )
+    legacy_statistics = "tow" in statistics.columns
+    statistics = statistics.rename(
+        {k: v for k, v in LEGACY_STATISTICS_NAMES.items() if k in statistics.columns}
+    )
+    if legacy_statistics:
+        if "datetime" in position.columns and position.height and statistics.height:
+            first = position["datetime"].min()
+            gps_first = (
+                first.timestamp()  # type: ignore[union-attr]
+                - GPS_EPOCH_UNIX
+                + 18  # leap seconds only matter at a week boundary
+            )
+            week0 = int(gps_first // 604800)
+            tow0 = gps_first - week0 * 604800
+            week = pl.lit(week0) + (pl.col("tow_s") < tow0 - 302400).cast(pl.Int64)
+            gps_seconds = week * 604800 + pl.col("tow_s")
+            gps_time = pl.from_epoch(
+                ((gps_seconds + GPS_EPOCH_UNIX) * 1e6).round().cast(pl.Int64),
+                time_unit="us",
+            )
+            statistics = statistics.with_columns(
+                (gps_seconds + GPS_EPOCH_UNIX - gps_utc_offset(gps_time)).alias(
+                    "timestamp"
+                ),
+                week.alias("gps_week"),
+            ).select("timestamp", "gps_week", pl.exclude("timestamp", "gps_week"))
+    return position, statistics
 
 
 @dataclass
@@ -92,6 +173,8 @@ class PPKVersion:
     stat_data: pl.DataFrame
     metadata: dict[str, Any]
     revision_path: Path
+    # Candidate configurations tried by the tuning (run_analysis(optimize=True))
+    tuning_data: pl.DataFrame | None = None
 
 
 class PPKAnalysis:
@@ -179,7 +262,6 @@ class PPKAnalysis:
         >>> print(ppk.ppk_dir)
         /path/to/flight/proc/ppk
         """
-
         # Validate input type
         if not isinstance(flight, Flight):
             raise TypeError(
@@ -201,6 +283,7 @@ class PPKAnalysis:
                 f"flight_path must be an existing directory. Got: {flight_path}"
             )
 
+        self.flight = flight
         self.flight_path = flight_path
         self.ppk_dir = self.flight_path / "proc" / "ppk"
         self.hdf5_path = self.ppk_dir / "ppk_solution.h5"
@@ -334,7 +417,9 @@ class PPKAnalysis:
         revision_path.mkdir(parents=True, exist_ok=True)
         return revision_path
 
-    def _should_run_analysis(self, config_path: Path) -> bool:
+    def _should_run_analysis(
+        self, config_path: Path, optimize: bool = False, selection: str = "fix_rate"
+    ) -> bool:
         """
         Determine if RTKLIB analysis should run.
 
@@ -363,11 +448,6 @@ class PPKAnalysis:
         ... else:
         ...     print("Config unchanged, skipping")
         """
-        # Run if no HDF5 file exists (first run)
-        if not self.hdf5_path.exists():
-            logger.info("No HDF5 file found - running analysis")
-            return True
-
         # Run if no versions loaded
         if not self.versions:
             logger.info("No previous versions found - running analysis")
@@ -378,7 +458,9 @@ class PPKAnalysis:
         if latest is None:
             return True
 
-        current_hash = self._hash_config(config_path)
+        current_hash = self._hash_config(config_path) + (
+            f":optimize:{selection}" if optimize else ""
+        )
         previous_hash = latest.metadata.get("config_hash")
 
         if current_hash != previous_hash:
@@ -416,7 +498,7 @@ class PPKAnalysis:
         return self.versions[latest_name]
 
     def _parse_rinex_epoch_line(self, line):
-        """Helper to parse a RINEX 3 epoch line (> Y M D h m s)."""
+        """Parse a RINEX 3 epoch line (> Y M D h m s)."""
         try:
             parts = line.strip().split()
             # Format: > 2026 01 21 14 00 00.0000000
@@ -427,8 +509,8 @@ class PPKAnalysis:
             return None
 
     def _get_rinex_bounds(self, rinex_file):
-        """
-        Reads the FIRST and LAST observation timestamps.
+        """Read the first and last observation times of a RINEX file.
+
         Returns tuple (start_dt, end_dt).
         """
         start_dt = None
@@ -455,7 +537,109 @@ class PPKAnalysis:
 
         return start_dt, last_dt
 
+    def _covers(self, obs: Path, start: datetime, end: datetime) -> bool:
+        """Check that a RINEX file spans [start, end] (to within 2 s)."""
+        first, last = self._get_rinex_bounds(obs)
+        if first is None or last is None:
+            return False
+        early = (first - start).total_seconds()
+        late = (end - last).total_seconds()
+        return bool(early <= 2 and late <= 2)
+
+    def _base_candidates(self) -> list[Path]:
+        """Raw u-blox base recordings: the day's, then the campaign's."""
+        day = self.flight_path.parent / "base"
+        campaign = self.flight_path.parent.parent / "base"
+        files = sorted(p for p in day.glob("*") if p.suffix.lower() == ".ubx")
+        if campaign.is_dir():
+            files += sorted(
+                p
+                for p in campaign.rglob("*")
+                if p.is_file()
+                and (
+                    p.suffix.lower() == ".ubx"
+                    or p.name.startswith("rtk_data_")
+                    or (p.suffix == ".bin" and "ZED-F9P" in p.name)
+                )
+            )
+        return files
+
+    def _convert_base(
+        self, obs_path: Path, nav_path: Path, start_rover: datetime, end_rover: datetime
+    ) -> None:
+        """Convert the base recording covering the rover's span to RINEX.
+
+        The span is the rover's +-10 min; the first base recording that
+        covers it is used.
+
+        Raises
+        ------
+        FileNotFoundError
+            If no base recording covers the rover.
+        """
+        start = start_rover - timedelta(minutes=10)
+        end = end_rover + timedelta(minutes=10)
+        date_start, time_start = start.strftime("%Y/%m/%d %H:%M:%S").split(" ")
+        date_end, time_end = end.strftime("%Y/%m/%d %H:%M:%S").split(" ")
+        for raw in self._base_candidates():
+            subprocess.run(
+                [
+                    rtklib_binary("convbin"),
+                    "-od",
+                    "-os",
+                    "-oi",
+                    "-ot",
+                    "-ol",
+                    "-r",
+                    "ubx",
+                    "-ts",
+                    date_start,
+                    time_start,
+                    "-te",
+                    date_end,
+                    time_end,
+                    "-o",
+                    str(obs_path),
+                    "-n",
+                    str(nav_path),
+                    str(raw),
+                ],
+                check=True,
+                capture_output=True,
+            )
+            if obs_path.exists() and self._covers(obs_path, start_rover, end_rover):
+                logger.info(f"Base from {raw}")
+                return
+        raise FileNotFoundError(
+            f"No base recording covers {start_rover} - {end_rover} "
+            f"(looked in {self.flight_path.parent / 'base'} and the campaign's base/)"
+        )
+
+    def _reference_track(self) -> pl.DataFrame | None:
+        """Return the drone's RTK track (UTC), to validate tuned configurations."""
+        try:
+            drone = getattr(self.flight.raw_data.drone_data, "drone", None)
+            if (
+                not isinstance(drone, pl.DataFrame)
+                or "rtk_lat_deg" not in drone.columns
+            ):
+                self.flight.add_drone_data()
+                drone = self.flight.raw_data.drone_data.drone
+            if not isinstance(drone, pl.DataFrame):
+                return None
+            track = drone.select(
+                "timestamp",
+                pl.col("rtk_lat_deg").alias("lat_deg"),
+                pl.col("rtk_lon_deg").alias("lon_deg"),
+                pl.col("rtk_h_ell_m").alias("h_ell_m"),
+            ).filter((pl.col("lat_deg") != 0) & pl.col("timestamp").is_not_null())
+            return track if track.height else None
+        except Exception as e:
+            logger.warning(f"No drone RTK track to validate the tuning: {e}")
+            return None
+
     def check_overlap(self, rover_obs, base_obs):
+        """Print the time overlap of the rover and base observations."""
         print("--- 1. Time Overlap Analysis ---")
 
         # Get Bounds
@@ -503,6 +687,9 @@ class PPKAnalysis:
         force: bool = False,
         analyze_rinex: bool = False,
         analyze_ppk: bool = False,
+        optimize: bool = True,
+        reference: pl.DataFrame | str | None = "drone",
+        selection: str = "fix_rate",
     ) -> PPKVersion | None:
         """
         Execute RTKLIB PPK analysis with smart re-run logic.
@@ -534,6 +721,21 @@ class PPKAnalysis:
             If True, analyze RINEX files (default: False)
         analyze_ppk : bool, optional
             If True, analyze PPK results (default: False)
+        optimize : bool, default=True
+            Tune the configuration to the data first (see
+            :func:`pils.analyze.ppk_tuning.tune`): ``config_path`` is the
+            template, the chosen configuration is saved in the revision as
+            ``optimized.conf`` and every candidate in the ``tuning`` table.
+            If no candidate passes validation, the template is used.
+        reference : pl.DataFrame, "drone" or None, optional
+            Track for ``selection="reference"``: ``"drone"`` (the drone's
+            RTK track) or a table with ``timestamp``, ``lat_deg``,
+            ``lon_deg``, ``h_ell_m``. Not loaded with the other selections.
+        selection : {"fix_rate", "reference", "directions"}, default="fix_rate"
+            How the tuning chooses the configuration: the most epochs fixed
+            by RTKLIB (default), the most fixes agreeing with ``reference``,
+            or forward/backward agreement (see
+            :func:`pils.analyze.ppk_tuning.tune`).
 
         Returns
         -------
@@ -559,13 +761,51 @@ class PPKAnalysis:
         >>> # Force re-run
         >>> v3 = ppk.run_analysis(..., force=True)
         """
+        before = {p.name for p in self.ppk_dir.glob("rev_*")}
+        try:
+            return self._run_analysis(
+                config_path,
+                rover_obs=rover_obs,
+                base_obs=base_obs,
+                nav_file=nav_file,
+                force=force,
+                analyze_rinex=analyze_rinex,
+                analyze_ppk=analyze_ppk,
+                optimize=optimize,
+                reference=reference,
+                selection=selection,
+            )
+        finally:
+            # A run that failed leaves its revision folder without a manifest
+            for folder in self.ppk_dir.glob("rev_*"):
+                if (
+                    folder.name not in before
+                    and not (folder / "manifest.json").exists()
+                ):
+                    shutil.rmtree(folder, ignore_errors=True)
 
+    def _run_analysis(
+        self,
+        config_path: str | Path,
+        rover_obs: str | Path | None = None,
+        base_obs: str | Path | None = None,
+        nav_file: str | Path | None = None,
+        force: bool = False,
+        analyze_rinex: bool = False,
+        analyze_ppk: bool = False,
+        optimize: bool = True,
+        reference: pl.DataFrame | str | None = "drone",
+        selection: str = "fix_rate",
+    ) -> PPKVersion | None:
+        """Run the analysis; see :meth:`run_analysis`."""
         config_path = Path(config_path)
         if not config_path.exists():
             raise FileNotFoundError(f"Config file not found: {config_path}")
 
         # Check if should run
-        if not force and not self._should_run_analysis(config_path):
+        if not force and not self._should_run_analysis(
+            config_path, optimize, selection
+        ):
             logger.info("Skipping analysis - config unchanged")
             latest = self.get_latest_version()
             if latest is not None:
@@ -597,13 +837,15 @@ class PPKAnalysis:
                 rover_path = self.flight_path / "aux" / "sensors"
 
                 try:
-                    rover_ubx = list(rover_path.glob("*_GPS.bin"))[0]
+                    rover_ubx = sorted(
+                        [*rover_path.glob("*_GPS.bin"), *rover_path.glob("*_GPS.ubx")]
+                    )[0]
                 except IndexError:
                     logger.info("Missing rover .bin file")
                     return None
 
                 cmd = [
-                    "convbin",
+                    rtklib_binary("convbin"),
                     "-od",
                     "-os",
                     "-oi",
@@ -641,60 +883,18 @@ class PPKAnalysis:
         else:
             obs_path = self.ppk_dir / "base.obs"
             nav_path = self.ppk_dir / "base.nav"
-
-            if obs_path.exists() and nav_path.exists():
-                base_obs = obs_path
-                base_nav = nav_path
-            else:
-                day_path = self.flight_path.parent
-                base_path = day_path / "base"
-
-                # Check if rover bounds are valid
-                if start_rover is None or end_rover is None:
-                    raise ValueError(
-                        "Could not determine rover observation time bounds"
-                    )
-
-                start = start_rover - timedelta(minutes=10)
-                date_start, time_start = start.strftime("%Y/%m/%d %H:%M:%S").split(" ")
-                end = end_rover + timedelta(minutes=10)
-                date_end, time_end = end.strftime("%Y/%m/%d %H:%M:%S").split(" ")
-
-                base_ubx = list(base_path.glob("*.[uU][bB][xX]"))[0]
-
-                cmd = [
-                    "convbin",
-                    "-od",
-                    "-os",
-                    "-oi",
-                    "-ot",
-                    "-ol",
-                    "-r",
-                    "ubx",
-                    "-ts",
-                    date_start,
-                    time_start,
-                    "-te",
-                    date_end,
-                    time_end,
-                    "-o",
-                    str(obs_path),
-                    "-n",
-                    str(nav_path),
-                    str(base_ubx),
-                ]
-
-                subprocess.run(cmd, check=True)
-
-                if not obs_path.exists():
-                    logger.info("rover obs file not created")
-                    raise FileNotFoundError("Conversion failed: .obs file not created")
-                if not obs_path.exists():
-                    logger.info("rover nav file not created")
-                    raise FileNotFoundError("Conversion failed: .nav file not created")
-
-                base_obs = obs_path
-                base_nav = nav_path
+            if start_rover is None or end_rover is None:
+                raise ValueError("Could not determine rover observation time bounds")
+            cached = obs_path.exists() and nav_path.exists()
+            if cached and not self._covers(obs_path, start_rover, end_rover):
+                logger.info(
+                    "Cached base.obs does not cover the rover: converting again"
+                )
+                cached = False
+            if not cached:
+                self._convert_base(obs_path, nav_path, start_rover, end_rover)
+            base_obs = obs_path
+            base_nav = nav_path
 
         if nav_file is not None:
             nav_file = Path(nav_file)
@@ -735,18 +935,43 @@ class PPKAnalysis:
                     report.generate(str(report_md), str(plot_folder.name))
 
         logger.info(f"Running PPK analysis: {version_name}")
-
-        # Copy config to revision folder
-        config_copy = revision_path / config_path.name
-        shutil.copy2(config_path, config_copy)
-        logger.info(f"Copied config to {config_copy}")
+        tuning = None
+        if optimize:
+            track = None
+            if selection == "reference":
+                track = (
+                    self._reference_track() if isinstance(reference, str) else reference
+                )
+            tuning = tune(
+                config_path,
+                rover_obs,
+                base_obs,
+                nav_file,
+                revision_path / "tuning",
+                reference=track,
+                selection=selection,
+            )
+            shutil.rmtree(revision_path / "tuning", ignore_errors=True)
+        if tuning is not None and tuning.config_text is not None:
+            config_copy = revision_path / "optimized.conf"
+            config_copy.write_text(tuning.config_text)
+            logger.info(f"Tuned config saved to {config_copy}")
+        else:
+            if optimize:
+                logger.warning(
+                    "Tuning found no valid configuration: using the template"
+                )
+            # Copy config to revision folder
+            config_copy = revision_path / config_path.name
+            shutil.copy2(config_path, config_copy)
+            logger.info(f"Copied config to {config_copy}")
 
         # Define output file paths
         pos_file = revision_path / "solution.pos"
         stat_file = revision_path / "solution.pos.stat"
 
         cmd = [
-            "rnx2rtkp",
+            rtklib_binary("rnx2rtkp"),
             "-k",
             str(config_copy),
             "-o",
@@ -803,8 +1028,10 @@ class PPKAnalysis:
                 stat_data = None
 
         # Create metadata with config hash and parsed parameters
-        config_hash = self._hash_config(config_path)
-        config_params = self._parse_config_params(config_path)
+        config_hash = self._hash_config(config_path) + (
+            f":optimize:{selection}" if optimize else ""
+        )
+        config_params = self._parse_config_params(config_copy)
         metadata = {
             "config_hash": config_hash,
             "timestamp": datetime.now().isoformat(),
@@ -814,6 +1041,9 @@ class PPKAnalysis:
             "nav_file": str(nav_file),
             "pos_file": str(pos_file),
             "stat_file": str(stat_file) if stat_data is not None else None,
+            "config_template": str(config_path),
+            "config_used": str(config_copy),
+            **(tuning.metadata() if tuning is not None else {}),
         }
 
         # Create version object (handle None stat_data)
@@ -826,141 +1056,72 @@ class PPKAnalysis:
             stat_data=stat_data,
             metadata=metadata,
             revision_path=revision_path,
+            tuning_data=tuning.table() if tuning is not None else None,
         )
 
         # Store in versions dict
         self.versions[version_name] = version
 
-        # Save to HDF5 automatically
-        self._save_version_to_hdf5(version)
+        # Save automatically
+        self._save_version(version)
 
         logger.info(f"PPK analysis complete: {version_name}")
         return version
 
-    def _save_version_to_hdf5(self, version: PPKVersion) -> None:
+    def _save_version(self, version: PPKVersion) -> Path:
+        """Save a version: ``ppk/<version>/`` (see :mod:`pils.store`).
+
+        The tables (``position``, ``statistics``) and the manifest go next to
+        the RTKLIB files of the revision.
         """
-        Save a single PPKVersion to HDF5 file.
+        path = store.save_version(
+            self.ppk_dir,
+            version.version_name,
+            {
+                "position": version.pos_data,
+                "statistics": version.stat_data,
+                **(
+                    {"tuning": version.tuning_data}
+                    if version.tuning_data is not None
+                    else {}
+                ),
+            },
+            {
+                "config_hash": version.metadata.get("config_hash"),
+                "timestamp": version.metadata.get("timestamp"),
+                "config_params": version.metadata.get("config_params", {}),
+                "revision_path": str(version.revision_path),
+                **{
+                    k: v
+                    for k, v in version.metadata.items()
+                    if k not in ("config_hash", "timestamp", "config_params")
+                },
+            },
+            kind="ppk",
+        )
+        logger.info(f"Saved version {version.version_name} to {path}")
+        return path
 
-        Creates or opens ppk_solution.h5 and saves the version's position data,
-        statistics data, and metadata. Follows Flight.py pattern for DataFrame
-        serialization with column-wise datasets.
-
-        HDF5 Structure
-        --------------
-        /{version_name}/
-        ├── position/           # POSAnalyzer DataFrame columns
-        │   ├── timestamp (dataset)
-        │   ├── lat (dataset)
-        │   └── ...
-        ├── statistics/         # STATAnalyzer DataFrame columns
-        │   ├── timestamp (dataset)
-        │   ├── num_sat (dataset)
-        │   └── ...
-        └── attrs:              # Group attributes
-            ├── config_hash
-            ├── timestamp
-            ├── config_params (JSON string)
-            └── revision_path
-
-        Parameters
-        ----------
-        version : PPKVersion
-            PPKVersion to save
-
-        Examples
-        --------
-        >>> ppk = PPKAnalysis('/path/to/flight')
-        >>> version = PPKVersion(...)
-        >>> ppk._save_version_to_hdf5(version)
-        """
-        import h5py
-
-        # Create/open HDF5 file
-        with h5py.File(self.hdf5_path, "a") as f:
-            # Create version group (remove if exists)
-            if version.version_name in f:
-                del f[version.version_name]
-
-            version_group = f.create_group(version.version_name)
-
-            # Save position DataFrame
-            self._save_dataframe_to_hdf5(version_group, "position", version.pos_data)
-
-            # Save statistics DataFrame
-            self._save_dataframe_to_hdf5(version_group, "statistics", version.stat_data)
-
-            # Save metadata as group attributes
-            from pils.flight import _serialize_for_hdf5
-
-            version_group.attrs["config_hash"] = _serialize_for_hdf5(
-                version.metadata.get("config_hash")
-            )
-            version_group.attrs["timestamp"] = _serialize_for_hdf5(
-                version.metadata.get("timestamp")
-            )
-            version_group.attrs["config_params"] = _serialize_for_hdf5(
-                version.metadata.get("config_params", {})
-            )
-            version_group.attrs["revision_path"] = _serialize_for_hdf5(
-                str(version.revision_path)
-            )
-
-        logger.info(f"Saved version {version.version_name} to HDF5")
-
-    def _save_dataframe_to_hdf5(
-        self, parent_group: h5py.Group, name: str, df: pl.DataFrame
-    ) -> None:
-        """
-        Save a Polars DataFrame to HDF5 using column-wise storage.
-
-        Follows Flight.py pattern exactly: each DataFrame column becomes a
-        separate HDF5 dataset, with metadata (columns, dtypes, n_rows) stored
-        as group attributes.
-
-        Parameters
-        ----------
-        parent_group : h5py.Group
-            Parent HDF5 group
-        name : str
-            Name for the column group
-        df : pl.DataFrame
-            Polars DataFrame to save
-        """
-        import json
-
-        # Remove existing if present
-        if name in parent_group:
-            del parent_group[name]
-
-        # Create group for columns
-        column_group = parent_group.create_group(name)
-
-        # Save each column as separate dataset
-        for col_name in df.columns:
-            col_series = df[col_name]
-            # Convert datetime columns to int64 (microseconds since epoch) for HDF5 compatibility
-            if col_series.dtype in [
-                pl.Datetime,
-                pl.Datetime("us"),
-                pl.Datetime("ms"),
-                pl.Datetime("ns"),
-            ]:
-                col_data = col_series.dt.epoch(time_unit="us").to_numpy()
-            else:
-                col_data = col_series.to_numpy()
-
-            if col_name in column_group:
-                del column_group[col_name]
-            column_group.create_dataset(col_name, data=col_data)
-
-        # Save metadata as attrs
-        column_group.attrs["columns"] = json.dumps(df.columns)
-        column_group.attrs["dtypes"] = json.dumps([str(dtype) for dtype in df.dtypes])
-        column_group.attrs["n_rows"] = len(df)
+    def _load_version(self, version_name: str) -> PPKVersion:
+        """Load a saved version and add it to :attr:`versions`."""
+        tables, metadata = store.load_version(self.ppk_dir, version_name)
+        revision_path = metadata.pop("revision_path", None)
+        version = PPKVersion(
+            version_name=version_name,
+            pos_data=tables["position"],  # type: ignore[arg-type]
+            stat_data=tables["statistics"],  # type: ignore[arg-type]
+            metadata=metadata,
+            tuning_data=tables.get("tuning"),  # type: ignore[arg-type]
+            revision_path=Path(revision_path)
+            if revision_path
+            else self.ppk_dir / version_name,
+        )
+        self.versions[version_name] = version
+        return version
 
     def _load_version_from_hdf5(self, version_name: str) -> PPKVersion:
         """
-        Load a single PPKVersion from HDF5 file.
+        Load a single PPKVersion from the legacy ppk_solution.h5 file.
 
         Reconstructs a PPKVersion object from HDF5 storage, loading position
         data, statistics data, and metadata. Adds loaded version to self.versions dict.
@@ -1008,6 +1169,8 @@ class PPKAnalysis:
                 raise TypeError("statistics is not a group in HDF5 file")
             stat_data = self._load_dataframe_from_hdf5(stat_group)
 
+            pos_data, stat_data = legacy_ppk_tables(pos_data, stat_data)
+
             # Load metadata from attrs
             from pils.flight import _deserialize_from_hdf5
 
@@ -1046,10 +1209,7 @@ class PPKAnalysis:
 
     def _load_dataframe_from_hdf5(self, dataset_group: h5py.Group) -> pl.DataFrame:
         """
-        Load a Polars DataFrame from HDF5 dataset group.
-
-        Reconstructs DataFrame from column-wise HDF5 datasets. Follows Flight.py
-        pattern for deserialization.
+        Load a Polars DataFrame from HDF5 (see :func:`pils.utils.hdf5.read_table`).
 
         Parameters
         ----------
@@ -1061,58 +1221,18 @@ class PPKAnalysis:
         pl.DataFrame
             Reconstructed Polars DataFrame
         """
-        import json
-
-        import h5py
-
         if "columns" not in dataset_group.attrs:
             return pl.DataFrame()
-
-        columns_attr = dataset_group.attrs["columns"]
-        # Handle different attr types (bytes or string)
-        if isinstance(columns_attr, bytes):
-            columns = json.loads(columns_attr.decode())
-        else:
-            columns = json.loads(str(columns_attr))
-
-        dtypes_attr = dataset_group.attrs.get("dtypes")
-        if dtypes_attr:
-            if isinstance(dtypes_attr, bytes):
-                dtypes = json.loads(dtypes_attr.decode())
-            else:
-                dtypes = json.loads(str(dtypes_attr))
-        else:
-            dtypes = [None] * len(columns)
-
-        data_dict = {}
-
-        for col_name in columns:
-            if col_name in dataset_group:
-                col_dataset = dataset_group[col_name]
-                if isinstance(col_dataset, h5py.Dataset):
-                    data_dict[col_name] = col_dataset[:]
-
-        if not data_dict:
-            return pl.DataFrame()
-
-        df = pl.DataFrame(data_dict)
-
-        # Restore datetime columns from int64 microseconds
-        for col_name, dtype_str in zip(columns, dtypes, strict=False):
-            if dtype_str and "Datetime" in dtype_str:
-                df = df.with_columns(
-                    pl.from_epoch(pl.col(col_name), time_unit="us").alias(col_name)
-                )
-
-        return df
+        # Older PPK files stored datetimes as microseconds whatever their unit
+        return read_table(dataset_group, legacy_time_unit="us")
 
     @classmethod
-    def from_hdf5(cls, flight: Flight) -> PPKAnalysis:
+    def load(cls, flight: Flight) -> PPKAnalysis:
         """
-        Load existing PPKAnalysis from HDF5 file.
+        PPKAnalysis with the saved versions of a flight.
 
-        Creates a PPKAnalysis instance and loads all stored versions from
-        ppk_solution.h5. If no HDF5 file exists, returns empty PPKAnalysis.
+        Loads the versions in ``proc/ppk/rev_*/`` (see :mod:`pils.store`) and,
+        for results saved before, the ones in ``ppk_solution.h5``.
 
         Parameters
         ----------
@@ -1133,37 +1253,32 @@ class PPKAnalysis:
 
         Examples
         --------
-        >>> from pils.flight import Flight
-        >>> flight_info = {
-        ...     "drone_data_folder_path": "/path/to/flight/drone",
-        ...     "aux_data_folder_path": "/path/to/flight/aux"
-        ... }
-        >>> flight = Flight(flight_info)
-        >>> ppk = PPKAnalysis.from_hdf5(flight)
+        >>> ppk = PPKAnalysis.load(flight)
         >>> print(f"Loaded {len(ppk.versions)} versions")
-        >>> for version_name in ppk.list_versions():
-        ...     print(f"  - {version_name}")
         """
-        import h5py
-
         ppk = cls(flight)
+        for version_name in store.list_versions(ppk.ppk_dir):
+            try:
+                ppk._load_version(version_name)
+            except Exception as e:
+                logger.warning(f"Failed to load version {version_name}: {e}")
+        if ppk.hdf5_path.exists():
+            import h5py
 
-        # Check if HDF5 file exists
-        if not ppk.hdf5_path.exists():
-            logger.info("No HDF5 file found, returning empty PPKAnalysis")
-            return ppk
-
-        # Load all version groups
-        with h5py.File(ppk.hdf5_path, "r") as f:
-            for version_name in f.keys():
+            with h5py.File(ppk.hdf5_path, "r") as f:
+                legacy = [name for name in f.keys() if name not in ppk.versions]
+            for version_name in legacy:
                 try:
                     ppk._load_version_from_hdf5(version_name)
-                    logger.info(f"Loaded version: {version_name}")
                 except Exception as e:
                     logger.warning(f"Failed to load version {version_name}: {e}")
-
-        logger.info(f"Loaded {len(ppk.versions)} versions from HDF5")
+        logger.info(f"Loaded {len(ppk.versions)} versions")
         return ppk
+
+    @classmethod
+    def from_hdf5(cls, flight: Flight) -> PPKAnalysis:
+        """Load the PPK results, as :meth:`load` (kept for older code)."""
+        return cls.load(flight)
 
     def list_versions(self) -> list[str]:
         """
@@ -1242,7 +1357,7 @@ class PPKAnalysis:
                 shutil.rmtree(version.revision_path)
                 logger.info(f"Deleted revision folder: {version.revision_path}")
 
-        # Delete from HDF5 file
+        # Delete from the legacy HDF5 file
         if self.hdf5_path.exists():
             with h5py.File(self.hdf5_path, "a") as f:
                 if version_name in f:

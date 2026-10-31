@@ -1,0 +1,256 @@
+"""The focal-plane coverage of a flown flight: the detectors the drone crossed.
+
+The drone as a telescope saw it (the flight's ``azel/<TELESCOPE>``) and the
+telescope's own pointing (``telescope/<TELESCOPE>``, its encoders) give the
+drone's path in the focal plane; a detector is crossed each time the path comes
+within a fraction of its beam (``pils.geometry.crossings``), the same rule a
+planner applies to a simulated flight.
+
+The result is plot-ready data, not a figure: the path (thinned) and every
+pixel with its crossings. A telescope can be given as plain data
+(:func:`describe_telescope`), as a planner that knows it hands it over.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
+
+import numpy as np
+import polars as pl
+
+from pils import store
+from pils.geometry.crossings import crossings, relative_path
+from pils.geometry.detectors import (
+    band_of_frequency,
+    FocalPlaneModel,
+    focal_plane_model,
+    rotated_pixels,
+)
+from pils.geometry.focal_plane import Wafer, wafer_from_dict, wafer_to_dict
+
+# The most samples of the path returned (it is drawn, not analysed)
+MAX_POINTS = 4000
+
+
+def thin(*arrays: np.ndarray, max_points: int = MAX_POINTS) -> list[list[float]]:
+    """Every array at most ``max_points`` samples (evenly), rounded, as lists."""
+    n = len(arrays[0])
+    keep = (
+        np.unique(np.linspace(0, n - 1, min(n, max_points)).astype(int))
+        if n
+        else np.arange(0)
+    )
+    return [np.round(np.asarray(a, float)[keep], 5).tolist() for a in arrays]
+
+
+def latest_dataset(flight_dir: str | Path, dataset: str) -> Path | None:
+    """The latest revision of one of a flight's datasets (``proc/<dataset>``), or None."""
+    root = Path(flight_dir) / "proc" / dataset
+    rev = store.latest_version(root) if root.is_dir() else None
+    return root / rev if rev else None
+
+
+def _pointing(flight_dir: str | Path, name: str) -> tuple[pl.DataFrame, Path]:
+    """Read the telescope's pointing during the flight.
+
+    Its encoders (``telescope/<T>``), or for a planned flight (GOSE) the pointing planned
+    (``plan``'s telescope table, when it is this telescope's): ``timestamp``,
+    ``az_enc_deg``, ``el_enc_deg``, ``boresight_enc_deg``.
+    """
+    pointing_dir = latest_dataset(flight_dir, f"telescope/{name}")
+    if pointing_dir is not None:
+        pointing = store.read_columns(
+            pointing_dir,
+            "pointing",
+            ["timestamp", "az_enc_deg", "el_enc_deg", "boresight_enc_deg", "flagged"],
+        )
+        return pointing.filter(~pointing["flagged"]).drop_nulls(), pointing_dir
+    plan_dir = latest_dataset(flight_dir, "plan")
+    if plan_dir is not None:
+        row = (store.read_manifest(plan_dir).get("metadata") or {}).get("row") or {}
+        if str(row.get("telescope", "")).upper() == name:
+            planned = store.read_columns(
+                plan_dir,
+                "telescope",
+                ["timestamp", "az_encoder_deg", "el_deg", "boresight_deg"],
+            ).drop_nulls()
+            return planned.rename(
+                {
+                    "az_encoder_deg": "az_enc_deg",
+                    "el_deg": "el_enc_deg",
+                    "boresight_deg": "boresight_enc_deg",
+                }
+            ), plan_dir
+    raise ValueError(f"no telescope/{name} in {flight_dir} (pils telescope)")
+
+
+def flight_coverage(
+    flight_dir: str | Path,
+    telescope: str,
+    source_ghz: float,
+    *,
+    wafers: Sequence[Wafer],
+    focal_plane: FocalPlaneModel,
+    beam_fraction: float = 0.5,
+    az_offset_deg: float = 0.0,
+    start: float | None = None,
+    end: float | None = None,
+    max_points: int = MAX_POINTS,
+) -> dict[str, Any]:
+    """A flown flight in a telescope's focal plane: the detectors the drone crossed.
+
+    Parameters
+    ----------
+    flight_dir : str or Path
+        The flight's folder (its ``proc/azel/<TELESCOPE>`` and ``proc/telescope/<TELESCOPE>``),
+        or a planned flight's (GOSE: its ``proc/plan`` has the pointing planned).
+    telescope : str
+        The telescope's name, as the datasets have it (upper case).
+    source_ghz : float
+        The drone's source; its band gives the beam.
+    wafers : sequence of Wafer
+        The telescope's wafers.
+    focal_plane : FocalPlaneModel
+        Its detectors' model (``pils.geometry.detectors.focal_plane_model``): bands and beams.
+    beam_fraction : float
+        A detector is crossed within ``beam_fraction`` x its beam's FWHM.
+    az_offset_deg : float
+        The encoder's azimuth less the true one.
+    start, end : float, optional
+        Only [start, end] (UNIX s).
+    max_points : int
+        The most samples of the path returned.
+
+    Returns
+    -------
+    dict
+        The window, the boresight rotation (the median of the encoder's), the band and beam,
+        the path (``track``: xi, eta in degrees) and every pixel (``pixels``: wafer, xi, eta,
+        crossings), the number crossed and the revisions read.
+    """
+    name = telescope.upper()
+    azel_dir = latest_dataset(flight_dir, f"azel/{name}")
+    if azel_dir is None:
+        raise ValueError(f"no azel/{name} in {flight_dir} (pils package)")
+    pointing, pointing_dir = _pointing(flight_dir, name)
+    drone = store.read_columns(
+        azel_dir, "azel_data", ["timestamp", "az_deg", "el_deg"]
+    ).drop_nulls()
+    t = pointing["timestamp"].to_numpy()
+    lo = max(start if start is not None else -np.inf, float(drone["timestamp"].min()))
+    hi = min(end if end is not None else np.inf, float(drone["timestamp"].max()))
+    keep = (t >= lo) & (t <= hi)
+    if keep.sum() < 2:
+        raise ValueError(
+            f"{name} has no pointing while the drone was seen (or in the window)"
+        )
+    t = t[keep]
+    tel_az = pointing["az_enc_deg"].to_numpy()[keep] - az_offset_deg
+    tel_el = pointing["el_enc_deg"].to_numpy()[keep]
+    boresight = float(np.median(pointing["boresight_enc_deg"].to_numpy()[keep]))
+    # The drone where the telescope's samples are (its azimuth unwrapped, for 0/360)
+    dt = drone["timestamp"].to_numpy()
+    dr_az = (
+        np.interp(t, dt, np.unwrap(np.radians(drone["az_deg"].to_numpy())))
+        * 180
+        / np.pi
+    )
+    dr_el = np.interp(t, dt, drone["el_deg"].to_numpy())
+    xi, eta = relative_path(tel_az, tel_el, dr_az, dr_el)
+
+    band = band_of_frequency(float(source_ghz))
+    fwhm = focal_plane.fwhm_arcmin.get(band) if band else None
+    if fwhm is None:
+        raise ValueError(
+            f"no band of {name} for {source_ghz:g} GHz (its bands: {', '.join(focal_plane.bands)})"
+        )
+    radius = float(beam_fraction) * fwhm / 60
+    pixels = rotated_pixels(wafers, focal_plane.wafer_type, boresight)
+    names, xs, ys, counts = [], [], [], []
+    for wafer, xy in pixels.items():
+        n = (
+            crossings(np.asarray(xi), np.asarray(eta), xy, radius)
+            if len(xy)
+            else np.zeros(0, int)
+        )
+        names += [wafer] * len(xy)
+        xs += np.round(xy[:, 0], 4).tolist()
+        ys += np.round(xy[:, 1], 4).tolist()
+        counts += [int(c) for c in n]
+    track_xi, track_eta = thin(xi, eta, max_points=max_points)
+    return {
+        "telescope": name,
+        "window": [float(t[0]), float(t[-1])],
+        "samples": int(len(t)),
+        "boresight_deg": round(boresight, 3),
+        "az_offset_deg": az_offset_deg,
+        "source_ghz": float(source_ghz),
+        "band": band,
+        "beam_fwhm_arcmin": fwhm,
+        "radius_deg": radius,
+        "track": {"xi": track_xi, "eta": track_eta},
+        "pixels": {"wafer": names, "xi": xs, "eta": ys, "crossings": counts},
+        "crossed": int(sum(1 for c in counts if c)),
+        "datasets": {"azel": azel_dir.name, "pointing": pointing_dir.name},
+    }
+
+
+def describe_telescope(
+    name: str,
+    *,
+    wafers: Sequence[Wafer],
+    wafer_type: str,
+    own_wafers: bool,
+    beam_fwhm_arcmin: float = 0.0,
+    beam_fraction: float = 0.5,
+    az_offset_deg: float = 0.0,
+) -> dict[str, Any]:
+    """A telescope's focal plane as plain data (JSON), for :func:`telescope_coverage`.
+
+    ``own_wafers``: its wafers are its own (read from its detector table, with the beam
+    ``beam_fwhm_arcmin``), not the SO layout of its ``wafer_type``.
+    """
+    return {
+        "name": name.upper(),
+        "wafer_type": wafer_type,
+        "own_wafers": bool(own_wafers),
+        "beam_fwhm_arcmin": float(beam_fwhm_arcmin),
+        "beam_fraction": float(beam_fraction),
+        "az_offset_deg": float(az_offset_deg),
+        "wafers": [wafer_to_dict(w) for w in wafers],
+    }
+
+
+def telescope_coverage(
+    flight_dir: str | Path,
+    telescope: dict[str, Any],
+    source_ghz: float,
+    start: float | None = None,
+    end: float | None = None,
+    max_points: int = MAX_POINTS,
+) -> dict[str, Any]:
+    """:func:`flight_coverage` of a telescope described by :func:`describe_telescope`."""
+    wafers = [wafer_from_dict(w) for w in telescope["wafers"]]
+    model = focal_plane_model(
+        SimpleNamespace(
+            name=telescope["name"],
+            wafers=wafers if telescope["own_wafers"] else [],
+            wafer_type=telescope["wafer_type"],
+            beam_fwhm_arcmin=telescope["beam_fwhm_arcmin"],
+        )
+    )
+    return flight_coverage(
+        flight_dir,
+        telescope["name"],
+        source_ghz,
+        wafers=wafers,
+        focal_plane=model,
+        beam_fraction=telescope["beam_fraction"],
+        az_offset_deg=telescope["az_offset_deg"],
+        start=start,
+        end=end,
+        max_points=max_points,
+    )

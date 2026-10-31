@@ -113,6 +113,7 @@ class DiodeCalibration:
     def from_store(
         cls, store: LabStore, detector: Item, frequency_ghz: float
     ) -> "DiodeCalibration":
+        """Build the calibration of a detector from the lab store."""
         return cls(store.responsivity(detector), frequency_ghz)
 
     def curves(self, temperature_c: ArrayLike) -> dict[str, np.ndarray]:

@@ -1,3 +1,15 @@
+"""Litchi flight logs (``*_litchi.csv``): drone position and gimbal attitude.
+
+Notes
+-----
+Litchi logs the drone position and the gimbal pitch, roll and yaw at about
+10 Hz on the phone's clock. ``Flight.sync`` aligns the log to the reference
+GPS by its track, and the inclinometer to the gimbal pitch. A log that does
+not match the drone track (the 2022 folders hold logs of April 2025, and
+several February 2023 flights share one file) is left out of the sync and
+reported by ``pils package`` (``sync litchi``).
+"""
+
 from pathlib import Path
 
 import polars as pl
@@ -83,8 +95,17 @@ class Litchi:
         litchi_data = litchi_data.with_columns(
             (pl.col("unix_time_ms") / 1000.0).alias("timestamp")
         )
-        if "gimbalPitchRaw" in litchi_data.columns:
+        # Gimbal angles are in 0.1 deg; the yaw is relative to the aircraft
+        for axis in ("Pitch", "Roll", "Yaw"):
+            if f"gimbal{axis}Raw" in litchi_data.columns:
+                litchi_data = litchi_data.with_columns(
+                    (pl.col(f"gimbal{axis}Raw") / 10.0).alias(f"gimbal{axis}")
+                )
+        if {"gimbalYaw", "yaw(deg)"} <= set(litchi_data.columns):
+            # Gimbal heading from north, in [-180, 180)
             litchi_data = litchi_data.with_columns(
-                (pl.col("gimbalPitchRaw") / 10.0).alias("gimbalPitch")
+                (
+                    (pl.col("yaw(deg)") + pl.col("gimbalYaw") + 180.0) % 360.0 - 180.0
+                ).alias("gimbalYawAbs")
             )
         self.data = litchi_data

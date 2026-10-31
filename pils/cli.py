@@ -1,4 +1,4 @@
-"""Command line for the lab and telescope analyses.
+"""Command line for the lab and telescope analyses and flight packaging.
 
 Examples
 --------
@@ -8,6 +8,10 @@ Examples
     pils lab beam .../antenna/ANT_001/radiation_pattern --nominal-gain 15
     pils lab mult-diode .../detector/DET_001/responsivity
     pils power flight_20251201_1515 -t satp1 -w ws0
+    pils package flight_20251208_1927 flight_20251208_2010
+    pils package /mnt/data/POLOCALC/campaigns/202511/20251208/flight_20251208_1927
+    pils quicklook flight_20251208_1927 --ppk optimized.conf
+    pils timing /mnt/data/POLOCALC/campaigns/202511/20251208/flight_20251208_1927
 
 Runs are saved (results file + plots) unless ``--dry-run``; ``--output-dir``
 writes them somewhere else than the data folders.
@@ -108,7 +112,141 @@ def _power(args: argparse.Namespace) -> int:
     return 0
 
 
+def _package(args: argparse.Namespace) -> int:
+    from pils.analyze.package import DEFAULT_TELESCOPES, FlightPackager
+
+    targets = []
+    for target in args.power or []:
+        telescope, sep, wafer_slot = target.partition(":")
+        if not sep or not telescope or not wafer_slot:
+            print(
+                f"--power expects TELESCOPE:WAFER_SLOT, got {target}", file=sys.stderr
+            )
+            return 2
+        targets.append((telescope, wafer_slot))
+
+    failed = 0
+    for flight in args.flights:
+        try:
+            packager = FlightPackager.from_flight(flight, output_dir=args.output_dir)
+        except (LookupError, FileNotFoundError) as e:
+            print(e, file=sys.stderr)
+            failed += 1
+            continue
+        result = packager.run(
+            telescopes=args.telescope or DEFAULT_TELESCOPES,
+            power_targets=targets,
+            lab_root=args.lab_root,
+            save=not args.dry_run,
+            telescope_source=args.telescope_source,
+        )
+        print(result.summary())
+        if not result.ok:
+            failed += 1
+    if args.dry_run:
+        print("\nNothing saved (dry run)")
+    return 1 if failed else 0
+
+
+def _quicklook(args: argparse.Namespace) -> int:
+    from pils.analyze.package import DEFAULT_TELESCOPES
+    from pils.analyze.quicklook import QuickLook
+
+    failed = 0
+    for flight in args.flights:
+        try:
+            quicklook = QuickLook.from_flight(flight, output_dir=args.output_dir)
+        except (LookupError, FileNotFoundError) as e:
+            print(e, file=sys.stderr)
+            failed += 1
+            continue
+        report = quicklook.run(
+            telescopes=args.telescope or DEFAULT_TELESCOPES,
+            rinex=not args.no_rinex,
+            ppk_template=args.ppk,
+            telescope_source=args.telescope_source,
+        )
+        print(f"{quicklook.flight_name}: {len(quicklook.warnings)} warning(s)")
+        for warning in quicklook.warnings:
+            print(f"  - {warning}")
+        print(f"  -> {report}")
+    return 1 if failed else 0
+
+
+def _timing(args: argparse.Namespace) -> int:
+    import json
+
+    from pils.analyze.timing import check
+
+    worst = 0
+    for flight in args.flights:
+        result = check(Path(flight))
+        if args.json:
+            print(json.dumps({"flight": Path(flight).name, **result}, default=str))
+            continue
+        print(f"{Path(flight).name}: {result['status']}")
+        for c in result["checks"]:
+            print(f"  {c['status']:<4}  {c['name']}: {c['detail']}")
+        for s in result["sensitivity"]:
+            print(
+                f"  1 ms is {s['arcsec_per_ms']:.1f} arcsec as {s['telescope']} sees the drone"
+                + (
+                    f"; the offset left, {s['residual_arcmin']:.1f} arcmin"
+                    if s.get("residual_arcmin") is not None
+                    else ""
+                )
+            )
+        worst = max(worst, {"bad": 1}.get(result["status"], 0))
+    return worst
+
+
+def _telescope(args: argparse.Namespace) -> int:
+    from pils.telescope_pointing import run
+
+    failed = 0
+    for flight in args.flights:
+        print(Path(flight).name)
+        for r in run(Path(flight), args.telescope, args.so_data, save=not args.dry_run):
+            print(
+                f"  {r.telescope}: {r.status} -- {r.detail}"
+                + (f" -> {r.path}" if r.path else "")
+            )
+            failed += r.status == "failed"
+    return 1 if failed else 0
+
+
+def _migrate(args: argparse.Namespace) -> int:
+    from pils.migrate import migrate_lab, migrate_proc
+
+    failed = 0
+    for proc in args.proc_dirs:
+        # A flight's proc/ or a lab item's proc/
+        done = migrate_proc(proc, dry_run=args.dry_run) + migrate_lab(
+            proc, dry_run=args.dry_run
+        )
+        print(
+            f"{proc}: {len(done)} revision(s)" + (" to convert" if args.dry_run else "")
+        )
+        for item in done:
+            print(f"  {item}")
+        failed += any(item.startswith("FAILED") for item in done)
+    return 1 if failed else 0
+
+
+def _prune(args: argparse.Namespace) -> int:
+    from pils.store import prune_versions
+
+    for root in args.proc_dirs:
+        removed = prune_versions(root, args.keep, dry_run=args.dry_run)
+        verb = "to delete" if args.dry_run else "deleted"
+        print(f"{root}: {len(removed)} revision(s) {verb}")
+        for path in removed:
+            print(f"  {path}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
+    """Build the ``pils`` command-line parser."""
     parser = argparse.ArgumentParser(prog="pils", description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -164,13 +302,135 @@ def build_parser() -> argparse.ArgumentParser:
     )
     power.add_argument("--azel-version", help="Use a saved AZEL version")
     outputs(power)
+
+    package = sub.add_parser(
+        "package", help="Sync a flight and save its data products in proc/"
+    )
+    package.add_argument(
+        "flights", nargs="+", help="Flight names (STOUT) or flight folders"
+    )
+    package.add_argument(
+        "-t",
+        "--telescope",
+        action="append",
+        help="AZEL for this telescope (repeatable; default SATP1, SATP2, SATP3)",
+    )
+    package.add_argument(
+        "--power",
+        action="append",
+        metavar="TELESCOPE:WAFER_SLOT",
+        help="Also run the expected-power analysis, e.g. satp1:ws0 (repeatable)",
+    )
+    package.add_argument(
+        "--output-dir",
+        help="Write <output-dir>/<flight>/proc/ instead of in the flight folder",
+    )
+    package.add_argument(
+        "--dry-run", action="store_true", help="Compute without saving"
+    )
+    package.add_argument(
+        "--telescope-source",
+        choices=["survey", "so3g"],
+        default="survey",
+        help="Telescope positions for AZEL: the campaign survey, else another "
+        "campaign's (default); or the so3g site (sotodlib; 2-3 m off)",
+    )
+    package.add_argument(
+        "--lab-root",
+        help="Lab data root for --power (default: PILS_LAB_DATA_PATH or STOUT)",
+    )
+    telescope = sub.add_parser(
+        "telescope",
+        help="The SO SATs' own pointing (encoders) during a flight, in proc/telescope/",
+    )
+    telescope.add_argument("flights", nargs="+", help="Flight folders")
+    telescope.add_argument(
+        "-t",
+        "--telescope",
+        action="append",
+        help="This SAT only (repeatable; default SATP1, SATP2, SATP3)",
+    )
+    telescope.add_argument(
+        "--so-data",
+        help="SO's books (default: <campaigns>/telescope_data/SO/data beside the flight's campaign)",
+    )
+    telescope.add_argument("--dry-run", action="store_true", help="Read without saving")
+    timing = sub.add_parser(
+        "timing",
+        help="How well a packaged flight's clocks are tied to GPS time, and what an error costs",
+    )
+    timing.add_argument("flights", nargs="+", help="Flight folders")
+    timing.add_argument("--json", action="store_true", help="One JSON line per flight")
+    quicklook = sub.add_parser(
+        "quicklook", help="Markdown report of a flight's data and their quality"
+    )
+    quicklook.add_argument(
+        "flights", nargs="+", help="Flight names (STOUT) or flight folders"
+    )
+    quicklook.add_argument(
+        "-t",
+        "--telescope",
+        action="append",
+        help="AZEL for this telescope (repeatable; default SATP1, SATP2, SATP3)",
+    )
+    quicklook.add_argument(
+        "--ppk",
+        metavar="TEMPLATE",
+        help="Also tune this RTKLIB configuration to the data (takes minutes)",
+    )
+    quicklook.add_argument(
+        "--no-rinex",
+        action="store_true",
+        help="Do not convert and profile the rover and base GNSS recordings",
+    )
+    quicklook.add_argument(
+        "--telescope-source",
+        choices=["survey", "so3g"],
+        default="survey",
+        help="Telescope positions for AZEL: the campaign survey, else another "
+        "campaign's (default); or the so3g site (sotodlib; 2-3 m off)",
+    )
+    quicklook.add_argument(
+        "--output-dir",
+        help="Write <output-dir>/<flight>/proc/quicklook/ instead of in the flight folder",
+    )
+    migrate = sub.add_parser(
+        "migrate", help="Convert HDF5 results in proc/ to the Parquet layout"
+    )
+    migrate.add_argument(
+        "proc_dirs", nargs="+", help="proc/ folders of flights or lab items"
+    )
+    migrate.add_argument(
+        "--dry-run", action="store_true", help="List what would be converted"
+    )
+    prune = sub.add_parser(
+        "prune", help="Delete old revisions, keeping the newest of each analysis"
+    )
+    prune.add_argument("proc_dirs", nargs="+", help="proc/ folders (searched)")
+    prune.add_argument(
+        "--keep", type=int, default=3, help="Revisions to keep in each (default 3)"
+    )
+    prune.add_argument("--dry-run", action="store_true", help="Only list them")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the ``pils`` command; return the exit status."""
     args = build_parser().parse_args(argv)
     if args.command == "lab":
         return _lab(args)
+    if args.command == "package":
+        return _package(args)
+    if args.command == "quicklook":
+        return _quicklook(args)
+    if args.command == "timing":
+        return _timing(args)
+    if args.command == "telescope":
+        return _telescope(args)
+    if args.command == "migrate":
+        return _migrate(args)
+    if args.command == "prune":
+        return _prune(args)
     return _power(args)
 
 
