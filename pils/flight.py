@@ -650,30 +650,16 @@ class Flight:
             )
             if drone_id:
                 try:
-                    from stout.services.inventory.service import InventoryService
+                    import pils.integrations.stout as stout_db
 
-                    inventory = InventoryService()
-                    item = inventory.get_item_by_id(drone_id)
-                    if item:
-                        specs_obj = (
-                            item.get("specifications")
-                            if isinstance(item, dict)
-                            else None
-                        )
-                        specs = specs_obj if isinstance(specs_obj, dict) else {}
-                        model_val = (
-                            specs.get("model")
-                            or item.get("name")
-                            or item.get("category")
-                        )
-                        if isinstance(model_val, str):
-                            m = model_val.lower()
-                            if "matrice" in m:
-                                return "dji"
-                            if "black" in m or "blacksquare" in m:
-                                return "blacksquare"
-                            # If we can't map to a known driver, return the raw model string
-                            return m
+                    m = stout_db.drone_model(drone_id)
+                    if m is not None:
+                        if "matrice" in m:
+                            return "dji"
+                        if "black" in m or "blacksquare" in m:
+                            return "blacksquare"
+                        # If we can't map to a known driver, return the raw model string
+                        return m
                 except Exception:
                     # If inventory lookup fails, fall back to folder heuristics below
                     pass

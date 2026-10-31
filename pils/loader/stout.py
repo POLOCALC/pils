@@ -26,6 +26,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import pils.integrations.stout as stout_db
 from pils.config import DRONE_MAP, SENSOR_MAP
 
 # Configure logging
@@ -44,8 +45,8 @@ class StoutLoader:
 
     Attributes
     ----------
-    campaign_service : Optional[CampaignService]
-        Service for accessing campaign and flight data
+    use_stout : bool
+        Whether STOUT is installed (else the file system is read)
     base_data_path : Optional[Path]
         Base path where all campaign data is stored
     """
@@ -57,24 +58,22 @@ class StoutLoader:
         Initializes the loader and attempts to connect to stout campaign service.
         Falls back to filesystem queries if stout import fails.
         """
-        self.campaign_service = None
         self.base_data_path = None
-        self.use_stout = True
+        self.use_stout = stout_db.is_available()
 
-        try:
-            from stout.config import Config  # type: ignore
-            from stout.services.campaigns import CampaignService  # type: ignore
-
-            self.campaign_service = CampaignService()
-            self.base_data_path = Config.MAIN_DATA_PATH
+        if self.use_stout:
+            self.base_data_path = stout_db.data_path()
             logger.info(
                 f"Initialized with stout database, base path: {self.base_data_path}"
             )
-        except ImportError as e:
+        else:
             logger.warning(
-                f"Could not import stout: {e}. Falling back to filesystem queries."
+                "STOUT is not installed: falling back to filesystem queries."
             )
-            self.use_stout = False
+
+    def _require_stout(self) -> None:
+        if not self.use_stout:
+            raise RuntimeError("Campaign service not initialized")
 
     def load_all_flights(self) -> list[dict[str, Any]]:
         """
@@ -89,10 +88,9 @@ class StoutLoader:
         """
         logger.info("Loading all flights from all campaigns...")
 
-        if self.campaign_service is None:
-            raise RuntimeError("Campaign service not initialized")
+        self._require_stout()
         try:
-            flights = self.campaign_service.get_all_flights()
+            flights = stout_db.all_flights()
             logger.info(f"Loaded {len(flights)} flights from database")
             return flights
         except Exception as e:
@@ -124,8 +122,7 @@ class StoutLoader:
             f"Loading single flight: flight_id={campaign_id}, flight_name={campaign_name}"
         )
 
-        if self.campaign_service is None:
-            raise RuntimeError("Campaign service not initialized")
+        self._require_stout()
         try:
             # Get the campaign_id first if only campaign_name provided
             cid = campaign_id or campaign_name
@@ -133,7 +130,7 @@ class StoutLoader:
             if not cid:
                 raise ValueError("Either campaign_id or campaign_name must be provided")
 
-            flights = self.campaign_service.get_flights_by_campaign(campaign_id=cid)
+            flights = stout_db.campaign_flights(cid)
 
             for flight in flights:
                 if flight:
@@ -168,12 +165,9 @@ class StoutLoader:
             f"Loading single flight: flight_id={flight_id}, flight_name={flight_name}"
         )
 
-        if self.campaign_service is None:
-            raise RuntimeError("Campaign service not initialized")
+        self._require_stout()
         try:
-            flight = self.campaign_service.get_flight(
-                flight_name=flight_name, flight_id=flight_id
-            )
+            flight = stout_db.flight(flight_id=flight_id, flight_name=flight_name)
             if flight:
                 logger.info(f"Loaded flight: {flight.get('flight_name')}")
             return flight
@@ -211,11 +205,10 @@ class StoutLoader:
 
         logger.info(f"Loading flights between {start_date} and {end_date}")
 
-        if self.campaign_service is None:
-            raise RuntimeError("Campaign service not initialized")
+        self._require_stout()
         try:
             # Get all flights and filter by date
-            all_flights = self.campaign_service.get_all_flights()
+            all_flights = stout_db.all_flights()
 
             filtered_flights = []
             for flight in all_flights:
@@ -281,11 +274,10 @@ class StoutLoader:
         self, start_dt: datetime, end_dt: datetime, campaign_id: str | None = None
     ) -> list[dict[str, Any]]:
         """Load flights by date range from stout database."""
-        if self.campaign_service is None:
-            raise RuntimeError("Campaign service not initialized")
+        self._require_stout()
         try:
             # Get all flights and filter by date
-            all_flights = self.campaign_service.get_all_flights()
+            all_flights = stout_db.all_flights()
 
             filtered_flights = []
             for flight in all_flights:
@@ -519,9 +511,9 @@ class StoutLoader:
         list[dict[str, Any]]
             list of campaign dictionaries with metadata.
         """
-        if self.use_stout and self.campaign_service:
+        if self.use_stout:
             try:
-                return self.campaign_service.get_all_campaigns()
+                return stout_db.all_campaigns()
             except Exception as e:
                 logger.error(f"Error loading campaigns from database: {e}")
                 raise

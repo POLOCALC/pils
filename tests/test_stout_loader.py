@@ -79,7 +79,6 @@ class TestStoutLoaderInitialization:
             loader = StoutLoader()
 
             # Should fall back to filesystem mode
-            assert loader.campaign_service is None
             assert loader.use_stout is False
             assert loader.base_data_path is None
 
@@ -88,8 +87,25 @@ class TestStoutLoaderInitialization:
         loader = StoutLoader()
 
         assert loader.use_stout is True
-        assert loader.campaign_service is stout_available
-        assert loader.base_data_path == "/data"
+        assert str(loader.base_data_path) == "/data"
+
+    def test_flights_come_from_stout(self, stout_available):
+        stout_available.get_flights_by_campaign.return_value = [{"flight_name": "f"}]
+        stout_available.get_flight.return_value = {"flight_name": "g"}
+
+        loader = StoutLoader()
+
+        assert loader.load_all_campaign_flights(campaign_id="c1") == [
+            {"flight_name": "f"}
+        ]
+        stout_available.get_flights_by_campaign.assert_called_with(campaign_id="c1")
+        assert loader.load_single_flight(flight_id="x") == {"flight_name": "g"}
+
+    def test_database_queries_without_stout_raise(self):
+        with stout_unavailable():
+            loader = StoutLoader()
+            with pytest.raises(RuntimeError):
+                loader.load_all_flights()
 
     def test_get_campaign_list_with_stout(self, stout_available):
         """Test campaigns come from the STOUT database when it is installed."""
