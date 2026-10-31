@@ -14,7 +14,6 @@ pyubx2==1.2.59
 AHRS==0.4.0
 telemetry-parser==0.3.0
 numdifftools==0.9.41
-opencv-python==4.13.0.92
 # Optional, not installed by this file:
 # - the telescopes' pointing (pils.io.telescope): so3g==0.2.0 and Simons
 #   Observatory's sotodlib (0.6.8 on the server), from conda-forge / SO;
