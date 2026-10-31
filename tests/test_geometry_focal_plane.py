@@ -44,14 +44,12 @@ def test_the_boresight_s_own_point_is_where_it_points():
     assert wafer_quat(DEFAULT_WAFERS[0], 30.0) is not None
 
 
-def test_the_same_as_gose_s_planner():
-    gose = pytest.importorskip("gose.sat_pointing")
-    for w in DEFAULT_WAFERS:
-        assert np.array_equal(wafer_polygon(w, -30.0), gose.wafer_polygon(w, -30.0))
-        assert rotated_xieta(w.xi, w.eta, 30.0) == gose.rotated_xieta(w.xi, w.eta, 30.0)
-    assert sky_of(185.0, 45.0, 0.1, -0.05) == gose.sky_of(185.0, 45.0, 0.1, -0.05)
-
-    def values(wafers):
-        return [(w.name, w.xi, w.eta, w.outline) for w in wafers]
-
-    assert values(DEFAULT_WAFERS) == values(gose.DEFAULT_WAFERS)
+def test_an_offset_point_is_off_the_boresight_by_its_distance():
+    xi, eta = 0.02, -0.01  # rad
+    az, el = sky_of(185.0, 45.0, xi, eta)
+    assert el < 45.0 and az > 185.0  # +xi to larger azimuth, -eta lower
+    a = np.radians([185.0, 45.0, az, el])
+    cos_d = np.sin(a[1]) * np.sin(a[3]) + np.cos(a[1]) * np.cos(a[3]) * np.cos(
+        a[2] - a[0]
+    )
+    assert np.arccos(cos_d) == pytest.approx(np.hypot(xi, eta), rel=1e-3)

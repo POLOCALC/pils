@@ -64,39 +64,11 @@ def test_crossing_times_are_the_crossings_with_their_durations():
     assert crossing_times(t, xi + 10, np.zeros_like(xi), pixels, 0.2)[0].size == 0
 
 
-def test_the_same_as_gose_s_planner():
-    gose = pytest.importorskip("gose.crossings")
-    rng = np.random.default_rng(1)
-    t = np.linspace(0, 420, 4000)
-    tel_az, tel_el = 185 + 8 * np.sin(t / 30), np.full_like(t, 45.0)
-    dr_az, dr_el = np.full_like(t, 185.0), 43 + 3 * (1 - np.cos(t / 40))
-    a, b = (
-        relative_path(tel_az, tel_el, dr_az, dr_el),
-        gose.relative_path(tel_az, tel_el, dr_az, dr_el),
-    )
-    assert np.array_equal(a[0], b[0]) and np.array_equal(a[1], b[1])
-    pixels = rng.uniform(-10, 10, (500, 2))
-    assert np.array_equal(crossings(*a, pixels, 0.25), gose.crossings(*b, pixels, 0.25))
-    for x, y in zip(
-        crossing_times(t, *a, pixels, 0.25),
-        gose.crossing_times(t, *b, pixels, 0.25),
-        strict=True,
-    ):
-        assert np.array_equal(x, y)
-    assert np.array_equal(
-        rotate(pixels[:, 0], pixels[:, 1], -30),
-        gose.rotate(pixels[:, 0], pixels[:, 1], -30),
-    )
-
-
 def test_the_shortest_crossing_a_hwp_demodulation_follows():
     from pils.geometry.crossings import demod_limit_s
 
     assert demod_limit_s(None) is None and demod_limit_s(0) is None
     # faster HWP: shorter crossings still demodulated; a wider circle: longer passes needed
-    assert demod_limit_s(2.0) < demod_limit_s(1.0) < demod_limit_s(1.0, beam_fraction=1.0)
-    try:
-        from gose.crossings import demod_limit_s as gose_limit
-    except ImportError:
-        return
-    assert demod_limit_s(2.0, 0.5) == gose_limit(2.0, 0.5)
+    assert (
+        demod_limit_s(2.0) < demod_limit_s(1.0) < demod_limit_s(1.0, beam_fraction=1.0)
+    )

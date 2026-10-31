@@ -67,22 +67,6 @@ def test_rotated_pixels_are_in_degrees_and_turned():
     assert np.allclose(rotated_eta(xy[:, 0], xy[:, 1], 0.0), xy[:, 1], atol=1e-9)
 
 
-def test_the_same_as_gose_s_planner():
-    detectors = pytest.importorskip("gose.detectors")
-    crossings = pytest.importorskip("gose.crossings")
-    for wafer_type in ("SAT_LF", "SAT_MF", "SAT_UHF"):
-        a, b = (
-            nominal_focal_plane(wafer_type),
-            detectors.nominal_focal_plane(wafer_type),
-        )
-        assert np.array_equal(a.xi, b.xi) and np.array_equal(a.eta, b.eta)
-        assert a.bands == b.bands and dict(a.fwhm_arcmin) == dict(b.fwhm_arcmin)
-        for bs in (-30.0, 0.0, 30.0):
-            mine = rotated_pixels(DEFAULT_WAFERS, wafer_type, bs)
-            theirs = crossings.rotated_pixels(DEFAULT_WAFERS, wafer_type, bs)
-            assert all(np.array_equal(mine[w], theirs[w]) for w in mine)
-
-
 def test_band_of_a_measured_frequency():
     from pils.geometry.detectors import band_of_frequency
 

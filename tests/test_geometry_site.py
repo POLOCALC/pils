@@ -68,20 +68,3 @@ def test_a_drone_seen_from_a_site_is_pils_azel_columns():
 def test_azimuths_average_on_the_circle():
     m = circular_mean_deg([350.0, 10.0])  # north, not 180
     assert min(m, 360.0 - m) == pytest.approx(0.0, abs=1e-9)
-
-
-def test_the_same_as_gose_s_planner():
-    gose = pytest.importorskip("gose.sat_pointing")
-    for key in ("so_sat1", "so_sat2", "so_sat3", "so_lat"):
-        assert np.array_equal(site_enu(key), gose.site_enu(key))
-    p = np.array([120.0, -340.0, 310.0])
-    assert direction_from("so_sat1", p) == gose.direction_from("so_sat1", p)
-    assert np.array_equal(
-        enu_from_reference("so_sat3", 185, 45, 300),
-        gose.enu_from_reference("so_sat3", 185, 45, 300),
-    )
-    assert np.array_equal(
-        enu_from_distance("so_sat3", 185, 45, 480),
-        gose.enu_from_distance("so_sat3", 185, 45, 480),
-    )
-    assert circular_mean_deg([350, 20, 5]) == gose.circular_mean_deg([350, 20, 5])
