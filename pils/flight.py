@@ -896,7 +896,7 @@ class Flight:
                         sensor,
                         _standardize(sensor_data["data"], sensor),
                     )
-                    self.flight_info["flight_info"].update(
+                    self.flight_info.setdefault("flight_info", {}).update(
                         {f"{sensor}_metadata": sensor_data["metadata"]}
                     )
 
