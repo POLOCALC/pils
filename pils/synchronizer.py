@@ -384,7 +384,7 @@ class Synchronizer:
         return peak_idx
 
     @staticmethod
-    def __clean_data(
+    def _clean_data(
         time: np.ndarray, east: np.ndarray, north: np.ndarray, up: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
@@ -423,7 +423,7 @@ class Synchronizer:
         >>> east = np.array([0, 1, 50, 3, 4])  # Jump at idx=2
         >>> north = np.array([0, 1, 2, 3, 4])
         >>> up = np.array([0, 1, 2, 3, 4])
-        >>> t_clean, e_clean, n_clean, u_clean = Synchronizer.__clean_data(
+        >>> t_clean, e_clean, n_clean, u_clean = Synchronizer._clean_data(
         ...     time, east, north, up
         ... )
         >>> # Outliers at indices 2,3 (and next sample) are removed
@@ -674,14 +674,14 @@ class Synchronizer:
         # Convert GPS1 to ENU (vectorized) using pymap3d
         e1, n1, u1 = pm.geodetic2enu(lat1, lon1, alt1, ref_lat, ref_lon, ref_alt)
 
-        time1, e1, n1, u1 = Synchronizer.__clean_data(time1, e1, n1, u1)
+        time1, e1, n1, u1 = Synchronizer._clean_data(time1, e1, n1, u1)
 
         # Convert GPS2 to ENU (vectorized) using pymap3d
         e2, n2, u2 = pm.geodetic2enu(lat2, lon2, alt2, ref_lat, ref_lon, ref_alt)
 
         # Filter GPS data
 
-        time2, e2, n2, u2 = Synchronizer.__clean_data(time2, e2, n2, u2)
+        time2, e2, n2, u2 = Synchronizer._clean_data(time2, e2, n2, u2)
 
         logger.debug(
             f"Correlation: {np.any(np.isnan(e2))} {np.any(np.isnan(n2))} {np.any(np.isnan(u2))}"
@@ -909,8 +909,8 @@ class Synchronizer:
         if len(gps_data) == 0:
             raise ValueError("GPS payload data is empty")
 
-        self.__ref_height = gps_data[alt_col][0]
-        self.__ref_names = {
+        self._ref_height = gps_data[alt_col][0]
+        self._ref_names = {
             "timestamp": timestamp_col,
             "lat_col": lat_col,
             "lon_col": lon_col,
@@ -971,7 +971,7 @@ class Synchronizer:
 
         self.drone_gps = df
 
-        self.__drone_names = {
+        self._drone_names = {
             "timestamp": timestamp_col,
             "lat_col": lat_col,
             "lon_col": lon_col,
@@ -1024,10 +1024,10 @@ class Synchronizer:
 
         # Take-off at the height of the reference GPS when it starts
         self.litchi_gps = gps_data.with_columns(
-            (pl.col(alt_col) + self.__ref_height).alias("h_ell_m")
+            (pl.col(alt_col) + self._ref_height).alias("h_ell_m")
         )
 
-        self.__litchi_names = {
+        self._litchi_names = {
             "timestamp": timestamp_col,
             "lat_col": lat_col,
             "lon_col": lon_col,
@@ -1082,7 +1082,7 @@ class Synchronizer:
             raise ValueError("Inclinometer data is empty")
 
         self.inclinometer = inclinometer_data
-        self.__inclinometer_names = {"timestamp": timestamp_col, "pitch": pitch_col}
+        self._inclinometer_names = {"timestamp": timestamp_col, "pitch": pitch_col}
         self.inclinometer_clock = clock
 
         logger.info(f"Added inclinometer with {len(inclinometer_data)} samples")
@@ -1108,14 +1108,14 @@ class Synchronizer:
             if len(camera_data) == 0:
                 raise ValueError("Photogrammetry data is empty")
 
-            self.__camera_model = "photogrammetry"
+            self._camera_model = "photogrammetry"
 
-            self.__camera_names = {"timestamp": timestamp_col, "pitch": pitch_col}
+            self._camera_names = {"timestamp": timestamp_col, "pitch": pitch_col}
         else:
-            self.__camera_model = camera_model
+            self._camera_model = camera_model
 
             if camera_model and camera_model.lower() == "sony":
-                self.__camera_names = {"timestamp": timestamp_col, "pitch": pitch_col}
+                self._camera_names = {"timestamp": timestamp_col, "pitch": pitch_col}
 
         self.camera = camera_data
 
@@ -1240,14 +1240,14 @@ class Synchronizer:
         elif self.drone_gps is not None:
             logger.info("Detecting drone GPS offset via NED correlation...")
             result = self._find_gps_offset(
-                time1=self.gps_payload[self.__ref_names["timestamp"]].to_numpy(),
-                lat1=self.gps_payload[self.__ref_names["lat_col"]].to_numpy(),
-                lon1=self.gps_payload[self.__ref_names["lon_col"]].to_numpy(),
-                alt1=self.gps_payload[self.__ref_names["alt_col"]].to_numpy(),
-                time2=self.drone_gps[self.__drone_names["timestamp"]].to_numpy(),
-                lat2=self.drone_gps[self.__drone_names["lat_col"]].to_numpy(),
-                lon2=self.drone_gps[self.__drone_names["lon_col"]].to_numpy(),
-                alt2=self.drone_gps[self.__drone_names["alt_col"]].to_numpy(),
+                time1=self.gps_payload[self._ref_names["timestamp"]].to_numpy(),
+                lat1=self.gps_payload[self._ref_names["lat_col"]].to_numpy(),
+                lon1=self.gps_payload[self._ref_names["lon_col"]].to_numpy(),
+                alt1=self.gps_payload[self._ref_names["alt_col"]].to_numpy(),
+                time2=self.drone_gps[self._drone_names["timestamp"]].to_numpy(),
+                lat2=self.drone_gps[self._drone_names["lat_col"]].to_numpy(),
+                lon2=self.drone_gps[self._drone_names["lon_col"]].to_numpy(),
+                alt2=self.drone_gps[self._drone_names["alt_col"]].to_numpy(),
             )
             if result:
                 self.offsets["drone_gps"] = result
@@ -1261,14 +1261,14 @@ class Synchronizer:
         if self.litchi_gps is not None:
             logger.info("Detecting litchi GPS offset via NED correlation...")
             result = self._find_gps_offset(
-                time1=self.gps_payload[self.__ref_names["timestamp"]].to_numpy(),
-                lat1=self.gps_payload[self.__ref_names["lat_col"]].to_numpy(),
-                lon1=self.gps_payload[self.__ref_names["lon_col"]].to_numpy(),
-                alt1=self.gps_payload[self.__ref_names["alt_col"]].to_numpy(),
-                time2=self.litchi_gps[self.__litchi_names["timestamp"]].to_numpy(),
-                lat2=self.litchi_gps[self.__litchi_names["lat_col"]].to_numpy(),
-                lon2=self.litchi_gps[self.__litchi_names["lon_col"]].to_numpy(),
-                alt2=self.litchi_gps[self.__litchi_names["alt_col"]].to_numpy(),
+                time1=self.gps_payload[self._ref_names["timestamp"]].to_numpy(),
+                lat1=self.gps_payload[self._ref_names["lat_col"]].to_numpy(),
+                lon1=self.gps_payload[self._ref_names["lon_col"]].to_numpy(),
+                alt1=self.gps_payload[self._ref_names["alt_col"]].to_numpy(),
+                time2=self.litchi_gps[self._litchi_names["timestamp"]].to_numpy(),
+                lat2=self.litchi_gps[self._litchi_names["lat_col"]].to_numpy(),
+                lon2=self.litchi_gps[self._litchi_names["lon_col"]].to_numpy(),
+                alt2=self.litchi_gps[self._litchi_names["alt_col"]].to_numpy(),
             )
             if result:
                 self.offsets["litchi_gps"] = result
@@ -1281,16 +1281,16 @@ class Synchronizer:
         # Inclinometer offset detection (using litchi gimbal pitch if available)
         if self.inclinometer is not None and self.litchi_gps is not None:
             # Check if litchi has pitch data
-            if self.__litchi_names["pitch"] in self.litchi_gps.columns:
+            if self._litchi_names["pitch"] in self.litchi_gps.columns:
                 logger.info("Detecting inclinometer offset via pitch correlation...")
                 result = self._find_pitch_offset(
-                    time1=self.litchi_gps[self.__litchi_names["timestamp"]].to_numpy(),
-                    pitch1=self.litchi_gps[self.__litchi_names["pitch"]].to_numpy(),
+                    time1=self.litchi_gps[self._litchi_names["timestamp"]].to_numpy(),
+                    pitch1=self.litchi_gps[self._litchi_names["pitch"]].to_numpy(),
                     time2=self.inclinometer[
-                        self.__inclinometer_names["timestamp"]
+                        self._inclinometer_names["timestamp"]
                     ].to_numpy(),
                     pitch2=self.inclinometer[
-                        self.__inclinometer_names["pitch"]
+                        self._inclinometer_names["pitch"]
                     ].to_numpy(),
                 )
                 if result:
@@ -1302,19 +1302,19 @@ class Synchronizer:
                     logger.warning("Failed to detect inclinometer offset")
 
         if self.camera is not None:
-            if self.__camera_model == "photogrammetry" or self.__camera_model == "sony":
+            if self._camera_model == "photogrammetry" or self._camera_model == "sony":
                 logger.info(
-                    f"Camera Model {self.__camera_model}, this implies use of pitch correlation"
+                    f"Camera Model {self._camera_model}, this implies use of pitch correlation"
                 )
 
                 if self.litchi_gps is not None:
                     result = self._find_pitch_offset(
                         time1=self.litchi_gps[
-                            self.__litchi_names["timestamp"]
+                            self._litchi_names["timestamp"]
                         ].to_numpy(),
-                        pitch1=self.litchi_gps[self.__litchi_names["pitch"]].to_numpy(),
-                        time2=self.camera[self.__camera_names["timestamp"]].to_numpy(),
-                        pitch2=self.camera[self.__camera_names["pitch"]].to_numpy(),
+                        pitch1=self.litchi_gps[self._litchi_names["pitch"]].to_numpy(),
+                        time2=self.camera[self._camera_names["timestamp"]].to_numpy(),
+                        pitch2=self.camera[self._camera_names["pitch"]].to_numpy(),
                     )
                     if result:
                         self.offsets["camera"] = result
@@ -1329,7 +1329,7 @@ class Synchronizer:
                     )
 
             else:
-                if self.__camera_model == "alvium":
+                if self._camera_model == "alvium":
                     incl_offset = self.offsets.get("inclinometer", {}).get(
                         "time_offset", 0.0
                     )
@@ -1338,7 +1338,7 @@ class Synchronizer:
 
                 else:
                     logger.info(
-                        f"Camera Model {self.__camera_model}, skipping pitch correlation"
+                        f"Camera Model {self._camera_model}, skipping pitch correlation"
                     )
                     logger.info(
                         "Using data timestamp and inclinometer offset as camera offset"
@@ -1395,7 +1395,7 @@ class Synchronizer:
         if self.drone_gps is not None and "drone_gps" in self.offsets:
             synced["drone"] = align(
                 self.drone_gps,
-                self.__drone_names["timestamp"],
+                self._drone_names["timestamp"],
                 self.offsets["drone_gps"]["time_offset"],
                 rates["drone"],
             )
@@ -1403,7 +1403,7 @@ class Synchronizer:
         if self.litchi_gps is not None and "litchi_gps" in self.offsets:
             synced["litchi"] = align(
                 self.litchi_gps,
-                self.__litchi_names["timestamp"],
+                self._litchi_names["timestamp"],
                 litchi_offset,
                 rates["litchi"],
             )
@@ -1415,7 +1415,7 @@ class Synchronizer:
                 f"Applying inclinometer total offset: {total_offset:.3f}s "
                 f"(incl→litchi: {incl_offset:.3f}s + litchi→gps: {litchi_offset:.3f}s)"
             )
-            time_col = self.__inclinometer_names["timestamp"]
+            time_col = self._inclinometer_names["timestamp"]
             if isinstance(self.inclinometer, dict):
                 tables = [
                     align(table, time_col, total_offset, rates["inclinometer"])
@@ -1440,11 +1440,11 @@ class Synchronizer:
                 f"Applying camera total offset: {total_offset:.3f}s "
                 f"(litchi→gps: {litchi_offset:.3f}s)"
             )
-            camera_time = self.camera[self.__camera_names["timestamp"]].to_numpy()
+            camera_time = self.camera[self._camera_names["timestamp"]].to_numpy()
             camera_rate = float(np.average(1 / np.diff(camera_time)))
             rates["camera"] = camera_rate
             synced["camera"] = align(
-                self.camera, self.__camera_names["timestamp"], total_offset, camera_rate
+                self.camera, self._camera_names["timestamp"], total_offset, camera_rate
             )
 
         # Other payload sensors: the payload computer's clock
@@ -1471,16 +1471,16 @@ class Synchronizer:
         if self.reference == "payload_gps":
             synced["reference_gps"] = align(
                 self.gps_payload,
-                self.__ref_names["timestamp"],
+                self._ref_names["timestamp"],
                 0.0,
                 rates["reference_gps"],
             )
 
         # Standardize coordinate column names for GPS sources
         for key, names in (
-            ("drone", getattr(self, "_Synchronizer__drone_names", None)),
-            ("litchi", getattr(self, "_Synchronizer__litchi_names", None)),
-            ("reference_gps", self.__ref_names),
+            ("drone", getattr(self, "_drone_names", None)),
+            ("litchi", getattr(self, "_litchi_names", None)),
+            ("reference_gps", self._ref_names),
         ):
             if key in synced and names is not None:
                 synced[key] = self._standardize_coordinate_columns(synced[key], names)
@@ -1513,7 +1513,7 @@ class Synchronizer:
         elif has_incl and "imu_gyroscope" in self.other_payload:
             assert self.inclinometer is not None
             gyro = self.other_payload["imu_gyroscope"]
-            time_col = self.__inclinometer_names["timestamp"]
+            time_col = self._inclinometer_names["timestamp"]
             best = None
             for axis in "xyz":
                 incl_col, imu_col = f"gyro_{axis}_deg_s", f"gyro_{axis}_rad_s"
