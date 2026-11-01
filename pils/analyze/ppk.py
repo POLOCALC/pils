@@ -52,6 +52,7 @@ from pils.analyze.ppkdata.PPK.report import RTKLIBReport
 from pils.analyze.ppkdata.PPK.stat_analyzer import STATAnalyzer
 from pils.analyze.ppkdata.RINEX.report import RINEXReport
 from pils.flight import Flight
+from pils.integrations.stout import layout
 from pils.utils.hdf5 import read_table
 
 logger = logging.getLogger(__name__)
@@ -285,7 +286,7 @@ class PPKAnalysis:
 
         self.flight = flight
         self.flight_path = flight_path
-        self.ppk_dir = self.flight_path / "proc" / "ppk"
+        self.ppk_dir = self.flight_path / layout.PROC_FOLDER / "ppk"
         self.hdf5_path = self.ppk_dir / "ppk_solution.h5"
         self.versions: dict[str, PPKVersion] = {}
 
@@ -385,7 +386,7 @@ class PPKAnalysis:
         >>> print(name)
         'rev_20260204_143022'
         """
-        return datetime.now().strftime("rev_%Y%m%d_%H%M%S")
+        return store.new_version_name()
 
     def _create_revision_folder(self, version_name: str) -> Path:
         """
@@ -761,7 +762,7 @@ class PPKAnalysis:
         >>> # Force re-run
         >>> v3 = ppk.run_analysis(..., force=True)
         """
-        before = {p.name for p in self.ppk_dir.glob("rev_*")}
+        before = {p.name for p in self.ppk_dir.glob(layout.REVISION_PREFIX + "*")}
         try:
             return self._run_analysis(
                 config_path,
@@ -777,7 +778,7 @@ class PPKAnalysis:
             )
         finally:
             # A run that failed leaves its revision folder without a manifest
-            for folder in self.ppk_dir.glob("rev_*"):
+            for folder in self.ppk_dir.glob(layout.REVISION_PREFIX + "*"):
                 if (
                     folder.name not in before
                     and not (folder / "manifest.json").exists()
@@ -834,7 +835,7 @@ class PPKAnalysis:
                 rover_nav = nav_path
 
             else:
-                rover_path = self.flight_path / "aux" / "sensors"
+                rover_path = self.flight_path / layout.AUX_FOLDER / "sensors"
 
                 try:
                     rover_ubx = sorted(

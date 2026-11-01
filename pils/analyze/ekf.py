@@ -1,6 +1,5 @@
 """EKF (Extended Kalman Filter) analysis module for flight attitude estimation."""
 
-import datetime
 import io
 import struct
 import subprocess
@@ -13,6 +12,7 @@ import pyarrow as pa
 
 from pils import store
 from pils.flight import Flight
+from pils.integrations.stout import layout
 from pils.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -209,7 +209,7 @@ class EKFAnalysis:
         self.flight_path = flight_path
 
         # Create EKF directory
-        self.ekf_dir = self.flight_path / "proc" / "ekf"
+        self.ekf_dir = self.flight_path / layout.PROC_FOLDER / "ekf"
         self.ekf_dir.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"Initialized EKF analysis for flight: {self.flight_path}")
@@ -658,7 +658,7 @@ class EKFAnalysis:
         }
 
         # 9. Generate version name (timestamp-based: rev_YYYYMMDD_HHMMSS)
-        version_name = datetime.datetime.now().strftime("rev_%Y%m%d_%H%M%S")
+        version_name = store.new_version_name()
 
         logger.info(
             f"EKF analysis complete: {ekf_data.height} output samples, "

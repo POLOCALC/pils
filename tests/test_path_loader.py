@@ -297,3 +297,20 @@ class TestLoadAllCampaignFlights:
         # Current implementation raises if campaign_name is provided
         with pytest.raises(ValueError):
             loader.load_all_campaign_flights(campaign_name="202511")
+
+
+def test_load_all_flights_includes_field_tests(tmp_path):
+    """A flight in field_tests/ is loaded as one in campaigns/ (STOUT's layout)."""
+    for rel in (
+        "campaigns/202511/20251208/flight_20251208_1506",
+        "field_tests/gimbal_test/20250301/flight_20250301_1000",
+    ):
+        for sub in ("drone", "aux", "proc"):
+            (tmp_path / rel / sub).mkdir(parents=True)
+    flights = PathLoader(tmp_path).load_all_flights()
+    by_name = {f["flight_name"]: f for f in flights}
+    assert set(by_name) == {"flight_20251208_1506", "flight_20250301_1000"}
+    field = by_name["flight_20250301_1000"]
+    assert field["campaign_name"] == "gimbal_test"
+    assert field["campaign_folder"] == "field_tests/gimbal_test"
+    assert field["takeoff_datetime"].startswith("2025-03-01T10:00")

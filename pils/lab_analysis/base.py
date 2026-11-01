@@ -23,6 +23,7 @@ from typing import Any, ClassVar
 import polars as pl
 
 from pils import store as result_store
+from pils.integrations.stout import layout
 from pils.lab_analysis.notes import LabMeasurement
 from pils.utils import hdf5
 from pils.utils.logging_config import get_logger
@@ -66,7 +67,7 @@ class LabAnalysis:
     ) -> None:
         self.measurement = measurement
         base = Path(output_dir) if output_dir is not None else measurement.folder
-        self.results_dir = base / "proc" / self.analysis_name
+        self.results_dir = base / layout.PROC_FOLDER / self.analysis_name
 
     @classmethod
     def from_folder(
@@ -84,7 +85,7 @@ class LabAnalysis:
         """Legacy HDF5 results file under a test folder (or output dir)."""
         return (
             Path(results_root)
-            / "proc"
+            / layout.PROC_FOLDER
             / cls.analysis_name
             / f"{cls.analysis_name}_solution.h5"
         )

@@ -24,12 +24,13 @@ import polars as pl
 from pils import store
 from pils.geometry.crossings import crossings, relative_path
 from pils.geometry.detectors import (
-    band_of_frequency,
     FocalPlaneModel,
+    band_of_frequency,
     focal_plane_model,
     rotated_pixels,
 )
 from pils.geometry.focal_plane import Wafer, wafer_from_dict, wafer_to_dict
+from pils.integrations.stout import layout
 
 # The most samples of the path returned (it is drawn, not analysed)
 MAX_POINTS = 4000
@@ -48,7 +49,7 @@ def thin(*arrays: np.ndarray, max_points: int = MAX_POINTS) -> list[list[float]]
 
 def latest_dataset(flight_dir: str | Path, dataset: str) -> Path | None:
     """The latest revision of one of a flight's datasets (``proc/<dataset>``), or None."""
-    root = Path(flight_dir) / "proc" / dataset
+    root = Path(flight_dir) / layout.PROC_FOLDER / dataset
     rev = store.latest_version(root) if root.is_dir() else None
     return root / rev if rev else None
 

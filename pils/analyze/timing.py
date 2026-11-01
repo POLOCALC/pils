@@ -33,6 +33,7 @@ import numpy as np
 import polars as pl
 
 from pils import store
+from pils.integrations.stout import layout
 
 MIN_CORRELATION = 0.9
 # Change of the drone's residual offset across the flight above which its clock looks to drift
@@ -257,7 +258,7 @@ def check(flight_dir: str | Path) -> dict[str, Any]:
     def add(name: str, status: str, detail: str) -> None:
         checks.append({"name": name, "status": status, "detail": detail})
 
-    sync = _latest(flight_dir / "proc" / "flight" / "sync")
+    sync = _latest(flight_dir / layout.PROC_FOLDER / "flight" / "sync")
     out: dict[str, Any] = {
         "revision": sync.name if sync else None,
         "checks": checks,
@@ -411,7 +412,7 @@ def check(flight_dir: str | Path) -> dict[str, Any]:
         )
 
     # The telescopes' pointing
-    telescope_root = flight_dir / "proc" / "telescope"
+    telescope_root = flight_dir / layout.PROC_FOLDER / "telescope"
     names = (
         sorted(p.name for p in telescope_root.iterdir() if p.is_dir())
         if telescope_root.is_dir()
@@ -457,7 +458,7 @@ def check(flight_dir: str | Path) -> dict[str, Any]:
         )
 
     # What a timing error costs, per telescope
-    azel_root = flight_dir / "proc" / "azel"
+    azel_root = flight_dir / layout.PROC_FOLDER / "azel"
     for name in (
         sorted(p.name for p in azel_root.iterdir() if p.is_dir())
         if azel_root.is_dir()

@@ -161,3 +161,36 @@ class TestGeometry:
         yaw, pitch, _ = geometry.relative_yaw_pitch_roll([1, 0, 0], [0, 1, 0])
         assert yaw == pytest.approx(np.pi / 2)
         assert pitch == pytest.approx(0.0)
+
+
+def test_new_version_name_is_utc():
+    """A revision is named in UTC (STOUT's layout), a naive datetime taken as UTC."""
+    import datetime as dt
+
+    from pils import store
+
+    chile = dt.timezone(-dt.timedelta(hours=3))
+    assert store.new_version_name(
+        dt.datetime(2025, 12, 8, 16, 27, 5, tzinfo=chile)
+    ) == ("rev_20251208_192705")
+    assert (
+        store.new_version_name(dt.datetime(2025, 12, 8, 19, 27, 5))
+        == "rev_20251208_192705"
+    )
+    assert (
+        new_version_name(dt.datetime(2025, 12, 8, 19, 27, 5)) == "rev_20251208_192705"
+    )
+
+
+def test_so_books_beside_campaigns_for_a_field_test(tmp_path):
+    """SO's books are in campaigns/telescope_data whether the flight is in campaigns/ or field_tests/."""
+    from pils.telescope_pointing import so_data_root
+
+    for rel in (
+        "campaigns/202511/20251208/flight_20251208_1927",
+        "field_tests/gimbal_test/20250301/flight_20250301_1000",
+    ):
+        (tmp_path / rel).mkdir(parents=True)
+        assert so_data_root(tmp_path / rel) == (
+            tmp_path.resolve() / "campaigns" / "telescope_data" / "SO" / "data"
+        )

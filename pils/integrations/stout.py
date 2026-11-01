@@ -1,10 +1,18 @@
 """STOUT, the POLOCALC campaign and inventory database: the one way pils reads it.
 
-STOUT is optional (``pip install pils[stout]``). This module is the only
-place in pils that does ``import stout`` (lazily, in :func:`_module`);
-everything else asks it here. Each function
-returns data, or raises :class:`StoutUnavailable` when STOUT is not
-installed (:func:`is_available` tells which before asking).
+This module is the only place in pils that does ``import stout`` (lazily,
+in :func:`_module`); everything else asks it here.
+
+* :data:`layout` is ``stout.data_layout``: the data folder's layout (folder
+  names, flight_/plan_/rev_ names in UTC, the flights in campaigns/ and
+  field_tests/). STOUT owns it; pils analyses what is in it and never spells
+  it itself (``from pils.integrations.stout import layout``).
+* The other functions read STOUT's database: each returns data, or raises
+  :class:`StoutUnavailable` when STOUT is not installed
+  (:func:`is_available` tells which before asking).
+
+STOUT is a dependency of pils (from POLOCALC's repository); ``pils[stout]``
+is kept as an alias.
 
 Examples
 --------
@@ -54,6 +62,13 @@ def _module(name: str) -> Any:
         raise StoutUnavailable(f"STOUT is not installed ({INSTALL_HINT}): {e}") from e
 
 
+def __getattr__(name: str) -> Any:
+    # ``layout``: stout.data_layout, imported on first use
+    if name == "layout":
+        return _module("stout.data_layout")
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 def _service(module: str, name: str) -> Any:
     cls = getattr(_module(module), name)
     if cls not in _services:
@@ -79,8 +94,8 @@ def is_available() -> bool:
 
 
 def data_path() -> Path:
-    """STOUT's main data folder (``Config.MAIN_DATA_PATH``)."""
-    return Path(_module("stout.config").Config.MAIN_DATA_PATH)
+    """STOUT's data folder (``Config.data_root()``: ``STOUT_DATA_PATH`` read now)."""
+    return Path(_module("stout.config").Config.data_root())
 
 
 def all_campaigns() -> list[dict[str, Any]]:

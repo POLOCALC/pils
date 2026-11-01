@@ -23,10 +23,13 @@ import h5py
 import numpy as np
 import polars as pl
 
+from pils import store
+
 logger = logging.getLogger(__name__)
 
-VERSION_PREFIX = "rev_"
-VERSION_FORMAT = "rev_%Y%m%d_%H%M%S"
+# A revision's name: STOUT's layout (rev_YYYYMMDD_HHMMSS, UTC), as pils.store
+VERSION_PREFIX = store.VERSION_PREFIX
+VERSION_FORMAT = store.VERSION_FORMAT
 
 
 def h5_to_dict(obj: h5py.Group) -> dict[str, Any]:
@@ -47,8 +50,8 @@ def load_h5(path: str | Path) -> dict[str, Any]:
 
 
 def new_version_name(now: datetime.datetime | None = None) -> str:
-    """Timestamped version name, e.g. ``rev_20260302_150712``."""
-    return (now or datetime.datetime.now()).strftime(VERSION_FORMAT)
+    """Timestamped version name, e.g. ``rev_20260302_150712`` (UTC), as pils.store."""
+    return store.new_version_name(now)
 
 
 def _json_default(value: Any) -> Any:

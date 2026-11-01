@@ -28,6 +28,7 @@ from typing import Any
 
 import pils.integrations.stout as stout_db
 from pils.config import DRONE_MAP, SENSOR_MAP
+from pils.integrations.stout import layout
 
 # Configure logging
 logging.basicConfig(
@@ -307,33 +308,19 @@ class StoutLoader:
         if self.base_data_path is None:
             logger.warning("Base data path not set")
             return flights
-        campaigns_dir = Path(self.base_data_path) / "campaigns"
-
-        if not campaigns_dir.exists():
-            logger.warning(f"Campaigns directory not found: {campaigns_dir}")
-            return flights
-
-        # Traverse: campaigns -> date folders -> flight folders
-        for campaign_path in campaigns_dir.iterdir():
-            if not campaign_path.is_dir():
-                continue
-            campaign_name = campaign_path.name
-
-            for date_path in campaign_path.iterdir():
-                if not date_path.is_dir():
-                    continue
-                date_folder = date_path.name
-
-                for flight_path in date_path.iterdir():
-                    if not flight_path.is_dir():
-                        continue
-                    flight_name = flight_path.name
-
-                    flight_dict = self._build_flight_dict_from_filesystem(
-                        campaign_name, date_folder, flight_name, str(flight_path)
-                    )
-                    if flight_dict:
-                        flights.append(flight_dict)
+        # campaigns/ and field_tests/ alike (STOUT's layout): campaign -> day -> flight
+        for campaign_folder, date_folder, flight_path in layout.flight_folders(
+            self.base_data_path
+        ):
+            flight_dict = self._build_flight_dict_from_filesystem(
+                Path(campaign_folder).name,
+                date_folder,
+                flight_path.name,
+                str(flight_path),
+            )
+            if flight_dict:
+                flight_dict["campaign_folder"] = campaign_folder
+                flights.append(flight_dict)
 
         logger.info(f"Loaded {len(flights)} flights from filesystem")
         return flights
@@ -383,15 +370,16 @@ class StoutLoader:
             takeoff_date = datetime.strptime(date_folder, "%Y%m%d").replace(tzinfo=UTC)
 
             flight_path_obj = Path(flight_path)
+            drone, aux = layout.RAW_FOLDERS
             flight_dict = {
                 "campaign_name": campaign_name,
                 "flight_name": flight_name,
                 "flight_date": date_folder,
                 "takeoff_datetime": takeoff_date.isoformat(),
                 "landing_datetime": takeoff_date.isoformat(),  # Not available from filesystem
-                "drone_data_folder_path": str(flight_path_obj / "drone"),
-                "aux_data_folder_path": str(flight_path_obj / "aux"),
-                "processed_data_folder_path": str(flight_path_obj / "proc"),
+                "drone_data_folder_path": str(flight_path_obj / drone),
+                "aux_data_folder_path": str(flight_path_obj / aux),
+                "processed_data_folder_path": str(flight_path_obj / layout.PROC_FOLDER),
             }
             return flight_dict
         except Exception as e:
@@ -525,15 +513,21 @@ class StoutLoader:
         campaigns = []
         if self.base_data_path is None:
             return campaigns
-        campaigns_dir = Path(self.base_data_path) / "campaigns"
-
-        if campaigns_dir.exists():
-            for campaign_path in campaigns_dir.iterdir():
-                if campaign_path.is_dir():
+        base = Path(self.base_data_path)
+        # campaigns/ and field_tests/ alike (STOUT's layout), not the telescopes' data
+        for top in layout.FLIGHT_ROOTS:
+            if not (base / top).is_dir():
+                continue
+            for campaign_path in sorted((base / top).iterdir()):
+                if (
+                    campaign_path.is_dir()
+                    and campaign_path != layout.telescope_data_folder(base)
+                ):
                     campaigns.append(
                         {
                             "name": campaign_path.name,
                             "path": str(campaign_path),
+                            "folder": f"{top}/{campaign_path.name}",
                         }
                     )
 

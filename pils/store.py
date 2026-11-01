@@ -35,19 +35,24 @@ from typing import Any
 import polars as pl
 
 from pils import schema
+from pils.integrations.stout import layout
 
 logger = logging.getLogger(__name__)
 
 MANIFEST = "manifest.json"
-VERSION_PREFIX = "rev_"
-VERSION_FORMAT = "rev_%Y%m%d_%H%M%S"
+# A revision's name: STOUT's layout (rev_YYYYMMDD_HHMMSS, UTC)
+VERSION_PREFIX = layout.REVISION_PREFIX
+VERSION_FORMAT = layout.REVISION_FORMAT
 
 Tables = dict[str, "pl.DataFrame | Tables"]
 
 
 def new_version_name(now: datetime.datetime | None = None) -> str:
-    """Timestamped version name, e.g. ``rev_20260302_150712``."""
-    return (now or datetime.datetime.now()).strftime(VERSION_FORMAT)
+    """Timestamped version name, e.g. ``rev_20260302_150712``.
+
+    ``now`` (default: the current time) in UTC, a naive datetime taken as UTC.
+    """
+    return layout.revision_name(now)
 
 
 @lru_cache(maxsize=1)

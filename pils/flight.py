@@ -6,7 +6,6 @@ import logging
 import re
 import warnings
 from collections.abc import Sequence
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, Optional, Union, overload
 
@@ -14,10 +13,11 @@ import h5py
 import numpy as np
 import polars as pl
 
-from pils import schema
+from pils import schema, store
 from pils.drones.BlackSquareDrone import BlackSquareDrone
 from pils.drones.DJIDrone import DJIDrone
 from pils.drones.litchi import Litchi
+from pils.integrations.stout import layout
 from pils.sensors.camera import Camera
 from pils.sensors.sensors import sensor_config
 from pils.synchronizer import Synchronizer
@@ -36,7 +36,7 @@ def _get_current_timestamp() -> str:
     str
         Timestamp string with seconds precision
     """
-    return datetime.now().strftime("rev_%Y%m%d_%H%M%S")
+    return store.new_version_name()
 
 
 def _get_package_version() -> str:
@@ -408,7 +408,11 @@ class Flight:
                 sync_data_group = f["sync_data"]
                 assert isinstance(sync_data_group, h5py.Group)
                 available_versions = sorted(
-                    [k for k in sync_data_group.keys() if k.startswith("rev_")]
+                    [
+                        k
+                        for k in sync_data_group.keys()
+                        if k.startswith(layout.REVISION_PREFIX)
+                    ]
                 )
                 if available_versions:
                     # Determine which version to load
