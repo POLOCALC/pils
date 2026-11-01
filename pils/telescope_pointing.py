@@ -208,6 +208,7 @@ def run(
             files = sorted(f for o in obs for f in o.glob("A_ancil_*.g3"))
             frame = thin(read_ancil(files, start, end), rate_hz)
         except Exception as e:  # a book that cannot be read: said, the others go on
+            logger.warning(f"{name}: could not read {so_name} pointing: {e}")
             out.append(PointingResult(name, "failed", f"{type(e).__name__}: {e}"))
             continue
         if frame.is_empty():

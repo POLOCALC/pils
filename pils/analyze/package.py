@@ -283,6 +283,7 @@ class FlightPackager:
             if records:
                 result.add("load drone records", "done", _describe(records))
         except Exception as e:
+            # Broad: recorded (and logged); the payload may still sync
             result.add("load drone", "failed", _error(e))
         # The payload GPS is the sync reference; without it, the drone GPS
         gps = getattr(flight.raw_data.payload_data, "gps", None)
@@ -302,6 +303,7 @@ class FlightPackager:
                 use_rtk_data=True, common_time=True, target_rate=dict(SYNC_RATES)
             )
         except Exception as e:
+            # Broad: recorded (and logged) as the failed step
             result.add("sync", "failed", _error(e))
             return False
         result.add(
@@ -369,6 +371,7 @@ class FlightPackager:
                 },
             )
         except Exception as e:
+            # Broad: recorded (and logged) as the failed step
             result.add("save flight", "failed", _error(e))
             return None
         result.add(
@@ -420,6 +423,7 @@ class FlightPackager:
         try:
             azel = AZELAnalysis(flight, output_dir=output_dir or self.output_dir)
         except Exception as e:
+            # Broad: recorded (and logged); the other steps go on
             result.add("azel", "failed", _error(e))
             return
         for telescope in telescopes:
@@ -442,6 +446,7 @@ class FlightPackager:
                     result.add(name, "failed", f"ValueError: {e}")
                 continue
             except Exception as e:
+                # Broad: one telescope failing does not stop the others
                 result.add(name, "failed", _error(e))
                 continue
             if version is None:
@@ -504,6 +509,7 @@ class FlightPackager:
                     plot=save,
                 )
             except Exception as e:
+                # Broad: one lab analysis failing does not stop the others
                 result.add(name, "failed", _error(e))
                 continue
             outputs = (
