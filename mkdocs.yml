@@ -123,6 +123,8 @@ plugins:
             show_symbol_type_heading: true
             show_symbol_type_toc: true
             members_order: source
+            # Flight, Synchronizer, PPKAnalysis, ... are assembled from mixins
+            inherited_members: true
             merge_init_into_class: true
             separate_signature: true
             show_signature_annotations: true
