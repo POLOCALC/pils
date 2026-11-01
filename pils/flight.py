@@ -218,6 +218,14 @@ def _deserialize_from_hdf5(value: Any, hint: str | None = None) -> Any:
     return value
 
 
+def _attribute_alias(name: str) -> property:
+    """Return a property reading and writing the attribute ``name``."""
+    return property(
+        lambda self: getattr(self, name),
+        lambda self, value: setattr(self, name, value),
+    )
+
+
 class Flight:
     """
     Data of one flight: drone, payload sensors and synchronized tables.
@@ -276,6 +284,13 @@ class Flight:
     >>> print(f"Points above 100m: {len(high_altitude)}")
     """
 
+    # The loader state was name-mangled (``self.__drone_model``); the old
+    # names stay readable and writable for the code and tests that use them
+    _Flight__drone_model = _attribute_alias("_drone_model")
+    _Flight__inclinometer = _attribute_alias("_inclinometer")
+    _Flight__camera_model = _attribute_alias("_camera_model")
+    _Flight__use_photogrammetry = _attribute_alias("_use_photogrammetry")
+
     def __init__(self, flight_info: dict[str, Any]):
         """
         Initialize a Flight data container.
@@ -314,10 +329,10 @@ class Flight:
         self.sync_position_columns: dict[str, dict[str, str]] = {}
         self.adc_gain_config = None
         # Set by the loaders; saved with the raw data
-        self.__drone_model: str | None = None
-        self.__inclinometer: str | None = None
-        self.__camera_model: str | None = None
-        self.__use_photogrammetry = False
+        self._drone_model: str | None = None
+        self._inclinometer: str | None = None
+        self._camera_model: str | None = None
+        self._use_photogrammetry = False
 
     @classmethod
     def from_hdf5(
@@ -741,7 +756,7 @@ class Flight:
         if not drone_model:
             drone_model = self._detect_drone_model(str(drone_folder))
 
-        self.__drone_model = drone_model
+        self._drone_model = drone_model
 
         # Find candidate files
         available_files = glob.glob(str(drone_folder) + "/*")
@@ -749,7 +764,7 @@ class Flight:
             raise FileNotFoundError(f"No drone log in {drone_folder} (empty folder)")
         records: dict[str, pl.DataFrame] = {}  # other .dat records (DJI)
 
-        if isinstance(self.__drone_model, str) and "dji" in self.__drone_model.lower():
+        if isinstance(self._drone_model, str) and "dji" in self._drone_model.lower():
             drone_data_path = None
             litchi_data_path = None
 
@@ -763,7 +778,7 @@ class Flight:
                     if fname.endswith("drone.csv") and drone_data_path is None:
                         drone_data_path = file
 
-                if fname.endswith("litchi.csv") and "dji" in self.__drone_model.lower():
+                if fname.endswith("litchi.csv") and "dji" in self._drone_model.lower():
                     litchi_data_path = file
 
             if drone_data_path is None:
@@ -783,9 +798,9 @@ class Flight:
                 litchi_loader.load_data()
                 litchi_data = litchi_loader.data
 
-        elif isinstance(self.__drone_model, str) and (
-            "black" in self.__drone_model.lower()
-            or "blacksquare" in self.__drone_model.lower()
+        elif isinstance(self._drone_model, str) and (
+            "black" in self._drone_model.lower()
+            or "blacksquare" in self._drone_model.lower()
         ):
             drone = BlackSquareDrone(drone_folder)
             drone.load_data()
@@ -808,8 +823,8 @@ class Flight:
 
         drone_kind = (
             "blacksquare"
-            if isinstance(self.__drone_model, str)
-            and "black" in self.__drone_model.lower()
+            if isinstance(self._drone_model, str)
+            and "black" in self._drone_model.lower()
             else "dji"
         )
         self.raw_data.drone_data = DroneData(
@@ -845,7 +860,7 @@ class Flight:
             sensor = config["class"](sensor_folder)
 
             if sensor_name == "inclinometer":
-                self.__inclinometer = sensor.sensor_type
+                self._inclinometer = sensor.sensor_type
 
             getattr(sensor, config["load_method"])()
             result = sensor.data
@@ -946,12 +961,12 @@ class Flight:
         >>> # Load camera video data without computing angles
         >>> flight.add_camera_data(use_photogrammetry=False, get_sony_angles=False)
         """
-        self.__use_photogrammetry = use_photogrammetry
+        self._use_photogrammetry = use_photogrammetry
         if use_photogrammetry:
-            self.__camera_data_type = "photogrammetry"
+            self._camera_data_type = "photogrammetry"
             path = Path(self.flight_info["proc_data_folder_path"]) / "photogrammetry"
         else:
-            self.__camera_data_type = "camera"
+            self._camera_data_type = "camera"
             path = Path(self.flight_info["aux_data_folder_path"]) / "camera"
 
         if path.exists():
@@ -961,7 +976,7 @@ class Flight:
 
             self.raw_data.payload_data.camera = _standardize(camera.data[0], "camera")
 
-            self.__camera_model = camera.data[1]
+            self._camera_model = camera.data[1]
 
         else:
             logger.info("Camera Path does not exist")
@@ -1075,7 +1090,7 @@ class Flight:
             if isinstance(drone_df, dict):  # ArduPilot messages
                 drone_df = drone_df.get("gps", next(iter(drone_df.values())))
 
-            model = (self.__drone_model or "").lower()
+            model = (self._drone_model or "").lower()
             records_gps = (self.raw_data.drone_data.records or {}).get("gps")
             if "dji" in model and use_rtk_data and "rtk_lat_deg" in drone_df.columns:
                 lat_col, lon_col, alt_col = "rtk_lat_deg", "rtk_lon_deg", "rtk_h_ell_m"
@@ -1185,8 +1200,8 @@ class Flight:
             if isinstance(incl_data, pl.DataFrame) and not incl_data.is_empty():
                 sync.add_inclinometer(
                     incl_data,
-                    self.__inclinometer,
-                    clock="own" if self.__inclinometer == "kernel" else "payload",
+                    self._inclinometer,
+                    clock="own" if self._inclinometer == "kernel" else "payload",
                 )
             else:
                 logger.warning("Inclinometer has no data: not synchronized")
@@ -1196,8 +1211,8 @@ class Flight:
         if "camera" in self.raw_data.payload_data:
             sync.add_camera(
                 self.raw_data.payload_data["camera"],
-                use_photogrammetry=self.__use_photogrammetry,
-                camera_model=self.__camera_model,
+                use_photogrammetry=self._use_photogrammetry,
+                camera_model=self._camera_model,
             )
 
         # Add other payload sensors
@@ -1330,10 +1345,10 @@ class Flight:
             metadata={
                 "flight_info": self.flight_info,
                 "flight_metadata": self.metadata,
-                "drone_model": self.__drone_model,
-                "inclinometer": self.__inclinometer,
-                "camera_model": self.__camera_model,
-                "use_photogrammetry": self.__use_photogrammetry,
+                "drone_model": self._drone_model,
+                "inclinometer": self._inclinometer,
+                "camera_model": self._camera_model,
+                "use_photogrammetry": self._use_photogrammetry,
             },
             kind="flight_raw",
             replace=True,
@@ -1390,10 +1405,10 @@ class Flight:
         meta = manifest["metadata"]
         flight = cls(meta["flight_info"])
         flight.metadata.update(meta.get("flight_metadata") or {})
-        flight.__drone_model = meta.get("drone_model")
-        flight.__inclinometer = meta.get("inclinometer")
-        flight.__camera_model = meta.get("camera_model")
-        flight.__use_photogrammetry = bool(meta.get("use_photogrammetry"))
+        flight._drone_model = meta.get("drone_model")
+        flight._inclinometer = meta.get("inclinometer")
+        flight._camera_model = meta.get("camera_model")
+        flight._use_photogrammetry = bool(meta.get("use_photogrammetry"))
 
         drone: dict[str, Any] = tables.get("drone", {})  # type: ignore[assignment]
         if drone:
