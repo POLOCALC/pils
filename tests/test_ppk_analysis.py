@@ -1166,9 +1166,9 @@ class TestVersionManagement:
 class TestRunAnalysisIntegration:
     """Test run_analysis integration with saving."""
 
-    @patch("pils.analyze.ppk.subprocess.run")
-    @patch("pils.analyze.ppk.POSAnalyzer")
-    @patch("pils.analyze.ppk.STATAnalyzer")
+    @patch("pils.analyze.ppk.core.subprocess.run")
+    @patch("pils.analyze.ppk.core.POSAnalyzer")
+    @patch("pils.analyze.ppk.core.STATAnalyzer")
     def test_run_analysis_saves_version(
         self, mock_stat, mock_pos, mock_subprocess, tmp_path, mock_rtklib_files
     ):
@@ -1221,9 +1221,9 @@ class TestRunAnalysisIntegration:
         assert (folder / "manifest.json").is_file()
         assert (folder / "position.parquet").is_file()
 
-    @patch("pils.analyze.ppk.subprocess.run")
-    @patch("pils.analyze.ppk.POSAnalyzer")
-    @patch("pils.analyze.ppk.STATAnalyzer")
+    @patch("pils.analyze.ppk.core.subprocess.run")
+    @patch("pils.analyze.ppk.core.POSAnalyzer")
+    @patch("pils.analyze.ppk.core.STATAnalyzer")
     def test_run_analysis_version_loadable(
         self, mock_stat, mock_pos, mock_subprocess, tmp_path, mock_rtklib_files
     ):
@@ -1274,9 +1274,9 @@ class TestRunAnalysisIntegration:
         assert version2.version_name == version1.version_name
         assert version2.metadata["config_hash"] == version1.metadata["config_hash"]
 
-    @patch("pils.analyze.ppk.subprocess.run")
-    @patch("pils.analyze.ppk.POSAnalyzer")
-    @patch("pils.analyze.ppk.STATAnalyzer")
+    @patch("pils.analyze.ppk.core.subprocess.run")
+    @patch("pils.analyze.ppk.core.POSAnalyzer")
+    @patch("pils.analyze.ppk.core.STATAnalyzer")
     def test_run_analysis_multiple_versions_persisted(
         self, mock_stat, mock_pos, mock_subprocess, tmp_path, mock_rtklib_files
     ):
@@ -1380,7 +1380,7 @@ class TestRevisionFolderCleanup:
         assert len(revision_folders) == 0
 
     @patch("subprocess.run")
-    @patch("pils.analyze.ppk.POSAnalyzer")
+    @patch("pils.analyze.ppk.core.POSAnalyzer")
     def test_cleanup_folder_when_parsing_fails(
         self, mock_pos_analyzer, mock_subprocess, tmp_path
     ):
@@ -1428,8 +1428,8 @@ class TestRevisionFolderCleanup:
         assert len(revision_folders) == 0
 
     @patch("subprocess.run")
-    @patch("pils.analyze.ppk.POSAnalyzer")
-    @patch("pils.analyze.ppk.STATAnalyzer")
+    @patch("pils.analyze.ppk.core.POSAnalyzer")
+    @patch("pils.analyze.ppk.core.STATAnalyzer")
     def test_preserves_folder_on_success(
         self, mock_stat, mock_pos, mock_subprocess, tmp_path
     ):
