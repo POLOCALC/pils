@@ -20,7 +20,7 @@ Usage:
     flights = loader.load_flights_by_date(start_date='2025-01-01', end_date='2025-01-15')
 """
 
-from datetime import UTC, datetime
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 
@@ -159,9 +159,7 @@ class PathLoader:
         """Build flight dictionary from filesystem structure."""
         try:
             # Extract date from folder name (YYYYMMDD format)
-            takeoff_date = datetime.strptime(
-                flight_name.removeprefix(layout.FLIGHT_PREFIX), "%Y%m%d_%H%M"
-            ).replace(tzinfo=UTC)
+            takeoff_date = layout.takeoff_from_name(flight_name).replace(tzinfo=UTC)
             drone, aux = layout.RAW_FOLDERS
 
             flight_dict = {

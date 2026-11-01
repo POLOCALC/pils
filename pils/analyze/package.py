@@ -194,9 +194,7 @@ def flight_info_from_path(flight_dir: str | Path) -> dict[str, Any]:
         "flight_info": {},
     }
     try:
-        takeoff = datetime.datetime.strptime(
-            flight_dir.name.removeprefix(layout.FLIGHT_PREFIX), "%Y%m%d_%H%M"
-        )
+        takeoff = layout.takeoff_from_name(flight_dir.name)
         info["takeoff_datetime"] = takeoff.replace(tzinfo=datetime.UTC)
     except ValueError:
         pass
