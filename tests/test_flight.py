@@ -118,7 +118,7 @@ class TestFlightTypeGuards:
             {"timestamp": [1, 2, 3], "value": [1.0, 2.0, 3.0]}
         )
 
-        with patch("pils.flight.sensor_config") as mock_config:
+        with patch("pils.flight.core.sensor_config") as mock_config:
             # Setup mock sensor config
             mock_config.get.return_value = {
                 "class": Mock(return_value=mock_sensor),
@@ -178,7 +178,7 @@ class TestFlightTypeGuards:
         mock_sensor = Mock()
         mock_sensor.data = pl.DataFrame({"timestamp": [1], "value": [1.0]})
 
-        with patch("pils.flight.sensor_config") as mock_config:
+        with patch("pils.flight.core.sensor_config") as mock_config:
             mock_config.get.return_value = {
                 "class": Mock(return_value=mock_sensor),
                 "load_method": "load_data",
