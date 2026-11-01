@@ -19,6 +19,8 @@ from typing import Any
 
 import numpy as np
 
+from pils.integrations.stout import layout
+
 # Crossings of a detector counted as enough (several flights, several rotations)
 ENOUGH = 3
 
@@ -41,7 +43,7 @@ def _layout(description: Mapping[str, Any]) -> tuple[list[str], np.ndarray, np.n
 
 def flight_telescopes(flight_dir: str | Path) -> list[str]:
     """List the telescopes a flight has the pointing of and saw the drone from."""
-    proc = Path(flight_dir) / "proc"
+    proc = Path(flight_dir) / layout.PROC_FOLDER
     pointing = proc / "telescope"
     if not pointing.is_dir():
         return []

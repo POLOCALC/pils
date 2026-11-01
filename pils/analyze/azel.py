@@ -1,6 +1,5 @@
 """AZEL (Azimuth-Elevation) analysis module for flight data."""
 
-import datetime
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -11,6 +10,7 @@ import pymap3d as pm
 
 from pils import store
 from pils.flight import Flight
+from pils.integrations.stout import layout
 from pils.sensors.emlid import reference_positions
 from pils.utils.logging_config import get_logger
 
@@ -180,7 +180,7 @@ class AZELAnalysis:
 
         # Create AZEL directory
         base = Path(output_dir) if output_dir is not None else self.flight_path
-        self.azel_dir = base / "proc" / "azel"
+        self.azel_dir = base / layout.PROC_FOLDER / "azel"
         self.azel_dir.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"Initialized AZEL analysis for flight: {self.flight_path}")
@@ -579,7 +579,7 @@ class AZELAnalysis:
             metadata.update(additional_metadata)
 
         # 11. Generate version name (timestamp-based: rev_YYYYMMDD_HHMMSS)
-        version_name = datetime.datetime.now().strftime("rev_%Y%m%d_%H%M%S")
+        version_name = store.new_version_name()
 
         logger.info(
             f"AZEL analysis complete: {len(timestamps_ctime)} samples, version={version_name}"

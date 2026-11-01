@@ -10,6 +10,8 @@ from typing import Any
 
 import polars as pl
 
+from pils.integrations.stout import layout
+
 # Tables with one row per key, whose counts add up when POLOCALC_ENG_PRE and _POST become one
 # project: {file: the columns summed}; every other column is the key. The tables with a row per
 # flight (the schedule, the joins, ...) keep their rows.
@@ -74,17 +76,25 @@ class PlanRun:
     pils revision of ``proc/plan``), or a planner's run folder (``<run>/plan/*.csv``). Its tables
     are asked for by the run's file names (``campaign_schedule.csv``) either way."""
 
-    def __init__(self, path: str | Path, merge: bool = True, revision: str | None = None):
+    def __init__(
+        self, path: str | Path, merge: bool = True, revision: str | None = None
+    ):
         path = Path(path)
         self.merge = merge
         self.revision: Path | None = None
-        if path.parent.name == PLAN_DATASET and path.name.startswith("rev_"):  # a revision itself
+        if path.parent.name == PLAN_DATASET and path.name.startswith(
+            layout.REVISION_PREFIX
+        ):  # a revision itself
             self.revision, path = path, path.parents[2]
-        elif (path / "proc" / PLAN_DATASET).is_dir():
+        elif (path / layout.PROC_FOLDER / PLAN_DATASET).is_dir():
             from pils import store
 
-            rev = revision or store.latest_version(path / "proc", PLAN_DATASET)
-            self.revision = path / "proc" / PLAN_DATASET / rev if rev else None
+            rev = revision or store.latest_version(
+                path / layout.PROC_FOLDER, PLAN_DATASET
+            )
+            self.revision = (
+                path / layout.PROC_FOLDER / PLAN_DATASET / rev if rev else None
+            )
         if self.revision is not None:
             self.root = path  # plans/<run>: config/, report.md, figures/ beside proc/
             self.path = path
@@ -117,7 +127,10 @@ class PlanRun:
         files = (self._manifest.get("metadata") or {}).get("files") or {}
         known = {table: file for file, table in files.items()}
         back = {v: k for k, v in RENAMED.items()}
-        return sorted(known.get(t, f"{back.get(t, t)}.csv") for t in self._manifest.get("tables", {}))
+        return sorted(
+            known.get(t, f"{back.get(t, t)}.csv")
+            for t in self._manifest.get("tables", {})
+        )
 
     def has(self, name: str) -> bool:
         if self.revision is None:
@@ -139,7 +152,9 @@ class PlanRun:
             df = df.with_columns(
                 (pl.col(c) == "True").alias(c)
                 for c, t in df.schema.items()
-                if t == pl.Utf8 and len(df) and set(df[c].drop_nulls().unique()) <= {"True", "False"}
+                if t == pl.Utf8
+                and len(df)
+                and set(df[c].drop_nulls().unique()) <= {"True", "False"}
                 and df[c].drop_nulls().len()
             )
         else:

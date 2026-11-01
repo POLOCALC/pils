@@ -3,6 +3,7 @@
 import sys
 import types
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -27,7 +28,7 @@ def stout_unavailable():
 def stout_available():
     """Install a stand-in ``stout`` package; yields its CampaignService."""
     service = MagicMock()
-    config = types.SimpleNamespace(MAIN_DATA_PATH="/data")
+    config = types.SimpleNamespace(data_root=lambda: Path("/data"))
     modules = {
         "stout": types.ModuleType("stout"),
         "stout.config": types.SimpleNamespace(Config=config),
@@ -393,3 +394,38 @@ class TestCollectSpecificData:
             data = loader._collect_specific_data(flight, data_types=["gps"])
 
             assert isinstance(data, dict)
+
+
+class TestFieldTestsOnDisk:
+    """Flights in field_tests/ are found as those in campaigns/ (STOUT's layout)."""
+
+    def test_flights_and_campaigns_in_field_tests(self, mock_campaign_structure):
+        flight = (
+            mock_campaign_structure
+            / "field_tests"
+            / "gimbal_test"
+            / "20250301"
+            / "flight_20250301_1000"
+        )
+        for sub in ("drone", "aux", "proc"):
+            (flight / sub).mkdir(parents=True)
+        (mock_campaign_structure / "campaigns" / "telescope_data" / "CLASS").mkdir(
+            parents=True
+        )
+        with stout_unavailable():
+            loader = StoutLoader()
+            loader.base_data_path = mock_campaign_structure
+
+            flights = loader._load_all_flights_from_filesystem()
+            campaigns = loader._get_campaigns_from_filesystem()
+
+        found = {f["flight_name"]: f for f in flights}
+        assert len(found) == 3
+        field = found["flight_20250301_1000"]
+        assert field["campaign_name"] == "gimbal_test"
+        assert field["campaign_folder"] == "field_tests/gimbal_test"
+        assert field["processed_data_folder_path"] == str(flight / "proc")
+        assert [c["folder"] for c in campaigns] == [
+            "campaigns/202511",
+            "field_tests/gimbal_test",
+        ]

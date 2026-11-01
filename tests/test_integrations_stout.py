@@ -65,7 +65,7 @@ def fake_stout(tmp_path):
     modules = {
         "stout": types.ModuleType("stout"),
         "stout.config": types.SimpleNamespace(
-            Config=types.SimpleNamespace(MAIN_DATA_PATH=str(tmp_path))
+            Config=types.SimpleNamespace(data_root=lambda: tmp_path)
         ),
         "stout.exceptions": types.SimpleNamespace(NotFoundError=NotFoundError),
         "stout.services": types.ModuleType("stout.services"),

@@ -12,6 +12,7 @@ import h5py
 import numpy as np
 import polars as pl
 
+from pils.integrations.stout import layout
 from pils.lab_analysis.base import LabAnalysis, LabVersion
 from pils.lab_analysis.notes import component_ids
 from pils.lab_analysis.store import Item, LabStore
@@ -201,7 +202,7 @@ class MultiplierDiodeAnalysis(LabAnalysis):
         )
         if save_data:
             for folder in self.output_folders(store, items):
-                self._save(version, folder / "proc" / self.analysis_name)
+                self._save(version, folder / layout.PROC_FOLDER / self.analysis_name)
         if plot:
             self.save_plots(version)
         return version

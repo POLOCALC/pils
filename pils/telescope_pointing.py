@@ -31,6 +31,7 @@ import numpy as np
 import polars as pl
 
 from pils import store
+from pils.integrations.stout import layout
 
 logger = logging.getLogger(__name__)
 
@@ -56,8 +57,13 @@ class PointingResult:
 
 
 def so_data_root(flight_dir: Path) -> Path:
-    """Return where SO's books are for a flight in <data>/campaigns/<campaign>/<day>/flight_*."""
-    return Path(flight_dir).resolve().parents[2] / "telescope_data" / "SO" / "data"
+    """Return where SO's books are for a flight in <data>/<campaigns|field_tests>/<campaign>/<day>/flight_*.
+
+    They are in the telescopes' data of the flight's data folder
+    (``<data>/campaigns/telescope_data/SO/data``, STOUT's layout), whichever
+    of campaigns/ and field_tests/ the flight is in.
+    """
+    return layout.telescope_data_folder(layout.data_root_of(flight_dir)) / "SO" / "data"
 
 
 def observations(root: Path, telescope: str, start: float, end: float) -> list[Path]:
@@ -147,7 +153,7 @@ def thin(samples: dict[str, np.ndarray], rate_hz: float = RATE_HZ) -> pl.DataFra
 
 def flight_window(flight_dir: Path) -> tuple[float, float] | None:
     """Return the flight's time span (UNIX s), from its synchronized drone table."""
-    proc = Path(flight_dir) / "proc" / "flight" / "sync"
+    proc = Path(flight_dir) / layout.PROC_FOLDER / "flight" / "sync"
     if not proc.is_dir():
         return None
     rev = store.latest_version(proc)
@@ -227,7 +233,7 @@ def run(
                 "values": "encoders (no azimuth offset, no pointing model)",
             }
             path = store.save_version(
-                flight_dir / "proc" / DATASET,
+                flight_dir / layout.PROC_FOLDER / DATASET,
                 version,
                 {"pointing": frame},
                 meta,

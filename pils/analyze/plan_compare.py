@@ -30,6 +30,7 @@ import numpy as np
 import polars as pl
 
 from pils import store
+from pils.integrations.stout import layout
 
 # A planned point is reached when the drone came this near it (m)
 NEAR_M = 5.0
@@ -46,14 +47,14 @@ def _latest(root: Path) -> Path | None:
 
 def planned_row(planned_dir: str | Path) -> dict[str, Any]:
     """Return the planned flight's metadata: its schedule ``row``, ``takeoff``, block."""
-    plan = _latest(Path(planned_dir) / "proc" / "plan")
+    plan = _latest(Path(planned_dir) / layout.PROC_FOLDER / "plan")
     if plan is None:
         raise ValueError(f"{planned_dir} is not a planned flight (no proc/plan)")
     return store.read_manifest(plan).get("metadata") or {}
 
 
 def _azel(flight_dir: Path, telescope: str) -> pl.DataFrame | None:
-    found = _latest(flight_dir / "proc" / "azel" / telescope)
+    found = _latest(flight_dir / layout.PROC_FOLDER / "azel" / telescope)
     if found is None:
         return None
     return store.read_columns(
@@ -71,7 +72,7 @@ def _unit(az_deg: np.ndarray, el_deg: np.ndarray) -> np.ndarray:
 def _flown_airborne(flown_dir: Path) -> tuple[float, float] | None:
     from pils.analyze.timing import airborne
 
-    sync = _latest(flown_dir / "proc" / "flight" / "sync")
+    sync = _latest(flown_dir / layout.PROC_FOLDER / "flight" / "sync")
     if sync is None:
         return None
     drone = store.read_columns(sync, "drone", ["timestamp", "h_ell_m"]).drop_nulls()

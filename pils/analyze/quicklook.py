@@ -44,6 +44,7 @@ import polars as pl
 
 from pils import store
 from pils.analyze.package import DEFAULT_TELESCOPES, PAYLOAD_SENSORS, resolve_flight
+from pils.integrations.stout import layout
 from pils.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -445,7 +446,7 @@ class QuickLook:
             if output_dir is not None
             else self.flight_path
         )
-        self.quicklook_dir = base / "proc" / QUICKLOOK_DIR
+        self.quicklook_dir = base / layout.PROC_FOLDER / QUICKLOOK_DIR
         self.warnings: list[str] = []
         self.sections: list[Section] = []
         self.tables: store.Tables = {}

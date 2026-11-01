@@ -23,6 +23,7 @@ import numpy as np
 import polars as pl
 
 import pils.integrations.stout as stout_db
+from pils.integrations.stout import layout
 from pils.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -229,7 +230,7 @@ class LabStore:
     ) -> tuple[dict[str, pl.DataFrame], dict[str, Any]] | None:
         from pils.lab_analysis.base import load_run, measurement_runs
 
-        results = folder / "proc" / analysis
+        results = folder / layout.PROC_FOLDER / analysis
         runs = measurement_runs(results, analysis)
         if not runs:
             return None

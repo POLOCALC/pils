@@ -76,6 +76,7 @@ import polars as pl
 
 from pils import store
 from pils.flight import Flight
+from pils.integrations.stout import layout
 from pils.store import new_version_name
 from pils.utils.logging_config import get_logger
 
@@ -182,18 +183,20 @@ def flight_info_from_path(flight_dir: str | Path) -> dict[str, Any]:
         If the folder has no ``drone`` folder.
     """
     flight_dir = Path(flight_dir).resolve()
-    if not (flight_dir / "drone").is_dir():
+    if not (flight_dir / layout.DRONE_FOLDER).is_dir():
         raise FileNotFoundError(f"No drone folder in {flight_dir}")
     info: dict[str, Any] = {
         "flight_id": None,
         "flight_name": flight_dir.name,
-        "drone_data_folder_path": str(flight_dir / "drone"),
-        "aux_data_folder_path": str(flight_dir / "aux"),
-        "processed_data_folder_path": str(flight_dir / "proc"),
+        "drone_data_folder_path": str(flight_dir / layout.DRONE_FOLDER),
+        "aux_data_folder_path": str(flight_dir / layout.AUX_FOLDER),
+        "processed_data_folder_path": str(flight_dir / layout.PROC_FOLDER),
         "flight_info": {},
     }
     try:
-        takeoff = datetime.datetime.strptime(flight_dir.name[7:], "%Y%m%d_%H%M")
+        takeoff = datetime.datetime.strptime(
+            flight_dir.name.removeprefix(layout.FLIGHT_PREFIX), "%Y%m%d_%H%M"
+        )
         info["takeoff_datetime"] = takeoff.replace(tzinfo=datetime.UTC)
     except ValueError:
         pass
@@ -247,7 +250,7 @@ class FlightPackager:
         self.output_dir = (
             Path(output_dir) / self.flight_name if output_dir is not None else None
         )
-        self.proc_dir = (self.output_dir or self.flight_path) / "proc"
+        self.proc_dir = (self.output_dir or self.flight_path) / layout.PROC_FOLDER
         self.flight: Flight | None = None
 
     @classmethod
@@ -467,7 +470,7 @@ class FlightPackager:
     ) -> Path:
         """Write the AZEL file for the telescope in the version's folder."""
         folder.mkdir(parents=True, exist_ok=True)
-        stem = self.flight_name.removeprefix("flight_")
+        stem = self.flight_name.removeprefix(layout.FLIGHT_PREFIX)
         path = folder / f"{version_name}_azel_{telescope.lower()}_{stem}.csv"
         data.select(
             pl.col(column).alias(name)

@@ -32,6 +32,7 @@ from pils.analyze.power.signal import (
 )
 from pils.analyze.power.telescope import TelescopeBeam, load_config, telescope_beam
 from pils.flight import Flight
+from pils.integrations.stout import layout
 from pils.lab_analysis.store import LabStore, value_at
 from pils.store import new_version_name
 from pils.utils import geometry
@@ -107,7 +108,7 @@ class PowerAnalysis:
         self.flight_path = Path(flight.flight_path)
         self.output_dir = Path(output_dir) if output_dir is not None else None
         base = self.output_dir or self.flight_path
-        self.power_dir = base / "proc" / "power"
+        self.power_dir = base / layout.PROC_FOLDER / "power"
 
     @staticmethod
     def target_name(telescope: str, wafer_slot: str) -> str:

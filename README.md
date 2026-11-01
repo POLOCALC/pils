@@ -9,10 +9,10 @@ A comprehensive Python package for loading, decoding, and analyzing flight data 
 pip install pils
 ```
 
-### With STOUT Support
-```bash
-pip install "pils[stout]"
-```
+### STOUT
+STOUT (POLOCALC's repository) is installed with pils: it owns the data folder's layout
+(`stout.data_layout`: folder names, `flight_`/`plan_`/`rev_` names in UTC, flights in
+`campaigns/` and `field_tests/`), and its database lists the flights. `pils[stout]` still works.
 
 ### Development Installation
 ```bash
@@ -166,11 +166,11 @@ black pils/ && isort pils/ && flake8 pils/ && mypy pils/
 
 ## Data Structure
 
-PILS expects data organized as:
+PILS expects data organized as STOUT lays it out (`stout.data_layout`; names in UTC):
 
 ```
 base_data_path/
-└── campaigns/
+└── campaigns/ (or field_tests/, the same below)
     └── Campaign_Name/
         └── 20250115/
             └── flight_20250115_1430/
