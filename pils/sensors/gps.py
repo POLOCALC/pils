@@ -48,6 +48,8 @@ def read_ubx(path: Path, protocol: int = UBX_PROTOCOL):
             try:
                 raw, parsed = reader.read()
             except Exception:
+                # Broad: pyubx2 and pynmeagps raise many types on corrupted
+                # bytes; they are counted and logged below
                 if stream.tell() == position:
                     break  # not moving on: stop rather than loop
                 errors += 1
@@ -166,7 +168,7 @@ class GPS:
                         # Only include serializable values (not methods)
                         if not callable(value):
                             record[attr] = value
-                    except Exception:
+                    except AttributeError:  # listed by dir() but not readable
                         pass
 
             nav_records[msg_type].append(record)

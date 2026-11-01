@@ -249,7 +249,7 @@ class DJIAlignmentMixin:
                                 fill_value=np.nan,
                             )
                             aligned_data[col] = f(target_ticks)
-                        except Exception as e:
+                        except ValueError as e:
                             logger.warning(f"Failed to interpolate column {col}: {e}")
 
                 # Columns to exclude from generic interpolation

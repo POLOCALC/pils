@@ -192,7 +192,7 @@ class DJIDrone(DJIAlignmentMixin, DJIMessageMixin):
                             .alias("datetime")
                         ]
                     )
-                except Exception as e:
+                except pl.exceptions.PolarsError as e:
                     # If parsing with timezone fails, try without timezone
                     logger.warning(f"Failed to parse datetime with timezone: {e}")
                     data = data.with_columns(

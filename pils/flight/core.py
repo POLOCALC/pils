@@ -205,7 +205,7 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
                 self.metadata["takeoff_time"] = takeoff
                 # If subtraction works, store duration; otherwise keep raw landing
                 self.metadata["flight_time"] = landing - takeoff
-            except Exception:
+            except TypeError:  # not subtractable (e.g. strings): keep both
                 self.metadata["takeoff_time"] = takeoff
                 self.metadata["landing_time"] = landing
 
@@ -252,9 +252,14 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
                             return "blacksquare"
                         # If we can't map to a known driver, return the raw model string
                         return m
-                except Exception:
-                    # If inventory lookup fails, fall back to folder heuristics below
-                    pass
+                except Exception as e:
+                    # Broad: an optional lookup in the STOUT database (driver,
+                    # connection, missing drone); the folder heuristics below
+                    # are the fallback
+                    logger.warning(
+                        f"Drone model of {drone_id} not found in STOUT ({e}); "
+                        "guessing it from the file names"
+                    )
 
             # Fallback: look for drone-specific patterns in filenames
             dji_pattern = get_path_from_keyword(str(drone_folder), "DJI")
@@ -269,7 +274,8 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
 
             # Default to DJI if nothing matches
             return "dji"
-        except Exception:
+        except OSError as e:
+            logger.warning(f"Could not read {drone_folder} ({e}); assuming a DJI drone")
             return "dji"
 
     def add_drone_data(
@@ -388,7 +394,10 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
                 litchi_loader = Litchi(litchi_data_path or str(drone_folder))
                 litchi_loader.load_data()
                 litchi_data = litchi_loader.data
-            except Exception:
+            except Exception as e:
+                # Broad: a format probe, any failure to read the folder as DJI
+                # (parse errors of many kinds) means trying BlackSquare
+                logger.info(f"Not a DJI drone folder ({e}); trying BlackSquare")
                 drone = BlackSquareDrone(str(drone_folder))
                 drone.load_data()
                 drone_data = drone.data

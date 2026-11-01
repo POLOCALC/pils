@@ -173,7 +173,7 @@ class PathLoader:
                 "processed_data_folder_path": str(flight_path / layout.PROC_FOLDER),
             }
             return flight_dict
-        except Exception as e:
+        except ValueError as e:  # not a flight folder's name
             logger.warning(
                 f"Could not build flight dict for {flight_name} {flight_path}: {e}"
             )

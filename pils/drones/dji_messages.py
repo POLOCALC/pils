@@ -80,7 +80,7 @@ class DJIMessageMixin:
 
             return [decoded] if decoded else []
 
-        except Exception as e:
+        except (IndexError, struct.error) as e:  # truncated message
             logger.debug(f"Failed to parse message: {e}")
             return []
 
@@ -154,7 +154,7 @@ class DJIMessageMixin:
 
             return result
 
-        except Exception as e:
+        except (struct.error, ValueError) as e:  # short payload, invalid date
             logger.error(f"Failed to decode message: {e}")
             return None
 
@@ -193,7 +193,7 @@ class DJIMessageMixin:
             return (
                 f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
             )
-        except Exception as e:
+        except TypeError as e:  # date or time not an integer
             logger.debug(f"Failed to format datetime: {e}")
             return None
 

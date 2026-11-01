@@ -8,7 +8,10 @@ import matplotlib.pyplot as plt
 import polars as pl
 import yaml as yaml_module
 
+from ..utils.logging_config import get_logger
 from ..utils.tools import get_logpath_from_datapath
+
+logger = get_logger(__name__)
 
 
 class LM76:
@@ -75,8 +78,11 @@ class LM76:
                         if lm76_settings is not None:
                             return lm76_settings
 
-            except Exception:
-                pass
+            except (OSError, yaml_module.YAMLError, AttributeError) as e:
+                # AttributeError: a section that is not a mapping (empty file)
+                logger.warning(
+                    f"Could not read the LM76 settings from {config_files[0]}: {e}"
+                )
 
     def load_data(self) -> None:
         """
