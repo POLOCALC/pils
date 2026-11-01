@@ -91,7 +91,7 @@ def default_lab_root() -> Path:
     if env:
         return Path(env)
     try:
-        return stout_db.data_path() / "lab"
+        return stout_db.data_path() / layout.LAB_ROOTS[0]
     except stout_db.StoutUnavailable:
         return DEFAULT_LAB_ROOT
 
