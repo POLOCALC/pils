@@ -172,9 +172,7 @@ class PowerAnalysis:
             return when if when.tzinfo else when.replace(tzinfo=datetime.UTC)
         name = self.flight_path.name
         try:
-            return datetime.datetime.strptime(name[7:20], "%Y%m%d_%H%M").replace(
-                tzinfo=datetime.UTC
-            )
+            return layout.takeoff_from_name(name).replace(tzinfo=datetime.UTC)
         except ValueError:
             return None
 
