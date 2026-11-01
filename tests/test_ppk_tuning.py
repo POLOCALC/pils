@@ -7,6 +7,7 @@ import polars as pl
 import pytest
 
 from pils.analyze import ppk_tuning as T
+from pils.analyze.ppk_tuning import search
 
 HEADER = """\
      3.04           OBSERVATION DATA    M: Mixed            RINEX VERSION / TYPE
@@ -136,8 +137,8 @@ def test_tune_picks_most_fixes_among_valid(tmp_path, monkeypatch):
         sol.write_parquet(pos)
         return pos
 
-    monkeypatch.setattr(T, "run_rnx2rtkp", fake_run)
-    monkeypatch.setattr(T, "read_pos", lambda pos: pl.read_parquet(pos))
+    monkeypatch.setattr(search, "run_rnx2rtkp", fake_run)
+    monkeypatch.setattr(search, "read_pos", lambda pos: pl.read_parquet(pos))
     result = T.tune(
         "pos2-armode =continuous\npos1-elmask =10\n",
         rover,
@@ -257,8 +258,8 @@ def test_tune_by_fix_rate(tmp_path, monkeypatch):
         track(t).with_columns(pl.Series("quality", quality)).write_parquet(pos)
         return pos
 
-    monkeypatch.setattr(T, "run_rnx2rtkp", fake_run)
-    monkeypatch.setattr(T, "read_pos", lambda pos: pl.read_parquet(pos))
+    monkeypatch.setattr(search, "run_rnx2rtkp", fake_run)
+    monkeypatch.setattr(search, "read_pos", lambda pos: pl.read_parquet(pos))
     result = T.tune(
         "pos2-armode =continuous\npos1-elmask =10\n",
         rover,
