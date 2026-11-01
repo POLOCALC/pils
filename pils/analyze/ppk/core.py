@@ -470,8 +470,9 @@ class PPKAnalysis(PPKInputsMixin, PPKStorageMixin):
             pos_analyzer = POSAnalyzer(str(pos_file))
             pos_data = pos_analyzer.parse()
             logger.info(f"Parsed position: {len(pos_data)} epochs")
-        except Exception as e:
-            logger.error(f"Failed to parse position file: {e}")
+        except Exception:
+            # Broad: any parse failure ends this run (cleaned up, None returned)
+            logger.exception(f"Failed to parse position file {pos_file}")
             # Clean up revision folder on failure
             if revision_path.exists():
                 shutil.rmtree(revision_path)
@@ -487,8 +488,9 @@ class PPKAnalysis(PPKInputsMixin, PPKStorageMixin):
                 stat_analyzer = STATAnalyzer(str(stat_file))
                 stat_data = stat_analyzer.parse()
                 logger.info(f"Parsed statistics: {len(stat_data)} records")
-            except Exception as e:
-                logger.error(f"Failed to parse statistics file: {e}")
+            except Exception:
+                # Broad: the statistics are optional, the solution is kept
+                logger.exception(f"Failed to parse statistics file {stat_file}")
                 stat_data = None
 
         # Create metadata with config hash and parsed parameters

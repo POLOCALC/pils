@@ -185,8 +185,8 @@ def migrate_proc(proc_dir: str | Path, dry_run: bool = False) -> list[str]:
         if path.is_file():
             try:
                 done += job(path)
-            except Exception as e:
-                logger.error(f"{path}: {type(e).__name__}: {e}")
+            except Exception as e:  # Broad: a failed file is reported, the others go on
+                logger.exception(f"{path}: {type(e).__name__}: {e}")
                 done.append(f"FAILED {relative}: {type(e).__name__}: {e}")
     return done
 
@@ -240,7 +240,7 @@ def migrate_lab(proc_dir: str | Path, dry_run: bool = False) -> list[str]:
                         parent=stem,
                         kind=f"lab_{analysis}",
                     )
-        except Exception as e:
-            logger.error(f"{path}: {type(e).__name__}: {e}")
+        except Exception as e:  # Broad: a failed file is reported, the others go on
+            logger.exception(f"{path}: {type(e).__name__}: {e}")
             done.append(f"FAILED {path.name}: {type(e).__name__}: {e}")
     return done

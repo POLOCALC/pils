@@ -155,6 +155,8 @@ class PPKInputsMixin:
             ).filter((pl.col("lat_deg") != 0) & pl.col("timestamp").is_not_null())
             return track if track.height else None
         except Exception as e:
+            # Broad: the track only validates the tuning; loading the drone
+            # data can fail in many ways, and the tuning then goes without it
             logger.warning(f"No drone RTK track to validate the tuning: {e}")
             return None
 

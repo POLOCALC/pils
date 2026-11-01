@@ -419,6 +419,7 @@ class PPKStorageMixin:
             try:
                 ppk._load_version(version_name)
             except Exception as e:
+                # Broad: one unreadable revision does not hide the others
                 logger.warning(f"Failed to load version {version_name}: {e}")
         if ppk.hdf5_path.exists():
             import h5py
@@ -428,7 +429,7 @@ class PPKStorageMixin:
             for version_name in legacy:
                 try:
                     ppk._load_version_from_hdf5(version_name)
-                except Exception as e:
+                except Exception as e:  # Broad: as above, for the legacy HDF5 revisions
                     logger.warning(f"Failed to load version {version_name}: {e}")
         logger.info(f"Loaded {len(ppk.versions)} versions")
         return ppk

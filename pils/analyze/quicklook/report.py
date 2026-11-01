@@ -292,11 +292,11 @@ class QuickLook(QuickLookGNSSMixin):
                 try:
                     self.flight.add_sensor_data(sensor)
                     loaded.append(sensor)
-                except Exception as e:
+                except Exception as e:  # Broad: a sensor missing from this payload
                     logger.info(f"{sensor}: {e}")
             try:
                 self.flight.add_drone_data()
-            except Exception as e:
+            except Exception as e:  # Broad: reported in the warnings, the rest goes on
                 self.warnings.append(f"Drone: could not load ({type(e).__name__}: {e})")
         if collected.messages:
             section.add("", "Messages while loading:", "")
