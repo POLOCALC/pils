@@ -158,6 +158,7 @@ class RINEXParsingMixin:
 
             lines = f.readlines()
             i = 0
+            skipped = 0
             while i < len(lines):
                 line = lines[i]
                 if not line.strip():
@@ -258,10 +259,14 @@ class RINEXParsingMixin:
                         self.nav_data[sat_id] = []
                     self.nav_data[sat_id].append(eph)
 
-                except Exception:
-                    pass
+                except (ValueError, IndexError):  # a malformed or truncated record
+                    skipped += 1
 
                 i += 1 + n_data_lines
+            if skipped:
+                logger.warning(
+                    f"{self.navpath.name}: {skipped} malformed NAV records skipped"
+                )
 
     def compute_satellite_azel(self):
         """Propagates satellite positions for precise Az/El calculation.
@@ -292,6 +297,7 @@ class RINEXParsingMixin:
         OMEGA_E = 7.2921151467e-5
 
         azel_list = []
+        failed = 0
         for sat in self.df_obs["satellite"].unique():
             if sat not in self.nav_data:
                 continue
@@ -401,9 +407,11 @@ class RINEXParsingMixin:
                     azel_list.append(
                         {"time": t, "satellite": sat, "azimuth": az, "elevation": el}
                     )
-                except Exception:
-                    pass
+                except (ArithmeticError, KeyError):  # an unusable ephemeris
+                    failed += 1
 
+        if failed:
+            logger.warning(f"Az/El not computed for {failed} satellite epochs")
         self.azel_df = pl.DataFrame(azel_list)
 
     def _mock_azel(self):

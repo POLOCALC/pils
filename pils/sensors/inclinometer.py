@@ -123,7 +123,7 @@ def decode_inclino(inclino_path: str | Path) -> dict[str, list[Any]]:
 
             for j in tmp.keys():
                 decoded_msg[j].append(tmp[j])
-        except Exception as e:
+        except Exception as e:  # Broad: one corrupted message does not lose the rest
             logger.warning(f"Failed to decode inclinometer message: {e}")
             continue
     return decoded_msg
@@ -190,9 +190,9 @@ def detect_inclinometer_type_from_config(dirpath: Path) -> str | None:
                 # Check if there are INC files to determine type
                 return None  # Let file detection handle it
 
-    except Exception as e:
+    except (OSError, yaml_module.YAMLError, AttributeError) as e:
+        # AttributeError: a section that is not a mapping (empty file)
         logger.warning(f"Failed to detect inclinometer type from config: {e}")
-        pass
 
     return None
 
@@ -470,7 +470,7 @@ class KernelInclinometer:
                 else:
                     self.tstart = tstart
                     break
-            except Exception as e:
+            except (OSError, ValueError) as e:
                 logger.warning(
                     f"Couldn't find start time from logfile. Skipping datetime conversion. Error: {e}"
                 )

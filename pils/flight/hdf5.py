@@ -45,12 +45,9 @@ def _get_package_version() -> str:
     str
         Version string or 'unknown'
     """
-    try:
-        import pils
+    import pils
 
-        return getattr(pils, "__version__", "unknown")
-    except Exception:
-        return "unknown"
+    return getattr(pils, "__version__", "unknown")
 
 
 _LEGACY_SYNC_COORDINATES = {
@@ -137,12 +134,12 @@ def _deserialize_from_hdf5(value: Any, hint: str | None = None) -> Any:
         if hint == "dict" and isinstance(value, str):
             try:
                 return json.loads(value)
-            except Exception:
+            except json.JSONDecodeError:  # a plain string, not JSON
                 return value
         elif hint == "list" and isinstance(value, str):
             try:
                 return json.loads(value)
-            except Exception:
+            except json.JSONDecodeError:  # a plain string, not JSON
                 return value
         return value
     return value
@@ -502,8 +499,8 @@ class FlightHDF5Mixin:
                     metadata_group.attrs[f"flight_info_{key}"] = _serialize_for_hdf5(
                         value
                     )
-                except Exception as e:
-                    logger.info(f"Warning: Could not save flight_info[{key}]: {e}")
+                except Exception as e:  # h5py: TypeError, ValueError, OSError, ...
+                    logger.warning(f"Could not save flight_info[{key}]: {e}")
 
         # Save flight_metadata as attrs
         if self.metadata:
@@ -512,8 +509,8 @@ class FlightHDF5Mixin:
                     metadata_group.attrs[f"flight_metadata_{key}"] = (
                         _serialize_for_hdf5(value)
                     )
-                except Exception as e:
-                    logger.info(f"Warning: Could not save metadata[{key}]: {e}")
+                except Exception as e:  # h5py: TypeError, ValueError, OSError, ...
+                    logger.warning(f"Could not save metadata[{key}]: {e}")
 
     def _save_raw_data_to_hdf5(self, h5file: "h5py.File") -> None:
         """
@@ -645,8 +642,8 @@ class FlightHDF5Mixin:
             for key, value in sync_metadata.items():
                 try:
                     revision_group.attrs[f"user_{key}"] = _serialize_for_hdf5(value)
-                except Exception as e:
-                    logger.info(f"Warning: Could not save sync_metadata[{key}]: {e}")
+                except Exception as e:  # h5py: TypeError, ValueError, OSError, ...
+                    logger.warning(f"Could not save sync_metadata[{key}]: {e}")
 
     def _save_dataframe_to_hdf5(
         self, parent_group: "h5py.Group", name: str, df: "pl.DataFrame"

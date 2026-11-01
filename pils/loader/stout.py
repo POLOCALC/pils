@@ -382,7 +382,7 @@ class StoutLoader:
                 "processed_data_folder_path": str(flight_path_obj / layout.PROC_FOLDER),
             }
             return flight_dict
-        except Exception as e:
+        except ValueError as e:  # not a YYYYMMDD date folder
             logger.warning(f"Could not build flight dict for {flight_name}: {e}")
             return None
 
@@ -483,7 +483,7 @@ class StoutLoader:
             for file_path in dir_path.rglob("*"):
                 if file_path.is_file():
                     files.append(str(file_path))
-        except Exception as e:
+        except OSError as e:
             logger.warning(f"Error listing files in {directory}: {e}")
 
         return files

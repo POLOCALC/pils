@@ -244,7 +244,7 @@ class TestKernelInclinometer:
         kernel_inc = KernelInclinometer(inc_file, logpath=str(log_file))
 
         with patch("pils.sensors.inclinometer.read_log_time") as mock_read_log:
-            mock_read_log.side_effect = Exception("Parse error")
+            mock_read_log.side_effect = OSError("Parse error")
 
             with caplog.at_level("WARNING"):
                 kernel_inc.read_log_time(logfile=str(log_file))

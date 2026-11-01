@@ -58,6 +58,7 @@ def read_pickles(path: str | Path) -> Iterator[Any]:
         try:
             value = _PlainUnpickler(stream).load()
         except Exception:
+            # Broad: unpickling arbitrary bytes raises many types; counted, logged below
             skipped += 1
             position = start + 1
             continue

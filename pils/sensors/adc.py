@@ -147,11 +147,8 @@ def decode_adc_file_ascii(adc_path: str | Path, gain_config: int = 16) -> pl.Dat
             value = int(parts[1])
             timestamps.append(timestamp)
             amplitudes.append(value)
-        except ValueError as e:
+        except ValueError as e:  # also UnicodeDecodeError (not ASCII)
             logger.warning(f"Line {line_num} could not be parsed as integers: {e}")
-            continue
-        except Exception as e:
-            logger.error(f"Error decoding line {line_num}: {e}")
             continue
 
     adc_data = pl.DataFrame({"timestamp": timestamps, "amplitude": amplitudes})
@@ -249,8 +246,12 @@ class ADC:
                         gain = sensor_config.get("configuration", {}).get("gain")
                         if gain is not None:
                             return int(gain)
-            except Exception:
-                pass
+            except (OSError, yaml_module.YAMLError, AttributeError, ValueError) as e:
+                # AttributeError: a section that is not a mapping (empty file)
+                logger.warning(
+                    f"Could not read the ADC gain from {config_files[0]} ({e}); "
+                    "using the default gain 16"
+                )
 
         return 16  # Default gain
 

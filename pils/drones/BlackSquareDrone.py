@@ -153,7 +153,7 @@ def read_msgs(path: str | Path) -> dict[str, pl.DataFrame]:
         try:
             df = messages_to_df(messages, columns, format_str)
             dfs[msg_type] = df
-        except Exception as e:
+        except Exception as e:  # one bad message type does not lose the others
             logger.warning(f"Failed to parse message type '{msg_type}': {e}")
 
     return dfs
