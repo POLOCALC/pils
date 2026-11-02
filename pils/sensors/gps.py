@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -36,15 +37,27 @@ class GPS:
             Optional path to log file. If None, will be inferred.
         """
 
-        files = list(path.glob("*"))
+        files = [f for f in path.glob("*") if not f.name.startswith(".")]
 
+        self.data_path = None
         for f in files:
             if f.name.lower().endswith("gps.bin"):
                 self.data_path = f
+        if self.data_path is None:
+            # newer acquisitions: ZED-F9P_<YYYYMMDD>_<HHMMSS>.bin
+            for f in files:
+                if f.name.startswith("ZED-F9P") and f.suffix.lower() == ".bin":
+                    self.data_path = f
+        if self.data_path is None:
+            raise FileNotFoundError(f"No GPS file (*gps.bin or ZED-F9P_*.bin) in {path}")
+
         if logpath is not None:
             self.logpath = logpath
         else:
-            self.logpath = get_logpath_from_datapath(self.data_path)
+            try:
+                self.logpath = get_logpath_from_datapath(self.data_path)
+            except FileNotFoundError:
+                self.logpath = None  # newer layouts: the date comes from the data itself
 
         self.tstart: datetime | None = None
         self.data: pl.DataFrame | None = None
@@ -77,12 +90,16 @@ class GPS:
 
         # Dictionary to collect records from different NAV message types
         nav_records = {}
+        rawx_week = None  # GPS week number, from RXM-RAWX when the receiver logs it
 
         with open(self.data_path, "rb") as stream:
             ubr = UBXReader(stream, protfilter=UBX_PROTOCOL, quitonerror=False)
             for _raw_data, parsed_data in ubr:
                 if parsed_data is None:
                     continue
+
+                if rawx_week is None and parsed_data.identity == "RXM-RAWX":
+                    rawx_week = getattr(parsed_data, "week", None) or None
 
                 # Only process NAV messages
                 if not parsed_data.identity.startswith("NAV-"):
@@ -129,22 +146,31 @@ class GPS:
                     df = df.rename(renamed_cols)
                 nav_dataframes[msg_type] = df
 
-        # Get the date from log file to compute GPS week
-        time_start, date = read_log_time(
-            keyphrase="Sensor ZED-F9P started", logfile=self.logpath
-        )
-
+        # GPS week, needed to turn iTOW (time of week) into absolute time:
+        # RXM-RAWX week if logged, else the date in the file name
+        # (ZED-F9P_YYYYMMDD_HHMMSS.bin), else the "Sensor ZED-F9P started" log line.
+        time_start, date = (None, None)
+        if self.logpath is not None:
+            time_start, date = read_log_time(
+                keyphrase="Sensor ZED-F9P started", logfile=self.logpath
+            )
         if date is None:
-            self.data = pl.DataFrame()
-            return
+            m = re.search(r"(\d{8})_\d{6}", self.data_path.name)
+            if m:
+                date = datetime.strptime(m.group(1), "%Y%m%d").date()
 
         # GPS epoch and leap seconds offset (GPS time is ahead of UTC by 18 seconds as of 2017)
         gps_epoch = datetime(1980, 1, 6).date()
         unix_epoch = datetime(1970, 1, 1).date()
         gps_leap_seconds = 18  # GPS-UTC offset in seconds
 
-        duration = date - gps_epoch
-        gps_week = duration.days // 7
+        if rawx_week is not None:
+            gps_week = int(rawx_week)
+        elif date is not None:
+            gps_week = (date - gps_epoch).days // 7
+        else:
+            self.data = pl.DataFrame()
+            return
 
         # Compute Unix timestamp in ms for each dataframe
         # GPS time = GPS epoch + (week * 7 days) + iTOW (in ms)
@@ -159,18 +185,19 @@ class GPS:
                 # Create Unix timestamp in ms
                 # unix_time_ms = gps_week_ms + iTOW + gps_epoch_offset - leap_seconds
                 df = df.with_columns(
-                    [
-                        (
-                            pl.col("iTOW")
-                            + pl.lit(week_ms + gps_to_unix_offset_ms - leap_seconds_ms)
-                        ).alias("unix_time_ms"),
-                        # Relative datetime: time_start + (iTOW - iTOW[0])
+                    (
+                        pl.col("iTOW")
+                        + pl.lit(week_ms + gps_to_unix_offset_ms - leap_seconds_ms)
+                    ).alias("unix_time_ms")
+                )
+                if time_start is not None:
+                    # Relative datetime: time_start + (iTOW - iTOW[0])
+                    df = df.with_columns(
                         (
                             pl.lit(time_start)
                             + pl.duration(milliseconds=pl.col("iTOW") - first_itow)
-                        ).alias("datetime_relative"),
-                    ]
-                )
+                        ).alias("datetime_relative")
+                    )
                 nav_dataframes[msg_type] = df
 
         # Combine dataframes based on a common time grid with interpolation

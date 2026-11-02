@@ -43,48 +43,88 @@ def read_log_time(
     return None, None
 
 
-def read_alvium_log_time(keyphrase: str, logfile: str | Path) -> pl.DataFrame:
+# def read_alvium_log_time(keyphrase: str, logfile: str | Path) -> pl.DataFrame:
+#     """
+#     Read Alvium camera log file and extract timestamps and frame numbers.
+
+#     Parameters
+#     ----------
+#     keyphrase : str
+#         The string to search in the log file (e.g., "Saving frame").
+#     logfile : str or Path
+#         Path to the log file.
+
+#     Returns
+#     -------
+#     pl.DataFrame
+#         DataFrame with columns 'timestamp' (Float64) and 'frame_num' (Int64).
+#         Returns empty DataFrame if no matches found.
+#     """
+#     logfile = Path(logfile)  # Convert to Path if string
+
+#     # Pattern to extract datetime and frame number
+#     pattern = r"\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}).*frame_(\d+)\.raw"
+
+#     data = []
+#     with open(logfile) as f:
+#         for line in f:
+#             if keyphrase in line:
+#                 match = re.search(pattern, line)
+#                 if match:
+#                     # Parse datetime string to timestamp
+#                     dt_str = match.group(1)
+#                     dt = datetime.datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S.%f")
+#                     # dt is naive; dt.timestamp() would silently assume the timezone
+#                     # of whatever machine runs this analysis (e.g. Europe/Rome), not
+#                     # the log's own convention (UTC, matching the drone GPS clock) --
+#                     # that mismatch desynced GPS from photogrammetry. Attach UTC
+#                     # explicitly so the epoch is correct regardless of where this runs.
+#                     # timestamp = dt.timestamp()
+#                     timestamp = dt.replace(tzinfo=datetime.timezone.utc).timestamp()
+
+#                     # Get frame number
+#                     frame_num = int(match.group(2))
+
+#                     data.append({"timestamp": timestamp, "frame_num": frame_num})
+
+#     # Return DataFrame (empty if no matches)
+#     return (
+#         pl.DataFrame(data) if data else pl.DataFrame({"timestamp": [], "frame_num": []})
+#     )
+
+def read_alvium_log_time(logfile: str | Path) -> pl.DataFrame:
     """
-    Read Alvium camera log file and extract timestamps and frame numbers.
+    Read the new-format Alvium log, where each frame line carries
+    ``host_time_ns=<int> ... frame=<int>``.
 
     Parameters
     ----------
-    keyphrase : str
-        The string to search in the log file (e.g., "Saving frame").
     logfile : str or Path
         Path to the log file.
 
     Returns
     -------
     pl.DataFrame
-        DataFrame with columns 'timestamp' (Float64) and 'frame_num' (Int64).
-        Returns empty DataFrame if no matches found.
+        DataFrame with columns 'timestamp' (Float64, UTC epoch seconds) and
+        'frame_num' (Int64). Empty if the log has no ``host_time_ns`` lines
+        (old log format, no longer supported).
     """
-    logfile = Path(logfile)  # Convert to Path if string
+    pattern = re.compile(r"host_time_ns=(\d+).*frame=(\d+)")
 
-    # Pattern to extract datetime and frame number
-    pattern = r"\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}).*frame_(\d+)\.raw"
-
-    data = []
-    with open(logfile) as f:
+    rows = []
+    with open(Path(logfile)) as f:
         for line in f:
-            if keyphrase in line:
-                match = re.search(pattern, line)
-                if match:
-                    # Parse datetime string to timestamp
-                    dt_str = match.group(1)
-                    dt = datetime.datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S.%f")
-                    timestamp = dt.timestamp()
+            match = pattern.search(line)
+            if match:
+                rows.append((int(match.group(1)) / 1e9, int(match.group(2))))
 
-                    # Get frame number
-                    frame_num = int(match.group(2))
-
-                    data.append({"timestamp": timestamp, "frame_num": frame_num})
-
-    # Return DataFrame (empty if no matches)
-    return (
-        pl.DataFrame(data) if data else pl.DataFrame({"timestamp": [], "frame_num": []})
+    return pl.DataFrame(
+        rows,
+        schema={"timestamp": pl.Float64, "frame_num": pl.Int64},
+        orient="row",
     )
+
+
 
 
 def drop_nan_and_zero_cols(df: pl.DataFrame) -> pl.DataFrame:

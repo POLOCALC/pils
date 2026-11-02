@@ -897,8 +897,8 @@ class Synchronizer:
         else:
             self.__camera_model = camera_model
 
-            if camera_model and camera_model.lower() == "sony":
-                self.__camera_names = {"timestamp": "timestamp", "pitch": "pitch"}
+            # Sony: telemetry pitch for the correlation; Alvium: frame timestamps only
+            self.__camera_names = {"timestamp": timestamp_col, "pitch": pitch_col}
 
         self.camera = camera_data
 

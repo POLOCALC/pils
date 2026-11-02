@@ -89,7 +89,14 @@ class IMU:
             - accelerometer.bin
             - gyroscope.bin
             - magnetometer.bin
+            Newer acquisitions write them into an ``Inertial_<timestamp>.bin/``
+            subfolder instead, which is used when present.
         """
+        dirpath = Path(dirpath)
+        if not (dirpath / "barometer.bin").exists():
+            subdirs = sorted(p for p in dirpath.glob("Inertial_*.bin") if p.is_dir())
+            if subdirs:
+                dirpath = subdirs[0]
         self.dirpath = dirpath
         self.barometer = IMUSensor(dirpath / "barometer.bin", "baro")
         self.accelerometer = IMUSensor(dirpath / "accelerometer.bin", "accelero")
