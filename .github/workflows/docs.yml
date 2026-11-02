@@ -36,6 +36,13 @@ jobs:
           cache: 'pip'
 
       - name: Install dependencies
+        # STOUT (a dependency, git+https from POLOCALC/stout, which pip may spell in lower case) is
+        # private: GitHub read with PAT_TOKEN,
+        # for this step only (git's environment configuration: nothing written to disk)
+        env:
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: url.https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/.insteadOf
+          GIT_CONFIG_VALUE_0: https://github.com/
         run: |
           pip install --upgrade pip
           pip install -e ".[docs]" --no-cache-dir
