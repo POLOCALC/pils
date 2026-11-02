@@ -187,3 +187,36 @@ def test_a_sync_without_the_record_judged_from_its_columns(columns, rtk):
     table = pl.DataFrame({c: [1.0] for c in columns})
     assert _positions_are_rtk("sync_data", table, None) is rtk
     assert _positions_are_rtk("raw_data", table, None) is True
+
+
+def test_broadcast_reference_keeps_the_positions_as_reported(campaign):
+    """rtk_reference="broadcast": the frame of the broadcast base, no correction."""
+    e, n, u = _true_track()
+    lat, lon, h = _reported(e, n, u)
+    table = pl.DataFrame(
+        {
+            "timestamp": 1.76e9 + np.arange(e.size, dtype=float),
+            "rtk_lat_deg": lat,
+            "rtk_lon_deg": lon,
+            "rtk_h_ell_m": h,
+            "rtk_pos_flag_1": np.full(e.size, 50),
+        }
+    )
+    version = AZELAnalysis(_flight(campaign, table)).run_analysis(
+        "SATP1", BROADCAST, rtk_reference="broadcast"
+    )
+    assert version is not None
+    assert not version.metadata["rtk_applied"]
+    assert version.metadata["rtk_reference"] == "broadcast"
+    assert version.metadata["rtk_fixed_only"]  # still RTK positions
+    reported = pm.geodetic2enu(lat, lon, h, *TELESCOPE.values())
+    for column, expected in zip(("e_m", "n_m", "u_m"), reported):
+        np.testing.assert_allclose(version.azel_data[column].to_numpy(), expected, atol=1e-3)
+
+
+def test_unknown_rtk_reference_refused(campaign):
+    table = pl.DataFrame({"timestamp": [1.76e9], "rtk_lat_deg": [0.0]})
+    with pytest.raises(ValueError, match="rtk_reference"):
+        AZELAnalysis(_flight(campaign, table)).run_analysis(
+            "SATP1", BROADCAST, rtk_reference="emlid"
+        )

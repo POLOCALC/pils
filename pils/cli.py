@@ -139,6 +139,7 @@ def _package(args: argparse.Namespace) -> int:
             lab_root=args.lab_root,
             save=not args.dry_run,
             telescope_source=args.telescope_source,
+            rtk_reference=args.rtk_reference,
         )
         print(result.summary())
         if not result.ok:
@@ -165,6 +166,7 @@ def _quicklook(args: argparse.Namespace) -> int:
             rinex=not args.no_rinex,
             ppk_template=args.ppk,
             telescope_source=args.telescope_source,
+            rtk_reference=args.rtk_reference,
         )
         print(f"{quicklook.flight_name}: {len(quicklook.warnings)} warning(s)")
         for warning in quicklook.warnings:
@@ -336,6 +338,14 @@ def build_parser() -> argparse.ArgumentParser:
         "campaign's (default); or the so3g site (sotodlib; 2-3 m off)",
     )
     package.add_argument(
+        "--rtk-reference",
+        choices=["survey", "broadcast"],
+        default="survey",
+        help="Frame of the drone RTK positions for AZEL: the campaign survey's, where "
+        "the telescopes are (default: the base correction added); or the "
+        "broadcast DJI base's (the positions as reported, no correction)",
+    )
+    package.add_argument(
         "--lab-root",
         help="Lab data root for --power (default: PILS_LAB_DATA_PATH or STOUT)",
     )
@@ -389,6 +399,14 @@ def build_parser() -> argparse.ArgumentParser:
         default="survey",
         help="Telescope positions for AZEL: the campaign survey, else another "
         "campaign's (default); or the so3g site (sotodlib; 2-3 m off)",
+    )
+    quicklook.add_argument(
+        "--rtk-reference",
+        choices=["survey", "broadcast"],
+        default="survey",
+        help="Frame of the drone RTK positions for AZEL: the campaign survey's, where "
+        "the telescopes are (default: the base correction added); or the "
+        "broadcast DJI base's (the positions as reported, no correction)",
     )
     quicklook.add_argument(
         "--output-dir",

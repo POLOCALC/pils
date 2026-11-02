@@ -327,6 +327,7 @@ class QuickLookGNSSMixin:
                         geod,
                         save_data=False,
                         telescope_source=getattr(self, "telescope_source", "survey"),
+                        rtk_reference=getattr(self, "rtk_reference", "survey"),
                     )
                 except (ValueError, FileNotFoundError) as e:
                     rows.append({"telescope": telescope, "note": str(e).split("\n")[0]})
