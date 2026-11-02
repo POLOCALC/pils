@@ -21,6 +21,11 @@ logger = get_logger(__name__)
 RTK_FIX_COLUMN = "rtk_pos_flag_1"
 RTK_FIXED = 50
 
+# The frame of the drone RTK positions: "survey", the campaign survey's (the
+# Emlid's, the telescopes' own: the base correction added); "broadcast", the
+# one of the position the DJI base broadcasts (the positions as reported)
+RTK_REFERENCES = ("survey", "broadcast")
+
 
 def _positions_are_rtk(
     data_source: str, drone_df: pl.DataFrame, position_columns: dict | None
@@ -239,6 +244,7 @@ class AZELAnalysis:
         save_data: bool = False,
         additional_metadata: dict[str, Any] | None = None,
         telescope_source: str = "survey",
+        rtk_reference: str = "survey",
     ) -> AZELVersion | None:
         """Run AZEL analysis for drone telescope tracking.
 
@@ -275,6 +281,13 @@ class AZELAnalysis:
             without it, the newest survey of another campaign; or the ``so3g``
             site (2-3 m off, see ``pils.sensors.emlid``). The source is in the
             metadata (``telescope_position_source``).
+        rtk_reference : {"survey", "broadcast"}, default="survey"
+            The frame of the drone RTK positions. ``"survey"``: the campaign
+            survey's, where the telescopes are (the Emlid's): the base
+            correction (surveyed minus broadcast base) is added. ``"broadcast"``:
+            the frame of the position the DJI base broadcasts, the positions as
+            the drone reported them (no correction). Recorded in the metadata
+            (``rtk_reference``).
 
         Returns
         -------
@@ -303,6 +316,8 @@ class AZELAnalysis:
         >>> # Shows: timestamp, az, el, srange columns
         >>> print(version.metadata['weather'])  # 'clear'
         """
+        if rtk_reference not in RTK_REFERENCES:
+            raise ValueError(f"rtk_reference must be one of {RTK_REFERENCES}")
         logger.info("Starting AZEL analysis...")
 
         # 1. Determine data source (sync_data preferred, fallback to raw_data)
@@ -458,7 +473,10 @@ class AZELAnalysis:
         # RTK correction only applies to DJI and Litchi (NOT BlackSquare)
         # RTK positions, and needs the campaign's surveyed DJI base
         rtk_applied = (
-            format_type in ["dji", "litchi"] and positions_rtk and base_geod is not None
+            rtk_reference == "survey"
+            and format_type in ["dji", "litchi"]
+            and positions_rtk
+            and base_geod is not None
         )
 
         if rtk_applied:
@@ -470,10 +488,11 @@ class AZELAnalysis:
                 f"RTK correction offset: dE={delta_e:.3f}m, dN={delta_n:.3f}m, dU={delta_u:.3f}m"
             )
         else:
-            # BlackSquare, drone GNSS or no surveyed base: no RTK correction
+            # The broadcast frame asked for, BlackSquare, drone GNSS or no
+            # surveyed base: no RTK correction
             delta_e, delta_n, delta_u = 0.0, 0.0, 0.0
             logger.info(
-                f"Skipping RTK correction ({format_type} format, "
+                f"Skipping RTK correction (reference: {rtk_reference}, {format_type} format, "
                 f"RTK positions: {positions_rtk}, surveyed base: "
                 f"{base_geod is not None})"
             )
@@ -565,6 +584,7 @@ class AZELAnalysis:
             "rtk_applied": rtk_applied,
             # The rover's position minus the truth is minus this correction
             "rtk_correction_sign": "added",
+            "rtk_reference": rtk_reference,
             "position_columns": position_columns,
             "rtk_fixed_only": rtk_fixed_only,
             **positions.as_metadata(),

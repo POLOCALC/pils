@@ -115,6 +115,7 @@ class QuickLook(QuickLookGNSSMixin):
         rinex: bool = True,
         ppk_template: str | Path | None = None,
         telescope_source: str = "survey",
+        rtk_reference: str = "survey",
     ) -> Path:
         """Load the flight, check its data and write the report.
 
@@ -132,6 +133,10 @@ class QuickLook(QuickLookGNSSMixin):
         telescope_source : {"survey", "so3g"}, default="survey"
             Telescope positions for AZEL (see
             ``pils.sensors.emlid.reference_positions``).
+        rtk_reference : {"survey", "broadcast"}, default="survey"
+            The frame of the drone RTK positions for AZEL: the campaign
+            survey's (the base correction added) or the broadcast base's (as
+            reported). See ``pils.analyze.azel.AZELAnalysis.run_analysis``.
 
         Returns
         -------
@@ -139,6 +144,7 @@ class QuickLook(QuickLookGNSSMixin):
             The report (``report.md``).
         """
         self.telescope_source = telescope_source
+        self.rtk_reference = rtk_reference
         self.revision_dir = self.quicklook_dir / store.new_version_name()
         self.plots_dir = self.revision_dir / "plots"
         self.plots_dir.mkdir(parents=True, exist_ok=True)

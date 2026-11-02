@@ -438,6 +438,7 @@ class FlightPackager:
                         "sync_revision": sync_revision,
                     },
                     telescope_source=getattr(self, "telescope_source", "survey"),
+                    rtk_reference=getattr(self, "rtk_reference", "survey"),
                 )
             except ValueError as e:
                 if "No telescope positions" in str(e) or "No so3g site" in str(e):
@@ -551,6 +552,7 @@ class FlightPackager:
         lab_root: str | Path | None = None,
         save: bool = True,
         telescope_source: str = "survey",
+        rtk_reference: str = "survey",
     ) -> PackageResult:
         """Load, synchronize, save and analyse the flight.
 
@@ -573,6 +575,10 @@ class FlightPackager:
             Telescope positions for AZEL: the campaign's survey, else the
             newest survey of another campaign; or the ``so3g`` site (2-3 m
             off). See ``pils.sensors.emlid.reference_positions``.
+        rtk_reference : {"survey", "broadcast"}, default="survey"
+            The frame of the drone RTK positions for AZEL: the campaign
+            survey's (the base correction added) or the broadcast base's (as
+            reported). See ``pils.analyze.azel.AZELAnalysis.run_analysis``.
 
         Returns
         -------
@@ -583,6 +589,7 @@ class FlightPackager:
 
         telescopes = list(telescopes)
         self.telescope_source = telescope_source
+        self.rtk_reference = rtk_reference
         power_targets = list(power_targets)
         geod = dji_broadcast_geod or TELESCOPES_CONFIG["dji_broadcast_geod"]
         result = PackageResult(
