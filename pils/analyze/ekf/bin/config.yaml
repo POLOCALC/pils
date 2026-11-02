@@ -49,13 +49,34 @@ integration_window_seconds: 1.0
 accel_magnitude_error_threshold: 0.20
 
 # Frame rotation: ZYX intrinsic Euler angles in degrees [z, y, x]
-frame_rotation_zyx_deg: [0.0, 89.8, 181.479]
-# frame_rotation_zyx_deg: [0.0, 0.0,0.0]
+# Rust builds R = Rz(z)*Ry(y)*Rx(x) (nalgebra from_euler_angles) and applies
+# v_cam = R @ v_imu, i.e. R = R_CB (IMU -> OpenCV camera: x=img right, y=img down,
+# z=optical axis). Equivalent scipy: R.from_euler("ZYX", [z, y, x], degrees=True).
+# From imu_cam_rotation_kaliber.ipynb: R_session (Wahba v_cam = R v_gyro), rotation
+# mean of the 5 lab sessions. Pitch is near -90 deg (gimbal lock): z and x are
+# individually ill-conditioned, only the triplet is meaningful -- never average
+# these Euler angles, average rotations. First-4-sessions mean (excl. 154954):
+# [-51.67693, -88.57361, -35.25668]
+# Lab rig (2026-06 sessions), R_CB_lab:
+#frame_rotation_zyx_deg: [-54.26999, -88.74966, -34.01287]
+# Dec-2025 flights: camera mounted rotated +90 deg about its optical axis w.r.t.
+# the lab rig -> R_CB = Rz(+90) * R_CB_lab (only the first angle shifts by +90).
+# Checked on flight_20251206_1530 photos + flight_1512 IMX5 log: free fit gives
+# 89.1 deg about cam z; gravity residual 1.2 deg, gyro-increment residual 0.2 deg.
+
+frame_rotation_zyx_deg:  [35.74284, -88.74972, -34.02609] # sony offset
+#frame_rotation_zyx_deg: [-144.26999453,  -88.7496621 ,  -34.01286604] 
+#frame_rotation_zyx_deg: [-49.46821, -88.61097, -36.94225]
+#frame_rotation_zyx_deg: [-0.0, -31.0, -65.0]
+#frame_rotation_zyx_deg: [-89.10497, -3.51596, -88.98376] 
+#frame_rotation_zyx_deg: [0.0, 89.8, 181.479]
+#frame_rotation_zyx_deg: [0.0, 90.0, 180.0]
 
 # Axis sign inversion applied to raw IMU data before any processing
 # Set to true to negate the corresponding axis for both accel and gyro
+# Keep all false with the calibrated frame_rotation above: the calibration was
+# done on raw IMX5 gyro, and a single inversion is a reflection (det = -1).
 axis_inversion:
   x: false
-  y: true
-  z: true
-  
+  y: false
+  z: false

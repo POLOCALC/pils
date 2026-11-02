@@ -5,6 +5,7 @@ import io
 import json
 import struct
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -18,9 +19,11 @@ from pils.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-# Path to the compiled Rust EKF binary (relative to this module)
+# Path to the compiled Rust EKF binary (relative to this module): rust-ekf is the
+# Linux x86-64 build; on macOS a local build (cargo build --release in
+# ekf/sst-rust-ekf) copied to rust-ekf_macos is used instead.
 _EKF_BIN_DIR = Path(__file__).parent / "ekf" / "bin"
-_EKF_BINARY_PATH = _EKF_BIN_DIR / "rust-ekf"
+_EKF_BINARY_PATH = _EKF_BIN_DIR / ("rust-ekf_macos" if sys.platform == "darwin" else "rust-ekf")
 _EKF_DEFAULT_CONFIG = _EKF_BIN_DIR / "config.yaml"
 
 # Arrow IPC schemas for IMU and photogrammetry data
