@@ -13,6 +13,7 @@ import polars as pl
 
 from pils.drones.BlackSquareDrone import BlackSquareDrone
 from pils.drones.DJIDrone import DJIDrone
+from pils.drones.DJIPSDKTelemetry import DJIPSDKTelemetry, is_psdk_telemetry
 from pils.drones.litchi import Litchi
 from pils.sensors.camera import Camera
 from pils.sensors.sensors import sensor_config
@@ -108,6 +109,7 @@ class Flight:
         self.set_metadata()
         self.raw_data = RawData()
         self.sync_data: dict[str, pl.DataFrame] | None = None
+        self.sync_offsets: dict[str, dict] | None = None
         self.adc_gain_config = None
 
     @classmethod
@@ -332,9 +334,21 @@ class Flight:
                 if fname.endswith("litchi.csv") and "dji" in self.__drone_model.lower():
                     litchi_data_path = file
 
-            logger.info(f"Drone : {drone_data_path}")
-            drone = DJIDrone(drone_data_path)
-            drone.load_data(use_dat=dji_dat_loader)
+            telemetry_path = (
+                Path(self.flight_info["aux_data_folder_path"]) / "uav_telemetry.bin"
+                if self.flight_info.get("aux_data_folder_path")
+                else None
+            )
+            if drone_data_path is None and telemetry_path and is_psdk_telemetry(telemetry_path):
+                # No readable DJI log (e.g. Matrice 400, whose .DAT is encrypted): use the
+                # telemetry the payload logged through the PSDK instead.
+                logger.info(f"No drone .DAT/.csv in {drone_folder} -- using {telemetry_path}")
+                drone = DJIPSDKTelemetry(telemetry_path)
+                drone.load_data()
+            else:
+                logger.info(f"Drone : {drone_data_path}")
+                drone = DJIDrone(drone_data_path)
+                drone.load_data(use_dat=dji_dat_loader)
             drone_data = drone.data
             litchi_data = None
 
@@ -376,7 +390,9 @@ class Flight:
             if sensor_name == "inclinometer":
                 self.__inclinometer = sensor.sensor_type
             getattr(sensor, config["load_method"])()
-            result = sensor.data
+            # IMU is a container (.barometer, .accelerometer, ...) with no
+            # .data of its own -- keep the object, as flight.sync() expects.
+            result = getattr(sensor, "data", sensor)
         return result
 
     def add_sensor_data(self, sensor_name: str | list[str]) -> None:
@@ -580,20 +596,22 @@ class Flight:
             if "payload" not in target_rate:
                 target_rate["payload"] = 100.0
             imu_sensor = payload["imu"]
-            if hasattr(imu_sensor, "barometer") and imu_sensor.barometer is not None:
-                sync.add_payload_sensor("imu_barometer", imu_sensor.barometer)
-            if hasattr(imu_sensor, "accelerometer") and imu_sensor.accelerometer is not None:
-                sync.add_payload_sensor("imu_accelerometer", imu_sensor.accelerometer)
-            if hasattr(imu_sensor, "gyroscope") and imu_sensor.gyroscope is not None:
-                sync.add_payload_sensor("imu_gyroscope", imu_sensor.gyroscope)
-            if hasattr(imu_sensor, "magnetometer") and imu_sensor.magnetometer is not None:
-                sync.add_payload_sensor("imu_magnetometer", imu_sensor.magnetometer)
+            for part in ("barometer", "accelerometer", "gyroscope", "magnetometer"):
+                part_data = getattr(getattr(imu_sensor, part, None), "data", None)
+                if isinstance(part_data, pl.DataFrame) and part_data.height > 0:
+                    # IMUSensor timestamps are in microseconds; the synchronizer works in seconds
+                    sync.add_payload_sensor(
+                        f"imu_{part}", part_data.with_columns(pl.col("timestamp") / 1e6)
+                    )
 
         self.sync_data = sync.synchronize(
             target_rate=target_rate,
             common_time=common_time,
             **kwargs,
         )
+        # Offsets (s) found for each source, to shift the original (not resampled)
+        # data onto the payload GPS time base -- e.g. PhotogrammetryAnalysis
+        self.sync_offsets = sync.offsets
 
         return self.sync_data
 

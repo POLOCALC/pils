@@ -164,7 +164,7 @@ def detect_inclinometer_type_from_files(dirpath: Path) -> str:
     """
     # Check for IMX-5 files (CSV format with INC_ prefix)
 
-    imx5_ins_files = list(dirpath.glob("*_INC_ins.csv"))
+    imx5_ins_files = list(dirpath.glob("*_INC_ins.csv")) + list(dirpath.glob("IMX5*_ins.csv"))
     if imx5_ins_files:
         return "imx5"
 
@@ -200,10 +200,10 @@ class IMX5Inclinometer:
         self.dirpath = dirpath
         self.logpath = logpath
 
-        # Find IMX-5 files
-        self.ins_path = self._find_file("*_INC_ins.csv")
-        self.imu_path = self._find_file("*_INC_imu.csv")
-        self.inl2_path = self._find_file("*_INC_inl2.csv")
+        # Find IMX-5 files (*_INC_*.csv, or IMX5-Sensors_*_*.csv in newer acquisitions)
+        self.ins_path = self._find_file("*_INC_ins.csv") or self._find_file("IMX5*_ins.csv")
+        self.imu_path = self._find_file("*_INC_imu.csv") or self._find_file("IMX5*_imu.csv")
+        self.inl2_path = self._find_file("*_INC_inl2.csv") or self._find_file("IMX5*_inl2.csv")
 
         self.data = {}  # Main attitude data
 
