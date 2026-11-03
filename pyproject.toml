@@ -126,7 +126,7 @@ disallow_untyped_defs = false
 [tool.bumpver]
 current_version = "2026.11.1"
 version_pattern = "YYYY.MM.INC0"
-commit_message = "chore: bump version {old_version} -> {new_version}"
+commit_message = "chore: bump version {old_version} -> {new_version} [skip ci]"  # no workflow for it: only the version changes
 tag_message = "Release {new_version}"
 commit = true
 tag = true
