@@ -1,3 +1,5 @@
+"""Plots of an RTKLIB solution (.pos) and its statistics."""
+
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
@@ -35,7 +37,8 @@ class PPKPlotter:
             pos_analyzer: POSAnalyzer instance with parsed position data
             stat_analyzer: STATAnalyzer instance with parsed statistics
 
-        Examples:
+        Examples
+        --------
             >>> pos_analyzer = POSAnalyzer('solution.pos')
             >>> pos_analyzer.parse()
             >>> plotter = PPKPlotter(pos_analyzer=pos_analyzer)
@@ -49,7 +52,8 @@ class PPKPlotter:
         Args:
             save_path: Output file path
 
-        Examples:
+        Examples
+        --------
             >>> plotter = PPKPlotter(stat_analyzer=stat_analyzer)
             >>> plotter.plot_skyplot_snr('skyplot.png')
         """
@@ -76,9 +80,9 @@ class PPKPlotter:
 
         # Plot all points
         sc = ax.scatter(
-            np.deg2rad(df["azimuth"]),
-            90 - df["elevation"],
-            c=df["snr"],
+            np.deg2rad(df["az_deg"]),
+            90 - df["el_deg"],
+            c=df["snr_dbhz"],
             cmap="viridis",
             s=5,
             alpha=0.5,
@@ -90,8 +94,8 @@ class PPKPlotter:
             sub = df.filter(pl.col("satellite") == sat)
             if not sub.is_empty():
                 ax.text(
-                    np.deg2rad(sub["azimuth"].mean()),
-                    90 - sub["elevation"].mean(),
+                    np.deg2rad(sub["az_deg"].mean()),
+                    90 - sub["el_deg"].mean(),
                     sat,
                     fontsize=8,
                     fontweight="bold",
@@ -115,12 +119,13 @@ class PPKPlotter:
             plt.show()
 
     def plot_trajectory_q(self, save_path=None):
-        """Plots trajectory (Lon vs Lat) colored by Q status.
+        """Plot the trajectory (Lon vs Lat) colored by Q status.
 
         Args:
             save_path: Output file path
 
-        Examples:
+        Examples
+        --------
             >>> plotter = PPKPlotter(pos_analyzer=pos_analyzer)
             >>> plotter.plot_trajectory_q('trajectory.png')
         """
@@ -134,11 +139,11 @@ class PPKPlotter:
         fig, ax = plt.subplots(figsize=(10, 8))
         fig.patch.set_alpha(0)
 
-        for q in sorted(df["Q"].unique().to_list()):
-            sub = df.filter(pl.col("Q") == q)
+        for q in sorted(df["quality"].unique().to_list()):
+            sub = df.filter(pl.col("quality") == q)
             ax.scatter(
-                sub["lon"],
-                sub["lat"],
+                sub["lon_deg"],
+                sub["lat_deg"],
                 c=q_colors.get(q, "black"),
                 label=q_labels.get(q, f"Q={q}"),
                 s=15,
@@ -164,7 +169,8 @@ class PPKPlotter:
         Args:
             save_path: Output file path
 
-        Examples:
+        Examples
+        --------
             >>> plotter = PPKPlotter(pos_analyzer=pos_analyzer)
             >>> plotter.plot_ratio_time('ratio_time.png')
         """
@@ -177,7 +183,10 @@ class PPKPlotter:
         fig.patch.set_alpha(0)
 
         ax.plot(
-            df["time"].to_numpy(), df["ratio"].to_numpy(), color="purple", linewidth=1.5
+            df["datetime"].to_numpy(),
+            df["ratio"].to_numpy(),
+            color="purple",
+            linewidth=1.5,
         )
         ax.axhline(3.0, color="red", linestyle="--", label="Fix Threshold (3.0)")
 
@@ -200,7 +209,8 @@ class PPKPlotter:
         Args:
             save_path: Output file path
 
-        Examples:
+        Examples
+        --------
             >>> plotter = PPKPlotter(stat_analyzer=stat_analyzer)
             >>> plotter.plot_snr_vs_elevation('snr_elevation.png')
         """
@@ -222,8 +232,8 @@ class PPKPlotter:
         for i, b in enumerate(bands):
             sub = df.filter(pl.col("frequency") == b)
             ax.scatter(
-                sub["elevation"].to_numpy(),
-                sub["snr"].to_numpy(),
+                sub["el_deg"].to_numpy(),
+                sub["snr_dbhz"].to_numpy(),
                 color=colors[i % len(colors)],
                 s=10,
                 alpha=0.3,
@@ -249,14 +259,15 @@ class PPKPlotter:
         Args:
             save_path: Output file path
 
-        Examples:
+        Examples
+        --------
             >>> plotter = PPKPlotter(pos_analyzer=pos_analyzer)
             >>> plotter.plot_enu_time_series('enu_timeseries.png')
         """
         """Plots East, North, Up error time series colored by Q status."""
         if not self.pos or self.pos.df.is_empty():
             return
-        if "east" not in self.pos.df.columns:
+        if "e_m" not in self.pos.df.columns:
             return
 
         df = self.pos.df
@@ -266,21 +277,21 @@ class PPKPlotter:
         fig, axes = plt.subplots(3, 1, figsize=(14, 10), sharex=True)
         fig.patch.set_alpha(0)
 
-        cols = ["east", "north", "up"]
+        cols = ["e_m", "n_m", "u_m"]
         labels = ["East (m)", "North (m)", "Up (m)"]
 
         for i, (col, label) in enumerate(zip(cols, labels, strict=False)):
             axes[i].plot(
-                df["time"].to_numpy(),
+                df["datetime"].to_numpy(),
                 df[col].to_numpy(),
                 color="black",
                 linewidth=0.5,
                 alpha=0.2,
             )
-            for q in sorted(df["Q"].unique().to_list()):
-                sub = df.filter(pl.col("Q") == q)
+            for q in sorted(df["quality"].unique().to_list()):
+                sub = df.filter(pl.col("quality") == q)
                 axes[i].scatter(
-                    sub["time"].to_numpy(),
+                    sub["datetime"].to_numpy(),
                     sub[col].to_numpy(),
                     c=q_colors.get(q, "gray"),
                     s=2,
@@ -294,9 +305,9 @@ class PPKPlotter:
             fontweight="bold",
             fontsize=14,
         )
-        axes[2].set_xlabel("Time", fontweight="bold")
+        axes[2].set_xlabel("Time (UTC)", fontweight="bold")
         axes[2].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
-        if 1 in df["Q"]:
+        if 1 in df["quality"]:
             axes[0].legend(loc="upper right")
 
         plt.tight_layout()
@@ -312,7 +323,8 @@ class PPKPlotter:
         Args:
             save_path: Output file path
 
-        Examples:
+        Examples
+        --------
             >>> plotter = PPKPlotter(stat_analyzer=stat_analyzer)
             >>> plotter.plot_residual_distribution_dual('residuals.png')
         """
@@ -330,7 +342,7 @@ class PPKPlotter:
         for i, b in enumerate(bands):
             sub = df.filter(pl.col("frequency") == b)
             ax1.hist(
-                sub["resid_phase"].to_numpy(),
+                sub["resid_phase_m"].to_numpy(),
                 bins=100,
                 range=(-0.1, 0.1),
                 color=colors[i % 2],
@@ -339,7 +351,7 @@ class PPKPlotter:
                 edgecolor="black",
             )
             ax2.hist(
-                sub["resid_code"].to_numpy(),
+                sub["resid_code_m"].to_numpy(),
                 bins=100,
                 range=(-5, 5),
                 color=colors[i % 2],
@@ -371,7 +383,8 @@ class PPKPlotter:
         Args:
             save_path: Output file path
 
-        Examples:
+        Examples
+        --------
             >>> plotter = PPKPlotter(stat_analyzer=stat_analyzer)
             >>> plotter.plot_avg_snr_time_series('avg_snr_time.png')
         """
@@ -380,15 +393,15 @@ class PPKPlotter:
             return
 
         agg = (
-            self.stat.df.group_by(["tow", "frequency"])
+            self.stat.df.group_by(["tow_s", "frequency"])
             .agg(
                 [
-                    pl.col("snr").mean().alias("avg_snr"),
-                    pl.col("snr").std().alias("std_snr"),
+                    pl.col("snr_dbhz").mean().alias("avg_snr_dbhz"),
+                    pl.col("snr_dbhz").std().alias("std_snr"),
                     pl.col("satellite").count().alias("n_sats"),
                 ]
             )
-            .sort(["tow", "frequency"])
+            .sort(["tow_s", "frequency"])
         )
 
         if agg.is_empty():
@@ -400,8 +413,8 @@ class PPKPlotter:
 
         for i, b in enumerate(bands):
             sub = agg.filter(pl.col("frequency") == b)
-            t = sub["tow"].to_numpy()
-            y = sub["avg_snr"].to_numpy()
+            t = sub["tow_s"].to_numpy()
+            y = sub["avg_snr_dbhz"].to_numpy()
             s = sub["std_snr"].fill_null(0).to_numpy()
 
             line_color = (
@@ -438,7 +451,8 @@ class PPKPlotter:
             const: Constellation code ('G', 'R', 'E', 'C')
             save_path: Output file path
 
-        Examples:
+        Examples
+        --------
             >>> plotter = PPKPlotter(stat_analyzer=stat_analyzer)
             >>> plotter.plot_stat_constellation_hists_dual('G', 'gps_histograms.png')
         """
@@ -458,7 +472,7 @@ class PPKPlotter:
         for i, b in enumerate(bands):
             sub = df.filter(pl.col("frequency") == b)
             ax1.hist(
-                sub["resid_phase"].to_numpy(),
+                sub["resid_phase_m"].to_numpy(),
                 bins=50,
                 range=(-0.1, 0.1),
                 color=colors[i % 2],
@@ -467,7 +481,7 @@ class PPKPlotter:
                 edgecolor="black",
             )
             ax2.hist(
-                sub["resid_code"].to_numpy(),
+                sub["resid_code_m"].to_numpy(),
                 bins=50,
                 range=(-5, 5),
                 color=colors[i % 2],
@@ -500,7 +514,8 @@ class PPKPlotter:
             const: Constellation code
             save_path: Output file path
 
-        Examples:
+        Examples
+        --------
             >>> plotter = PPKPlotter(stat_analyzer=stat_analyzer)
             >>> plotter.plot_constellation_snr_time_series('E', 'galileo_snr_time.png')
         """
@@ -524,10 +539,10 @@ class PPKPlotter:
             sats = sorted(sub_b["satellite"].unique().to_list())
 
             for sat in sats:
-                sat_data = sub_b.filter(pl.col("satellite") == sat).sort("tow")
+                sat_data = sub_b.filter(pl.col("satellite") == sat).sort("tow_s")
                 axes[i].plot(
-                    sat_data["tow"].to_numpy(),
-                    sat_data["snr"].to_numpy(),
+                    sat_data["tow_s"].to_numpy(),
+                    sat_data["snr_dbhz"].to_numpy(),
                     label=sat,
                     alpha=0.7,
                 )
@@ -554,7 +569,8 @@ class PPKPlotter:
             const: Constellation code
             save_path: Output file path
 
-        Examples:
+        Examples
+        --------
             >>> plotter = PPKPlotter(stat_analyzer=stat_analyzer)
             >>> plotter.plot_sat_residual_bar('C', 'beidou_residuals.png')
         """
@@ -582,7 +598,7 @@ class PPKPlotter:
             for s in sats:
                 match = sub.filter(pl.col("satellite") == s)
                 vals.append(
-                    match["p95_resid_phase"].sum() if not match.is_empty() else 0
+                    match["p95_resid_phase_m"].sum() if not match.is_empty() else 0
                 )
 
             ax.bar(

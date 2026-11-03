@@ -20,10 +20,11 @@ Usage:
     flights = loader.load_flights_by_date(start_date='2025-01-01', end_date='2025-01-15')
 """
 
-from datetime import UTC, datetime
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 
+from pils.integrations.stout import layout
 from pils.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -74,42 +75,16 @@ class PathLoader:
         if self.base_data_path is None:
             logger.warning("Base data path not set")
             return flights
-        campaigns_dir = self.base_data_path / "campaigns"
-
-        if not campaigns_dir.exists():
-            logger.warning(f"Campaigns directory not found: {campaigns_dir}")
-            return flights
-
-        logger.debug(f"Scanning campaigns directory: {campaigns_dir}")
-
-        # Traverse: campaigns -> date folders -> flight folders
-        for campaign_path in campaigns_dir.iterdir():
-            if not campaign_path.is_dir():
-                continue
-
-            campaign_name = campaign_path.name
-            logger.debug(f"Processing campaign: {campaign_name}")
-
-            if campaign_name == "telescope_data":
-                logger.debug("Skip Telescope Data")
-                continue
-
-            for date_path in campaign_path.iterdir():
-                if not date_path.is_dir():
-                    continue
-
-                for flight_path in date_path.iterdir():
-                    flight_name = flight_path.name
-                    if flight_name in ["base", "calibration"]:
-                        continue
-                    if not flight_path.is_dir():
-                        continue
-
-                    flight_dict = self._build_flight_dict_from_filesystem(
-                        campaign_name, date_path.name, flight_name, flight_path
-                    )
-                    if flight_dict:
-                        flights.append(flight_dict)
+        # campaigns/ and field_tests/ alike (STOUT's layout): campaign -> day -> flight
+        for campaign_folder, date_folder, flight_path in layout.flight_folders(
+            self.base_data_path
+        ):
+            flight_dict = self._build_flight_dict_from_filesystem(
+                Path(campaign_folder).name, date_folder, flight_path.name, flight_path
+            )
+            if flight_dict:
+                flight_dict["campaign_folder"] = campaign_folder
+                flights.append(flight_dict)
 
         logger.info(f"Loaded {len(flights)} flights from filesystem")
         return flights
@@ -184,9 +159,8 @@ class PathLoader:
         """Build flight dictionary from filesystem structure."""
         try:
             # Extract date from folder name (YYYYMMDD format)
-            takeoff_date = datetime.strptime(flight_name[7:], "%Y%m%d_%H%M").replace(
-                tzinfo=UTC
-            )
+            takeoff_date = layout.takeoff_from_name(flight_name).replace(tzinfo=UTC)
+            drone, aux = layout.RAW_FOLDERS
 
             flight_dict = {
                 "campaign_name": campaign_name,
@@ -194,12 +168,12 @@ class PathLoader:
                 "flight_date": date_folder,
                 "takeoff_datetime": takeoff_date.isoformat(),
                 "landing_datetime": takeoff_date.isoformat(),  # Not available from filesystem
-                "drone_data_folder_path": str(flight_path / "drone"),
-                "aux_data_folder_path": str(flight_path / "aux"),
-                "processed_data_folder_path": str(flight_path / "proc"),
+                "drone_data_folder_path": str(flight_path / drone),
+                "aux_data_folder_path": str(flight_path / aux),
+                "processed_data_folder_path": str(flight_path / layout.PROC_FOLDER),
             }
             return flight_dict
-        except Exception as e:
+        except ValueError as e:  # not a flight folder's name
             logger.warning(
                 f"Could not build flight dict for {flight_name} {flight_path}: {e}"
             )

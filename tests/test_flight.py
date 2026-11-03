@@ -118,7 +118,7 @@ class TestFlightTypeGuards:
             {"timestamp": [1, 2, 3], "value": [1.0, 2.0, 3.0]}
         )
 
-        with patch("pils.flight.sensor_config") as mock_config:
+        with patch("pils.flight.core.sensor_config") as mock_config:
             # Setup mock sensor config
             mock_config.get.return_value = {
                 "class": Mock(return_value=mock_sensor),
@@ -156,12 +156,29 @@ class TestFlightTypeGuards:
         assert drone_data is not None  # Type guard
         assert hasattr(drone_data, "drone")  # Can access attributes safely
 
+    def test_a_sensor_with_metadata_loads_into_a_flight_made_as_the_readme_does(
+        self, temp_flight
+    ):
+        """The README's Flight({drone, aux folders}) has no "flight_info" key yet."""
+        data = pl.DataFrame({"timestamp": [1.0, 2.0], "lat": [40.0, 40.1]})
+        with patch.object(
+            Flight,
+            "_read_sensor_data",
+            return_value={"data": data, "metadata": {"rate_hz": 5}},
+        ):
+            temp_flight.add_sensor_data("gps")
+
+        assert temp_flight.flight_info["flight_info"] == {
+            "gps_metadata": {"rate_hz": 5}
+        }
+        assert temp_flight.raw_data.payload_data.gps is not None
+
     def test_assertion_with_multiple_sensors(self, temp_flight):
         """Test assertion works when loading multiple sensors."""
         mock_sensor = Mock()
         mock_sensor.data = pl.DataFrame({"timestamp": [1], "value": [1.0]})
 
-        with patch("pils.flight.sensor_config") as mock_config:
+        with patch("pils.flight.core.sensor_config") as mock_config:
             mock_config.get.return_value = {
                 "class": Mock(return_value=mock_sensor),
                 "load_method": "load_data",

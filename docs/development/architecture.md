@@ -32,9 +32,8 @@ graph TB
     end
     
     subgraph "Output"
-        K[HDF5]
+        K[Parquet + manifest]
         L[CSV]
-        M[Parquet]
     end
     
     A --> C
@@ -66,8 +65,8 @@ classDiagram
         +synchronized: DataFrame
         +add_sensor_data()
         +add_drone_data()
-        +to_hdf5()
-        +from_hdf5()
+        +save()
+        +load()
     }
     
     class Loader {
@@ -219,7 +218,8 @@ flight.synchronized = merged_df
 - Store flight metadata
 - Manage raw sensor data
 - Store synchronized data versions
-- Handle HDF5 serialization
+- Save and load (`Flight.save`/`Flight.load`, Parquet revisions in `pils.store`)
+- Rename loaded columns to the schema (`pils.schema`)
 
 ### Loaders
 

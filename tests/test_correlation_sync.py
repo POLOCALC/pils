@@ -416,3 +416,38 @@ class TestSynchronizerClass:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestOffsetAccuracy:
+    """The detected offsets recover known clock shifts."""
+
+    @staticmethod
+    def positions(t):
+        lat = 45.0 + 0.002 * (np.sin(0.05 * t) + 0.5 * np.sin(0.11 * t))
+        lon = 10.0 + 0.002 * (np.cos(0.05 * t) + 0.5 * np.cos(0.13 * t))
+        alt = 100.0 + 20.0 * (np.sin(0.03 * t) + 0.3 * np.sin(0.07 * t))
+        return lat, lon, alt
+
+    @pytest.mark.parametrize("shift", [0.0371, 0.3, -1.0, 2.0, 5.0, -7.5])
+    def test_gps_clock_shift(self, shift):
+        from pils.synchronizer import Synchronizer
+
+        t = np.linspace(0, 200, 2000)
+        lat, lon, alt = self.positions(t)
+        # Same positions, source 2 clock ahead by `shift`, 1.5 m lever arm
+        result = Synchronizer._find_gps_offset(
+            t, lat, lon, alt, t[::5] + shift, lat[::5], lon[::5], alt[::5] - 1.5
+        )
+        assert result["time_offset"] == pytest.approx(-shift, abs=2e-3)
+        assert result["up_offset_m"] == pytest.approx(-1.5, abs=0.05)
+
+    @pytest.mark.parametrize("sign", [1.0, -1.0])
+    @pytest.mark.parametrize("shift", [0.3, 2.0, -4.0])
+    def test_pitch_clock_shift_bias_and_sign(self, shift, sign):
+        from pils.synchronizer import Synchronizer
+
+        t = np.linspace(0, 200, 4000)
+        pitch = -30 + 20 * np.sin(0.2 * t) + 10 * np.sin(0.53 * t)
+        result = Synchronizer._find_pitch_offset(t, pitch, t + shift, sign * pitch + 3)
+        assert result["time_offset"] == pytest.approx(-shift, abs=2e-3)
+        assert result["correlation"] > 0.99

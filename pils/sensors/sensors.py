@@ -1,3 +1,5 @@
+"""Payload sensors known to ``Flight.add_sensor_data`` and how to load them."""
+
 from pils.sensors.adc import ADC
 from pils.sensors.gps import GPS
 from pils.sensors.IMU import IMU

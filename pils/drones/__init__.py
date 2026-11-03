@@ -1,6 +1,4 @@
-"""
-Drones module - Drone-specific data parsers and utilities.
-"""
+"""Drones module - Drone-specific data parsers and utilities."""
 
 import logging
 import os
@@ -43,6 +41,7 @@ def drone_init(drone_model: str, drone_path: str):
 def find_first_drone_file(dirpath: str) -> str | None:
     """
     Find the first *_drone.csv file in directory tree.
+
     Assumes one flight per directory.
 
     Parameters

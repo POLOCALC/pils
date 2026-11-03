@@ -1,6 +1,4 @@
-"""
-Utility module initialization.
-"""
+"""Utility module initialization."""
 
 from .logging_config import (
     get_logger,

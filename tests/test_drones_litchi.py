@@ -126,3 +126,34 @@ class TestLitchiInit:
             (ValueError, FileNotFoundError)
         ):  # pl.read_csv will raise an error
             litchi.load_data()
+
+
+class TestLitchiGimbal:
+    """Gimbal angles in degrees and the gimbal heading."""
+
+    def test_gimbal_angles(self, tmp_path):
+        header = (
+            "latitude,longitude,altitude(m),speed(mps),distance(m),velocityX(mps),"
+            "velocityY(mps),velocityZ(mps),pitch(deg),roll(deg),yaw(deg),"
+            "batteryTemperature,pitchRaw,rollRaw,yawRaw,gimbalPitchRaw,"
+            "gimbalRollRaw,gimbalYawRaw,datetime(utc),isflying"
+        )
+        rows = [
+            # aircraft yaw 170 deg, gimbal 20 deg right of the nose -> -170
+            "40.7,-74.0,100,5,0,1,1,0,-5,2,170.0,25,-5,2,170,-450,5,200,"
+            "2024-01-15 10:30:00.000,1",
+            # aircraft yaw -90 deg, gimbal 30 deg left -> -120
+            "40.7,-74.0,100,5,1,1,1,0,-5,2,-90.0,25,-5,2,-90,-300,7,-300,"
+            "2024-01-15 10:30:00.100,1",
+        ]
+        path = tmp_path / "litchi.csv"
+        path.write_text("\n".join([header, *rows]))
+
+        litchi = Litchi(path)
+        litchi.load_data()
+        data = litchi.data
+
+        assert data["gimbalPitch"].to_list() == pytest.approx([-45.0, -30.0])
+        assert data["gimbalRoll"].to_list() == pytest.approx([0.5, 0.7])
+        assert data["gimbalYaw"].to_list() == pytest.approx([20.0, -30.0])
+        assert data["gimbalYawAbs"].to_list() == pytest.approx([-170.0, -120.0])

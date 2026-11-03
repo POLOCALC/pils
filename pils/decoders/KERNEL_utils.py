@@ -1,3 +1,5 @@
+"""Kernel-100 inclinometer message decoder."""
+
 import pickle
 import struct
 from typing import Any
@@ -27,7 +29,6 @@ def _checksum(msg: bytes) -> bytes:
     bytes
         Checksum as bytes (2 bytes, little-endian).
     """
-
     if msg.startswith(HEADER):
         msg = msg[2:]
 
@@ -61,7 +62,6 @@ class KernelMsg:
         Dict[str, Any]
             Dictionary containing decoded message fields.
         """
-
         if msg[:2] == HEADER:
             type_idx = 3
         else:

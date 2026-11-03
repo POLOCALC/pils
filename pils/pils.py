@@ -1,3 +1,5 @@
+"""Load several flights at once."""
+
 from typing import Any
 
 from pils.flight import Flight
@@ -6,6 +8,8 @@ from pils.loader.stout import StoutLoader
 
 
 class PILS:
+    """Load several flights at once, from STOUT or from folders."""
+
     def __init__(
         self,
         use_stout: bool = True,
@@ -67,19 +71,19 @@ class PILS:
                 self.flights.append(tmp)
 
     def load_drone_data(self, dji_dat_loader: bool = True, drone_model=None):
-
+        """Load the drone data of every flight."""
         for flight in self.flights:
             flight.add_drone_data(
                 dji_dat_loader=dji_dat_loader, drone_model=drone_model
             )
 
     def load_sensor_data(self, sensor_name: list[str]):
-
+        """Load the given payload sensors of every flight."""
         for flight in self.flights:
             flight.add_sensor_data(sensor_name=sensor_name)
 
     def load_all_data(self, dji_dat_loader: bool = True, drone_model=None):
-
+        """Load the drone data and the GPS, IMU, inclinometer and ADC of every flight."""
         sensor_list = ["gps", "imu", "inclinometer", "adc"]
 
         self.load_drone_data(dji_dat_loader=dji_dat_loader, drone_model=drone_model)

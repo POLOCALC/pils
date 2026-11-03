@@ -1,3 +1,5 @@
+"""LM76 temperature sensor of the payload."""
+
 import glob
 import os
 from pathlib import Path
@@ -6,10 +8,15 @@ import matplotlib.pyplot as plt
 import polars as pl
 import yaml as yaml_module
 
+from ..utils.logging_config import get_logger
 from ..utils.tools import get_logpath_from_datapath
+
+logger = get_logger(__name__)
 
 
 class LM76:
+    """LM76 temperature sensor of the payload (``*TMP*.csv``)."""
+
     def __init__(self, path: Path, logpath: Path | None = None) -> None:
         """
         Initialize LM76 temperature sensor.
@@ -22,7 +29,6 @@ class LM76:
             Path to the log file. If None, the logpath is inferred from the
             data file path. Defaults to None.
         """
-
         self.path = path
         self.data_path = None
         self.data = None
@@ -55,7 +61,6 @@ class LM76:
             file is found or if the config does not contain an LM76 sensor
             section.
         """
-
         # Look for config file in the same directory as the ADC file
         lm76_dir = os.path.dirname(self.path)
         config_files = glob.glob(os.path.join(lm76_dir, "*_config.yml"))
@@ -73,8 +78,11 @@ class LM76:
                         if lm76_settings is not None:
                             return lm76_settings
 
-            except Exception:
-                pass
+            except (OSError, yaml_module.YAMLError, AttributeError) as e:
+                # AttributeError: a section that is not a mapping (empty file)
+                logger.warning(
+                    f"Could not read the LM76 settings from {config_files[0]}: {e}"
+                )
 
     def load_data(self) -> None:
         """
@@ -89,11 +97,10 @@ class LM76:
         Raises
         ------
         FileNotFoundError
-            If the CSV file at ``self.data_path`` does not exist.
-        AttributeError
-            If ``self.data_path`` is None (no matching CSV file was found
-            during initialization).
+            If no LM76 file (``*TMP*.csv``) was found, or it does not exist.
         """
+        if self.data_path is None:
+            raise FileNotFoundError(f"No LM76 file (*TMP*.csv) in {self.path}")
         if not self.data_path.exists():
             raise FileNotFoundError(f"Sensor file not found: {self.data_path}")
 

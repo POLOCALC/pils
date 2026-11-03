@@ -6,7 +6,7 @@ Complete guide to installing PILS and its dependencies.
 
 | Requirement | Version | Purpose |
 |-------------|---------|---------|
-| Python | ≥3.10 | Modern type hints (`str \| Path`) |
+| Python | ≥3.11 | `datetime.UTC`, modern type hints |
 | Polars | ≥0.20.0 | High-performance DataFrames |
 | NumPy | ≥1.24.0 | Numerical operations |
 | h5py | ≥3.8.0 | HDF5 file I/O |
@@ -19,7 +19,7 @@ Complete guide to installing PILS and its dependencies.
 
 ```bash
 # Create dedicated environment
-conda create -n dm python=3.10 -y
+conda create -n dm python=3.12 -y
 conda activate dm
 
 # Clone and install
@@ -44,7 +44,7 @@ git clone https://github.com/polocalc/pils.git
 cd pils
 
 # Create conda environment
-conda create -n dm python=3.10 -y
+conda create -n dm python=3.12 -y
 conda activate dm
 
 # Install with dev dependencies
@@ -85,7 +85,6 @@ print("All modules imported successfully")
 
 | Package | Purpose | Install |
 |---------|---------|---------|
-| `opencv-python` | Video/image processing | `pip install opencv-python` |
 | `pymavlink` | ArduPilot log parsing | `pip install pymavlink` |
 | `matplotlib` | Plotting and visualization | `pip install matplotlib` |
 | `rtklib` | PPK processing | System install required |

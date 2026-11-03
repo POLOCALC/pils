@@ -1,5 +1,8 @@
 """Utilities for RTK data analysis and plotting."""
 
+import datetime
+
+import polars as pl
 
 # =============================================================================
 # GNSS CONSTANTS
@@ -54,10 +57,12 @@ def get_frequency_band(constellation: str, freq_code: str) -> str:
         constellation: GNSS constellation code (G, R, E, C, J, S)
         freq_code: Frequency code from RINEX observation
 
-    Returns:
+    Returns
+    -------
         Band name (e.g., 'L1', 'E5a', 'B2')
 
-    Examples:
+    Examples
+    --------
         >>> get_frequency_band('G', '1')
         'L1'
         >>> get_frequency_band('E', '5')
@@ -82,10 +87,12 @@ def get_dual_freq_bands(constellation: str) -> tuple[str, str | None]:
     Args:
         constellation: GNSS constellation code (G, R, E, C, J, S)
 
-    Returns:
+    Returns
+    -------
         Tuple of (primary_band, secondary_band) or (primary_band, None)
 
-    Examples:
+    Examples
+    --------
         >>> get_dual_freq_bands('G')
         ('L1', 'L2')
         >>> get_dual_freq_bands('E')
@@ -152,10 +159,12 @@ class GNSSColors:
         Args:
             constellation: GNSS constellation code ('G', 'R', 'E', 'C', etc.)
 
-        Returns:
+        Returns
+        -------
             Hex color code for the constellation
 
-        Examples:
+        Examples
+        --------
             >>> GNSSColors.get_constellation_color('G')
             '#1f77b4'
             >>> GNSSColors.get_constellation_color('E')
@@ -174,7 +183,8 @@ class GNSSColors:
         Args:
             ax: Matplotlib axes object
 
-        Examples:
+        Examples
+        --------
             >>> import matplotlib.pyplot as plt
             >>> fig, ax = plt.subplots()
             >>> ax.plot([1, 2, 3], [1, 4, 9])
@@ -201,3 +211,52 @@ __all__ = [
     # Classes
     "GNSSColors",
 ]
+
+
+# =============================================================================
+# TIME SYSTEMS
+# =============================================================================
+
+# GPS - UTC (leap seconds), from the date each value starts
+GPS_UTC_LEAP_SECONDS = (
+    ("2017-01-01", 18),
+    ("2015-07-01", 17),
+    ("2012-07-01", 16),
+    ("2009-01-01", 15),
+    ("2006-01-01", 14),
+    ("1999-01-01", 13),
+)
+# Start of GPS time, as a UNIX timestamp (1980-01-06 00:00:00)
+GPS_EPOCH_UNIX = 315964800.0
+
+
+def gps_utc_offset(gps_time: pl.Expr) -> pl.Expr:
+    """GPS - UTC in seconds for a GPS-time datetime expression.
+
+    Examples
+    --------
+    >>> import polars as pl, datetime
+    >>> df = pl.DataFrame({"t": [datetime.datetime(2025, 12, 6)]})
+    >>> df.select(gps_utc_offset(pl.col("t")))["literal"][0]
+    18
+    """
+    expr = pl.lit(0)
+    for start, leap in reversed(GPS_UTC_LEAP_SECONDS):
+        expr = (
+            pl.when(gps_time >= datetime.datetime.fromisoformat(start))
+            .then(pl.lit(leap))
+            .otherwise(expr)
+        )
+    return expr
+
+
+def to_utc(time: pl.Expr, system: str) -> pl.Expr:
+    """Convert a naive datetime in ``system`` (GPST, UTC or JST) to UTC."""
+    system = system.upper()
+    if system == "GPST":
+        time = time - pl.duration(seconds=gps_utc_offset(time))
+    elif system == "JST":
+        time = time - pl.duration(hours=9)
+    elif system != "UTC":
+        raise ValueError(f"Unknown time system {system!r}")
+    return time.dt.cast_time_unit("us").dt.replace_time_zone("UTC")

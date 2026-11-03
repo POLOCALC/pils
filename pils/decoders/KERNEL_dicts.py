@@ -1,3 +1,5 @@
+"""Kernel-100 inclinometer message tables and scale factors."""
+
 g = 9.8106
 GYRO_SCALE = 1e5
 ACC_SCALE = 1e6 * g
@@ -34,6 +36,8 @@ USW_TABLE = {
 
 
 def extract_USW(USW):
+    """Decode the Kernel-100 unit status word into OK/KO flags."""
+
     def check_byte(byte):
         if isinstance(byte, int):
             return format(byte, "08b")  # Ensure 8-bit representation
