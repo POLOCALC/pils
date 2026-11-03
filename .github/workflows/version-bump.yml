@@ -10,6 +10,11 @@ on:
 permissions:
   contents: write
 
+# two merges close together: one bump after the other (else the second push is refused)
+concurrency:
+  group: version-bump
+  cancel-in-progress: false
+
 jobs:
   bump-version:
     runs-on: ubuntu-latest
