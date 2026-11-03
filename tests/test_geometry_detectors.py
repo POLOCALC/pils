@@ -57,6 +57,7 @@ def test_a_telescope_with_its_own_table_has_its_own_beam():
 
 
 def test_rotated_pixels_are_in_degrees_and_turned():
+    pytest.importorskip("so3g")  # optional (requirements.txt), not in CI
     straight = rotated_pixels(DEFAULT_WAFERS[:1], "SAT_MF", 0.0)["ws0"]
     turned = rotated_pixels(DEFAULT_WAFERS[:1], "SAT_MF", 30.0)["ws0"]
     radius = lambda p: np.hypot(p[:, 0], p[:, 1])  # noqa: E731
