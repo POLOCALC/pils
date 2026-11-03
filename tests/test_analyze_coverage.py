@@ -18,25 +18,45 @@ def _flight(tmp_path, *, boresight=0.0, offset=0.0):
     store.save_version(
         tmp_path / "proc" / "azel" / "SATP3",
         "rev_20260101_000000",
-        {"azel_data": pl.DataFrame({"timestamp": t, "az_deg": np.linspace(178, 182, t.size),
-                                    "el_deg": np.full(t.size, 50.0)})},
+        {
+            "azel_data": pl.DataFrame(
+                {
+                    "timestamp": t,
+                    "az_deg": np.linspace(178, 182, t.size),
+                    "el_deg": np.full(t.size, 50.0),
+                }
+            )
+        },
         {},
     )
     store.save_version(
         tmp_path / "proc" / "telescope" / "SATP3",
         "rev_20260101_000000",
-        {"pointing": pl.DataFrame({"timestamp": t, "az_enc_deg": np.full(t.size, 180.0 + offset),
-                                   "el_enc_deg": np.full(t.size, 50.0),
-                                   "boresight_enc_deg": np.full(t.size, boresight),
-                                   "flagged": np.zeros(t.size, bool)})},
+        {
+            "pointing": pl.DataFrame(
+                {
+                    "timestamp": t,
+                    "az_enc_deg": np.full(t.size, 180.0 + offset),
+                    "el_enc_deg": np.full(t.size, 50.0),
+                    "boresight_enc_deg": np.full(t.size, boresight),
+                    "flagged": np.zeros(t.size, bool),
+                }
+            )
+        },
         {},
     )
     return tmp_path
 
 
 def _coverage(flight, source=90, **kw):
-    return flight_coverage(flight, "satp3", source, wafers=DEFAULT_WAFERS,
-                           focal_plane=nominal_focal_plane("SAT_MF"), **kw)
+    return flight_coverage(
+        flight,
+        "satp3",
+        source,
+        wafers=DEFAULT_WAFERS,
+        focal_plane=nominal_focal_plane("SAT_MF"),
+        **kw,
+    )
 
 
 def test_the_drone_crosses_the_detectors_on_its_path(tmp_path):
@@ -52,7 +72,10 @@ def test_the_drone_crosses_the_detectors_on_its_path(tmp_path):
     assert out["crossed"] == crossed.sum() > 0
     assert crossed[(eta < 0.2) & (xi < 1.2)].all()
     assert not crossed[(eta > 0.3) | (xi > 1.6)].any()
-    assert out["datasets"] == {"azel": "rev_20260101_000000", "pointing": "rev_20260101_000000"}
+    assert out["datasets"] == {
+        "azel": "rev_20260101_000000",
+        "pointing": "rev_20260101_000000",
+    }
 
 
 def test_the_window_and_the_encoder_offset(tmp_path):
@@ -60,7 +83,9 @@ def test_the_window_and_the_encoder_offset(tmp_path):
     whole = _coverage(flight, az_offset_deg=1.0)
     # the encoder's azimuth less the offset is the true one
     assert whole["pixels"] == _coverage(_flight(tmp_path / "plain"))["pixels"]
-    part = _coverage(flight, az_offset_deg=1.0, start=1_700_000_000.0, end=1_700_000_010.0)
+    part = _coverage(
+        flight, az_offset_deg=1.0, start=1_700_000_000.0, end=1_700_000_010.0
+    )
     assert part["window"][1] <= 1_700_000_010 and part["samples"] < whole["samples"]
     # the first 10 s are at least 1.3 deg from the boresight: only the edge of the plane
     assert part["crossed"] < whole["crossed"]
@@ -87,12 +112,29 @@ def test_a_telescope_described_as_data_gives_the_same_coverage(tmp_path):
     from pils.analyze.coverage import describe_telescope, telescope_coverage
     from pils.geometry.focal_plane import Wafer, wafer_from_dict, wafer_to_dict
 
-    own = Wafer("w", 0.01, -0.02, ((0.0, 0.0), (0.1, 0.0), (0.0, 0.1)), np.array([[0.0, 0.0], [0.002, 0.001]]))
+    own = Wafer(
+        "w",
+        0.01,
+        -0.02,
+        ((0.0, 0.0), (0.1, 0.0), (0.0, 0.1)),
+        np.array([[0.0, 0.0], [0.002, 0.001]]),
+    )
     back = wafer_from_dict(json.loads(json.dumps(wafer_to_dict(own))))
     assert back == own and np.array_equal(back.pixels, own.pixels)
     assert wafer_from_dict(wafer_to_dict(DEFAULT_WAFERS[1])).pixels is None
 
     flight = _flight(tmp_path, offset=0.5)
-    description = json.loads(json.dumps(describe_telescope(
-        "satp3", wafers=DEFAULT_WAFERS, wafer_type="SAT_MF", own_wafers=False, az_offset_deg=0.5)))
-    assert telescope_coverage(flight, description, 90) == _coverage(flight, az_offset_deg=0.5)
+    description = json.loads(
+        json.dumps(
+            describe_telescope(
+                "satp3",
+                wafers=DEFAULT_WAFERS,
+                wafer_type="SAT_MF",
+                own_wafers=False,
+                az_offset_deg=0.5,
+            )
+        )
+    )
+    assert telescope_coverage(flight, description, 90) == _coverage(
+        flight, az_offset_deg=0.5
+    )

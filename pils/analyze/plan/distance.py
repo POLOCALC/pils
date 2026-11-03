@@ -15,8 +15,12 @@ from typing import Any
 
 
 def followed(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    """The flights the telescope scanned during (a worst case), closest first."""
-    got = [dict(r) for r in rows if r.get("worst_deg") is not None and not _nan(r.get("worst_deg"))]
+    """Return the flights the telescope scanned during (a worst case), closest first."""
+    got = [
+        dict(r)
+        for r in rows
+        if r.get("worst_deg") is not None and not _nan(r.get("worst_deg"))
+    ]
     return sorted(got, key=lambda r: r["worst_deg"])
 
 
@@ -25,22 +29,40 @@ def _nan(v: Any) -> bool:
 
 
 def summary(rows: Sequence[Mapping[str, Any]], exclusion: float) -> dict[str, Any]:
-    """The flights followed, how many can come within the angle (worst case), do in the median case, the
-    closest of all, and how many the field-centre test put within it."""
+    """Summarise how close the followed flights come to the exclusion angle.
+
+    The flights followed, how many can come within the angle (worst case), do in the median case, the
+    closest of all, and how many the field-centre test put within it.
+    """
     got = followed(rows)
     return {
         "flights": len(got),
         "worst_within": sum(1 for r in got if r["worst_deg"] < exclusion),
-        "median_within": sum(1 for r in got if r.get("median_deg") is not None and r["median_deg"] < exclusion),
+        "median_within": sum(
+            1
+            for r in got
+            if r.get("median_deg") is not None and r["median_deg"] < exclusion
+        ),
         "closest_deg": min((r["worst_deg"] for r in got), default=None),
-        "static_within": sum(1 for r in got if r.get("static_deg") is not None and r["static_deg"] < exclusion),
+        "static_within": sum(
+            1
+            for r in got
+            if r.get("static_deg") is not None and r["static_deg"] < exclusion
+        ),
     }
 
 
-def median_histogram(rows: Sequence[Mapping[str, Any]], bins: int = 30) -> dict[str, Any]:
-    """The flights by their closest approach in the median case: ``bins`` bins from the closest flight to
-    the farthest (none narrower than 0.05 deg), and the median over all flights."""
-    v = sorted(r["median_deg"] for r in followed(rows) if r.get("median_deg") is not None)
+def median_histogram(
+    rows: Sequence[Mapping[str, Any]], bins: int = 30
+) -> dict[str, Any]:
+    """Histogram the flights by their closest approach in the median case.
+
+    The flights by their closest approach in the median case: ``bins`` bins from the closest flight to
+    the farthest (none narrower than 0.05 deg), and the median over all flights.
+    """
+    v = sorted(
+        r["median_deg"] for r in followed(rows) if r.get("median_deg") is not None
+    )
     if not v:
         return {"edges": [], "counts": [], "median": None}
     lo, hi = v[0], v[-1]
@@ -51,4 +73,8 @@ def median_histogram(rows: Sequence[Mapping[str, Any]], bins: int = 30) -> dict[
         counts[min(n - 1, int(math.floor((x - lo) / size)))] += 1
     mid = len(v) // 2
     median = v[mid] if len(v) % 2 else (v[mid - 1] + v[mid]) / 2
-    return {"edges": [lo + k * size for k in range(n + 1)], "counts": counts, "median": median}
+    return {
+        "edges": [lo + k * size for k in range(n + 1)],
+        "counts": counts,
+        "median": median,
+    }

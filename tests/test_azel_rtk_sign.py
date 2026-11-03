@@ -210,8 +210,10 @@ def test_broadcast_reference_keeps_the_positions_as_reported(campaign):
     assert version.metadata["rtk_reference"] == "broadcast"
     assert version.metadata["rtk_fixed_only"]  # still RTK positions
     reported = pm.geodetic2enu(lat, lon, h, *TELESCOPE.values())
-    for column, expected in zip(("e_m", "n_m", "u_m"), reported):
-        np.testing.assert_allclose(version.azel_data[column].to_numpy(), expected, atol=1e-3)
+    for column, expected in zip(("e_m", "n_m", "u_m"), reported, strict=True):
+        np.testing.assert_allclose(
+            version.azel_data[column].to_numpy(), expected, atol=1e-3
+        )
 
 
 def test_unknown_rtk_reference_refused(campaign):
