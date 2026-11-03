@@ -31,11 +31,12 @@ jobs:
     
     - name: Install dependencies
       # STOUT (a dependency, git+https from POLOCALC/stout, which pip may spell in lower case) is
-      # private: GitHub read with PAT_TOKEN,
+      # private: read with the secret STOUT_TOKEN (fine-grained, Contents: read on POLOCALC/stout;
+      # PAT_TOKEN only writes the version bumps on pils),
       # for this step only (git's environment configuration: nothing written to disk)
       env:
         GIT_CONFIG_COUNT: "1"
-        GIT_CONFIG_KEY_0: url.https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/.insteadOf
+        GIT_CONFIG_KEY_0: url.https://x-access-token:${{ secrets.STOUT_TOKEN }}@github.com/.insteadOf
         GIT_CONFIG_VALUE_0: https://github.com/
       run: |
         python -m pip install --upgrade pip
