@@ -38,18 +38,20 @@ class Wafer:
 
 
 def wafer_to_dict(wafer: Wafer) -> dict:
-    """A wafer as plain data (JSON): its name, centre, outline and pixels (None for an SO wafer)."""
+    """Convert a wafer to plain data (JSON): its name, centre, outline and pixels (None for an SO wafer)."""
     return {
         "name": wafer.name,
         "xi": float(wafer.xi),
         "eta": float(wafer.eta),
         "outline": [[float(a), float(b)] for a, b in wafer.outline],
-        "pixels": None if wafer.pixels is None else np.asarray(wafer.pixels, float).tolist(),
+        "pixels": None
+        if wafer.pixels is None
+        else np.asarray(wafer.pixels, float).tolist(),
     }
 
 
 def wafer_from_dict(data: dict) -> Wafer:
-    """The wafer :func:`wafer_to_dict` wrote."""
+    """Rebuild the wafer :func:`wafer_to_dict` wrote."""
     pixels = data.get("pixels")
     return Wafer(
         str(data["name"]),

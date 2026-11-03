@@ -24,13 +24,16 @@ SUMMED: dict[str, tuple[str, ...]] = {
 
 
 def project_name(name: Any) -> Any:
-    """The project as the reader knows it: POLOCALC_ENG_PRE / _POST are POLOCALC_ENG."""
+    """Return the project as the reader knows it: POLOCALC_ENG_PRE / _POST are POLOCALC_ENG."""
     return re.sub(r"_(PRE|POST)$", "", name) if isinstance(name, str) else name
 
 
 def merge_projects(df: pl.DataFrame, name: str = "") -> pl.DataFrame:
-    """``project`` with POLOCALC_ENG_PRE / _POST as one project; a table of counts (``SUMMED``)
-    adds up the rows of a key, so that the key stays unique."""
+    """Merge POLOCALC_ENG_PRE / _POST into one ``project``.
+
+    ``project`` with POLOCALC_ENG_PRE / _POST as one project; a table of counts (``SUMMED``)
+    adds up the rows of a key, so that the key stays unique.
+    """
     if "project" not in df.columns or df.is_empty():
         return df
     merged = df["project"].str.replace(r"_(PRE|POST)$", "")
@@ -51,7 +54,7 @@ def merge_projects(df: pl.DataFrame, name: str = "") -> pl.DataFrame:
 
 
 def read_csv(path: str | Path) -> pl.DataFrame:
-    """A planner's CSV: every column's type from all its rows, empty cells null (no file: empty)."""
+    """Read a planner's CSV: every column's type from all its rows, empty cells null (no file: empty)."""
     path = Path(path)
     if not path.is_file() or path.stat().st_size == 0:
         return pl.DataFrame()
@@ -65,16 +68,19 @@ RENAMED = {"campaign_schedule": "schedule"}
 
 
 def table_name(file: str) -> str:
-    """A run's CSV as a table of the plan's revision: ``impact_LAT.csv`` -> ``impact_lat``."""
+    """Name a run's CSV as a table of the plan's revision: ``impact_LAT.csv`` -> ``impact_lat``."""
     stem = re.sub(r"\.csv$", "", file)
     stem = re.sub(r"[^a-z0-9_]+", "_", stem.lower()).strip("_")
     return RENAMED.get(stem, stem)
 
 
 class PlanRun:
-    """One plan of the planner: the plan in a campaign's folder (``plans/<run>/``, its tables a
+    """Read one plan of the planner.
+
+    One plan of the planner: the plan in a campaign's folder (``plans/<run>/``, its tables a
     pils revision of ``proc/plan``), or a planner's run folder (``<run>/plan/*.csv``). Its tables
-    are asked for by the run's file names (``campaign_schedule.csv``) either way."""
+    are asked for by the run's file names (``campaign_schedule.csv``) either way.
+    """
 
     def __init__(
         self, path: str | Path, merge: bool = True, revision: str | None = None
@@ -109,6 +115,7 @@ class PlanRun:
 
     @property
     def name(self) -> str:
+        """Return the plan's name (its folder's)."""
         return self.root.name
 
     @cached_property
@@ -121,7 +128,7 @@ class PlanRun:
             return {}
 
     def names(self) -> list[str]:
-        """The plan's tables, by the run's file names (``campaign_schedule.csv``, ...)."""
+        """List the plan's tables, by the run's file names (``campaign_schedule.csv``, ...)."""
         if self.revision is None:
             return sorted(p.name for p in self.path.glob("*.csv"))
         files = (self._manifest.get("metadata") or {}).get("files") or {}
@@ -133,12 +140,13 @@ class PlanRun:
         )
 
     def has(self, name: str) -> bool:
+        """Tell whether the plan has a table (``campaign_schedule.csv``, ...)."""
         if self.revision is None:
             return (self.path / name).is_file()
         return table_name(name) in self._manifest.get("tables", {})
 
     def table(self, name: str) -> pl.DataFrame:
-        """A table of the plan (``campaign_schedule.csv``, ...); empty when it has none."""
+        """Return a table of the plan (``campaign_schedule.csv``, ...); empty when it has none."""
         if self.revision is None:
             df = read_csv(self.path / name)
         elif self.has(name):
@@ -163,8 +171,11 @@ class PlanRun:
 
     @cached_property
     def meta(self) -> dict[str, Any]:
-        """The run's record (the revision's ``run_meta``; ``plan/run.json``, or
-        ``config/run_plan.json`` beside it)."""
+        """Return the run's record.
+
+        The run's record (the revision's ``run_meta``; ``plan/run.json``, or
+        ``config/run_plan.json`` beside it).
+        """
         if self.revision is not None:
             meta = (self._manifest.get("metadata") or {}).get("run_meta")
             if meta:

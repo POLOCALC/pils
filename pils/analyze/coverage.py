@@ -48,7 +48,7 @@ def thin(*arrays: np.ndarray, max_points: int = MAX_POINTS) -> list[list[float]]
 
 
 def latest_dataset(flight_dir: str | Path, dataset: str) -> Path | None:
-    """The latest revision of one of a flight's datasets (``proc/<dataset>``), or None."""
+    """Return the latest revision of one of a flight's datasets (``proc/<dataset>``), or None."""
     root = Path(flight_dir) / layout.PROC_FOLDER / dataset
     rev = store.latest_version(root) if root.is_dir() else None
     return root / rev if rev else None
@@ -101,7 +101,7 @@ def flight_coverage(
     end: float | None = None,
     max_points: int = MAX_POINTS,
 ) -> dict[str, Any]:
-    """A flown flight in a telescope's focal plane: the detectors the drone crossed.
+    """Map a flown flight into a telescope's focal plane: the detectors the drone crossed.
 
     Parameters
     ----------
@@ -209,7 +209,7 @@ def describe_telescope(
     beam_fraction: float = 0.5,
     az_offset_deg: float = 0.0,
 ) -> dict[str, Any]:
-    """A telescope's focal plane as plain data (JSON), for :func:`telescope_coverage`.
+    """Describe a telescope's focal plane as plain data (JSON), for :func:`telescope_coverage`.
 
     ``own_wafers``: its wafers are its own (read from its detector table, with the beam
     ``beam_fwhm_arcmin``), not the SO layout of its ``wafer_type``.
