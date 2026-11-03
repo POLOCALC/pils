@@ -31,7 +31,7 @@ class TestIMUSensor:
     def test_init_with_string_path(self, sample_baro_csv):
         """Test IMUSensor initialization with string path."""
         sensor = IMUSensor(str(sample_baro_csv), "baro")
-        assert sensor.path == str(sample_baro_csv)
+        assert sensor.path == sample_baro_csv
         assert sensor.type == "baro"
         assert sensor.data is None
 
@@ -61,7 +61,8 @@ class TestIMUSensor:
         sensor = IMUSensor(sample_baro_csv, "baro")
         sensor.load_data()
         assert "datetime" in sensor.data.columns
-        assert sensor.data["datetime"].dtype == pl.Datetime("us")
+        assert sensor.data["datetime"].dtype == pl.Datetime("us", "UTC")
+        assert sensor.data["timestamp"].to_list() == [1.0, 2.0, 3.0]
 
     def test_accelerometer_columns(self, sample_accelero_csv):
         """Test accelerometer has correct columns."""
@@ -161,12 +162,12 @@ class TestIMU:
         assert "acc_z" in imu.accelerometer.data.columns
 
     def test_gyroscope_has_xyz_columns(self, imu_dir):
-        """Test gyroscope has x, y, z columns."""
+        """Test gyroscope has gyro_x, gyro_y, gyro_z columns."""
         imu = IMU(imu_dir)
         imu.load_all()
-        assert "x" in imu.gyroscope.data.columns
-        assert "y" in imu.gyroscope.data.columns
-        assert "z" in imu.gyroscope.data.columns
+        assert "gyro_x" in imu.gyroscope.data.columns
+        assert "gyro_y" in imu.gyroscope.data.columns
+        assert "gyro_z" in imu.gyroscope.data.columns
 
     def test_magnetometer_has_mag_columns(self, imu_dir):
         """Test magnetometer has mag_x, mag_y, mag_z columns."""
@@ -175,3 +176,84 @@ class TestIMU:
         assert "mag_x" in imu.magnetometer.data.columns
         assert "mag_y" in imu.magnetometer.data.columns
         assert "mag_z" in imu.magnetometer.data.columns
+
+
+class TestPayloadFiles:
+    """The files written by the payload: <date>_<time>_<SENSOR>.bin."""
+
+    @pytest.fixture
+    def sensors_dir(self, tmp_path):
+        t0 = 1_745_857_306_000_000
+        (tmp_path / "20250428_162512_BAR.bin").write_bytes(
+            f"{t0} 0 7.94\n{t0 + 6667} 550.6167 7.95\n{t0 + 13334} 550.61 7.95\n".encode()
+            + b"\x00" * 64
+        )
+        (tmp_path / "20250428_162512_ACC.bin").write_text(
+            f"{t0} 0.1 -0.2 1.02\n{t0 + 6667} 0.1 -0.2 1.03\n{t0 + 13334} 0.1 -0.2"
+        )
+        (tmp_path / "20250428_162512_GYR.bin").write_text("")
+        (tmp_path / "20250428_162512_MAG.bin").write_text(
+            f"{t0} -232 -458 -714\nbroken line\n{t0 + 6667} -232 -458 -715\n"
+        )
+        (tmp_path / "20250428_162512_ADC.bin").write_text("not an IMU file\n")
+        return tmp_path
+
+    def test_loads_payload_files(self, sensors_dir):
+        imu = IMU(sensors_dir)
+        imu.load_all()
+        data = imu.data
+        assert set(data) == {"barometer", "accelerometer", "magnetometer"}
+        # The zero-pressure first sample and the zero padding are dropped
+        assert data["barometer"]["pressure"].to_list() == [550.6167, 550.61]
+        # The cut last line is dropped
+        assert data["accelerometer"].height == 2
+        assert data["magnetometer"]["mag_z"].to_list() == [-714, -715]
+        assert data["magnetometer"]["mag_z"].dtype == pl.Int64
+        assert data["barometer"]["timestamp"][0] == pytest.approx(1_745_857_306.006667)
+
+    def test_empty_file_has_no_data(self, sensors_dir):
+        imu = IMU(sensors_dir)
+        imu.load_all()
+        assert imu.gyroscope.data is None
+
+    def test_no_files(self, tmp_path):
+        imu = IMU(tmp_path)
+        with pytest.raises(FileNotFoundError):
+            imu.load_all()
+        assert imu.data is None
+
+    def test_flight_loads_and_syncs_imu(self, sensors_dir):
+        import numpy as np
+
+        from pils.flight import Flight
+
+        aux = sensors_dir.parent
+        (aux / "sensors").mkdir()
+        for f in sensors_dir.glob("*.bin"):
+            f.rename(aux / "sensors" / f.name)
+        flight = Flight({"drone_data_folder_path": "", "aux_data_folder_path": aux})
+        flight.add_sensor_data("imu")
+        assert set(flight.raw_data.payload_data.imu) == {
+            "barometer",
+            "accelerometer",
+            "magnetometer",
+        }
+        t = 1_745_857_306.0 + np.arange(0, 20, 0.5)
+        flight.raw_data.payload_data.gps = pl.DataFrame(
+            {
+                "timestamp": t,
+                "lat_deg": np.full(t.size, -22.96),
+                "lon_deg": np.full(t.size, -67.78),
+                "h_ell_m": np.full(t.size, 5200.0),
+            }
+        )
+        synced = flight.sync(target_rate={"payload": 10.0})
+        assert {"imu_barometer", "imu_accelerometer", "imu_magnetometer"} <= set(synced)
+
+        path = aux / "flight.h5"
+        flight.to_hdf5(path)
+        loaded = Flight.from_hdf5(path)
+        imu = loaded.raw_data.payload_data.imu
+        assert imu["magnetometer"].equals(
+            flight.raw_data.payload_data.imu["magnetometer"]
+        )

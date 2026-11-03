@@ -101,9 +101,9 @@ def test_sync_data_dict_loads_from_hdf5():
         "reference_gps": pl.DataFrame(
             {
                 "timestamp": [0.0, 1.0, 2.0],
-                "posllh_lat": [45.0, 45.001, 45.002],
-                "posllh_lon": [10.0, 10.001, 10.002],
-                "posllh_height": [100.0, 101.0, 102.0],
+                "lat_deg": [45.0, 45.001, 45.002],
+                "lon_deg": [10.0, 10.001, 10.002],
+                "h_ell_m": [100.0, 101.0, 102.0],
             }
         ),
     }

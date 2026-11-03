@@ -201,58 +201,91 @@ from pils.utils.tools import *
 
 ## Docstrings
 
-### Google Style
+Docstrings follow [PEP 257](https://peps.python.org/pep-0257/) and the
+[numpydoc](https://numpydoc.readthedocs.io/en/latest/format.html) format.
+Ruff checks them (`D` rules, `convention = "numpy"` in `pyproject.toml`) on
+`pils/`; tests are exempt. The documentation pages include them with
+mkdocstrings (`::: pils.module.object`), so a format, a default or a rule is
+written once, next to the code, and the pages show it.
+
+- One summary line, in the imperative for functions and methods ("Load ...",
+  "Return ..."), ending with a period; a blank line before the rest.
+- Every public module, class, method and function has a docstring.
+- Sections: `Parameters`, `Returns` (or `Yields`), `Raises`, `Notes`,
+  `Examples`, underlined with dashes.
+- Refer to other objects with Sphinx roles (``:func:`pils.store.save_version` ``);
+  the docs link them when the object is documented
+  (`docs/hooks/sphinx_roles.py`).
+- File formats and rules that users need go in the module docstring, under
+  `Notes` (Markdown tables render on the pages), e.g. `pils.sensors.adc`.
+- Module constants get an attribute docstring, a string right after the
+  assignment, which the pages show:
 
 ```python
-def load_sensor_data(
-    sensor_type: str,
-    path: Path,
-    timeout: int = 30
-) -> pl.DataFrame:
-    """
-    Load sensor data from file.
-    
-    Args:
-        sensor_type: Type of sensor ('gps', 'imu', etc.)
-        path: Path to sensor data file
-        timeout: Read timeout in seconds
-        
-    Returns:
-        Polars DataFrame with sensor data and timestamp column
-        
-    Raises:
-        FileNotFoundError: If sensor file not found
-        ValueError: If sensor_type not supported
-        
-    Example:
-        >>> df = load_sensor_data('gps', Path('data/gps.csv'))
-        >>> df.shape
-        (1000, 5)
-    """
-    pass
+MIN_REFERENCE_COVERAGE = 0.5
+"""Minimum fraction of the drone GPS time covered by the payload GPS."""
 ```
 
-### Class Docstrings
+### Functions
+
+```python
+def load_sensor_data(sensor_type: str, path: Path, timeout: int = 30) -> pl.DataFrame:
+    """Load sensor data from a file.
+
+    Parameters
+    ----------
+    sensor_type : str
+        Type of sensor ('gps', 'imu', ...).
+    path : Path
+        Sensor data file.
+    timeout : int, default=30
+        Read timeout in seconds.
+
+    Returns
+    -------
+    pl.DataFrame
+        Sensor data with a ``timestamp`` column.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the file does not exist.
+
+    Examples
+    --------
+    >>> df = load_sensor_data("gps", Path("data/gps.csv"))  # doctest: +SKIP
+    """
+```
+
+### Classes
 
 ```python
 class GPS:
+    """Payload GPS: the u-blox receiver recorded as UBX.
+
+    Parameters
+    ----------
+    path : Path
+        Folder with the ``*_GPS.bin`` file.
+
+    Attributes
+    ----------
+    data : pl.DataFrame or None
+        The loaded data (None until :meth:`load_data`).
     """
-    GPS sensor data handler.
-    
-    Reads and processes GPS data from CSV or binary files.
-    Supports NMEA and u-blox formats.
-    
-    Attributes:
-        file: Path to GPS data file
-        data: Loaded data as Polars DataFrame
-        
-    Example:
-        >>> gps = GPS(file=Path("gps.csv"))
-        >>> df = gps.data
-        >>> print(df.columns)
-        ['timestamp', 'lat', 'lon', 'altitude']
-    """
-    pass
+```
+
+### Modules
+
+```python
+"""ADC readings of the payload detector (ADS1015/ADS1115).
+
+Notes
+-----
+| Payload | File | Content |
+|---------|------|---------|
+| 2025 | ``*_ADC.bin``, ASCII | time (us) and counts per line |
+"""
 ```
 
 ---

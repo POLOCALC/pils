@@ -1,5 +1,3 @@
-"""
-RTK Data Analysis Utilities.
-"""
+"""RTK Data Analysis Utilities."""
 
 __all__ = []

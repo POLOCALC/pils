@@ -1,5 +1,3 @@
-"""
-RINEX Analysis Tools.
-"""
+"""RINEX Analysis Tools."""
 
 __all__ = []

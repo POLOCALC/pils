@@ -21,9 +21,9 @@ class TestCoordinateStandardization:
         data = pl.DataFrame(
             {
                 "timestamp": t,
-                "posllh_lat": 45.0 + 0.001 * np.sin(0.1 * t),
-                "posllh_lon": 10.0 + 0.001 * np.cos(0.1 * t),
-                "posllh_height": 100.0 + 10.0 * np.sin(0.05 * t),
+                "lat_deg": 45.0 + 0.001 * np.sin(0.1 * t),
+                "lon_deg": 10.0 + 0.001 * np.cos(0.1 * t),
+                "h_ell_m": 100.0 + 10.0 * np.sin(0.05 * t),
             }
         )
         return data
@@ -35,11 +35,11 @@ class TestCoordinateStandardization:
         data = pl.DataFrame(
             {
                 "timestamp": t,
-                "RTK:lat_p": 45.0 + 0.001 * np.sin(0.1 * (t + 0.5)),
-                "RTK:lon_p": 10.0 + 0.001 * np.cos(0.1 * (t + 0.5)),
-                "RTK:hmsl_p": 100.0 + 10.0 * np.sin(0.05 * (t + 0.5)),
+                "rtk_lat_deg": 45.0 + 0.001 * np.sin(0.1 * (t + 0.5)),
+                "rtk_lon_deg": 10.0 + 0.001 * np.cos(0.1 * (t + 0.5)),
+                "rtk_h_ell_m": 100.0 + 10.0 * np.sin(0.05 * (t + 0.5)),
                 "battery_percent": 85.0,
-                "gimbalPitch": -45.0,
+                "gimbal_pitch_deg": -45.0,
             }
         )
         return data
@@ -55,7 +55,7 @@ class TestCoordinateStandardization:
                 "GPS:Longitude": 10.0 + 0.001 * np.cos(0.1 * (t + 0.5)),
                 "GPS:heightMSL": 100.0 + 10.0 * np.sin(0.05 * (t + 0.5)),
                 "battery_percent": 85.0,
-                "gimbalPitch": -45.0,
+                "gimbal_pitch_deg": -45.0,
             }
         )
         return data
@@ -67,9 +67,9 @@ class TestCoordinateStandardization:
         data = pl.DataFrame(
             {
                 "timestamp": t,
-                "Latitude": 45.0 + 0.001 * np.sin(0.1 * (t + 0.5)),
-                "Longitude": 10.0 + 0.001 * np.cos(0.1 * (t + 0.5)),
-                "heightMSL": 100.0 + 10.0 * np.sin(0.05 * (t + 0.5)),
+                "lat_deg": 45.0 + 0.001 * np.sin(0.1 * (t + 0.5)),
+                "lon_deg": 10.0 + 0.001 * np.cos(0.1 * (t + 0.5)),
+                "h_msl_m": 100.0 + 10.0 * np.sin(0.05 * (t + 0.5)),
                 "voltage": 12.5,
             }
         )
@@ -82,10 +82,10 @@ class TestCoordinateStandardization:
         data = pl.DataFrame(
             {
                 "timestamp": t,
-                "latitude": 45.0 + 0.001 * np.sin(0.1 * (t + 0.3)),
-                "longitude": 10.0 + 0.001 * np.cos(0.1 * (t + 0.3)),
-                "altitude(m)": 100.0 + 10.0 * np.sin(0.05 * (t + 0.3)),
-                "gimbalPitch": -60.0,
+                "lat_deg": 45.0 + 0.001 * np.sin(0.1 * (t + 0.3)),
+                "lon_deg": 10.0 + 0.001 * np.cos(0.1 * (t + 0.3)),
+                "h_rel_m": 100.0 + 10.0 * np.sin(0.05 * (t + 0.3)),
+                "gimbal_pitch_deg": -60.0,
             }
         )
         return data
@@ -100,16 +100,16 @@ class TestCoordinateStandardization:
         sync.add_gps_reference(
             sample_gps_payload,
             timestamp_col="timestamp",
-            lat_col="posllh_lat",
-            lon_col="posllh_lon",
-            alt_col="posllh_height",
+            lat_col="lat_deg",
+            lon_col="lon_deg",
+            alt_col="h_ell_m",
         )
         sync.add_drone_gps(
             sample_drone_dji_rtk,
             timestamp_col="timestamp",
-            lat_col="RTK:lat_p",
-            lon_col="RTK:lon_p",
-            alt_col="RTK:hmsl_p",
+            lat_col="rtk_lat_deg",
+            lon_col="rtk_lon_deg",
+            alt_col="rtk_h_ell_m",
         )
 
         result = sync.synchronize(target_rate={"drone": 10.0})
@@ -118,28 +118,28 @@ class TestCoordinateStandardization:
         drone_df = result["drone"]
 
         # Verify standardized column names exist
-        assert "latitude" in drone_df.columns, (
-            "Should have standardized 'latitude' column"
+        assert "lat_deg" in drone_df.columns, (
+            "Should have standardized 'lat_deg' column"
         )
-        assert "longitude" in drone_df.columns, (
-            "Should have standardized 'longitude' column"
+        assert "lon_deg" in drone_df.columns, (
+            "Should have standardized 'lon_deg' column"
         )
-        assert "altitude" in drone_df.columns, (
-            "Should have standardized 'altitude' column"
+        assert "h_ell_m" in drone_df.columns, (
+            "Should have standardized 'h_ell_m' column"
         )
         assert "timestamp" in drone_df.columns, (
             "Should have standardized 'timestamp' column"
         )
 
         # Verify original column names do NOT exist
-        assert "RTK:lat_p" not in drone_df.columns, (
-            "Original 'RTK:lat_p' should be renamed"
+        assert "rtk_lat_deg" not in drone_df.columns, (
+            "Original 'rtk_lat_deg' should be renamed"
         )
-        assert "RTK:lon_p" not in drone_df.columns, (
-            "Original 'RTK:lon_p' should be renamed"
+        assert "rtk_lon_deg" not in drone_df.columns, (
+            "Original 'rtk_lon_deg' should be renamed"
         )
-        assert "RTK:hmsl_p" not in drone_df.columns, (
-            "Original 'RTK:hmsl_p' should be renamed"
+        assert "rtk_h_ell_m" not in drone_df.columns, (
+            "Original 'rtk_h_ell_m' should be renamed"
         )
         # timestamp is already the standard name after DJI loader changes
         # No need to check for old column name
@@ -148,7 +148,7 @@ class TestCoordinateStandardization:
         assert "battery_percent" in drone_df.columns, (
             "Non-coordinate columns should be preserved"
         )
-        assert "gimbalPitch" in drone_df.columns, (
+        assert "gimbal_pitch_deg" in drone_df.columns, (
             "Non-coordinate columns should be preserved"
         )
 
@@ -162,9 +162,9 @@ class TestCoordinateStandardization:
         sync.add_gps_reference(
             sample_gps_payload,
             timestamp_col="timestamp",
-            lat_col="posllh_lat",
-            lon_col="posllh_lon",
-            alt_col="posllh_height",
+            lat_col="lat_deg",
+            lon_col="lon_deg",
+            alt_col="h_ell_m",
         )
         sync.add_drone_gps(
             sample_drone_dji_gps,
@@ -179,9 +179,9 @@ class TestCoordinateStandardization:
         drone_df = result["drone"]
 
         # Verify standardized column names
-        assert "latitude" in drone_df.columns
-        assert "longitude" in drone_df.columns
-        assert "altitude" in drone_df.columns
+        assert "lat_deg" in drone_df.columns
+        assert "lon_deg" in drone_df.columns
+        assert "h_ell_m" in drone_df.columns
         assert "timestamp" in drone_df.columns
 
         # Verify original names removed
@@ -199,16 +199,16 @@ class TestCoordinateStandardization:
         sync.add_gps_reference(
             sample_gps_payload,
             timestamp_col="timestamp",
-            lat_col="posllh_lat",
-            lon_col="posllh_lon",
-            alt_col="posllh_height",
+            lat_col="lat_deg",
+            lon_col="lon_deg",
+            alt_col="h_ell_m",
         )
         sync.add_drone_gps(
             sample_drone_blacksquare,
             timestamp_col="timestamp",
-            lat_col="Latitude",
-            lon_col="Longitude",
-            alt_col="heightMSL",
+            lat_col="lat_deg",
+            lon_col="lon_deg",
+            alt_col="h_msl_m",
         )
 
         result = sync.synchronize(target_rate={"drone": 10.0})
@@ -216,15 +216,13 @@ class TestCoordinateStandardization:
         drone_df = result["drone"]
 
         # Verify standardized column names
-        assert "latitude" in drone_df.columns
-        assert "longitude" in drone_df.columns
-        assert "altitude" in drone_df.columns
+        assert "lat_deg" in drone_df.columns
+        assert "lon_deg" in drone_df.columns
+        assert "h_ell_m" in drone_df.columns
         assert "timestamp" in drone_df.columns
 
-        # Verify original names removed
-        assert "Latitude" not in drone_df.columns
-        assert "Longitude" not in drone_df.columns
-        assert "heightMSL" not in drone_df.columns
+        # The height column given as the ellipsoidal one is renamed
+        assert "h_msl_m" not in drone_df.columns
 
         # Verify other columns preserved
         assert "voltage" in drone_df.columns
@@ -239,9 +237,9 @@ class TestCoordinateStandardization:
         sync.add_gps_reference(
             sample_gps_payload,
             timestamp_col="timestamp",
-            lat_col="posllh_lat",
-            lon_col="posllh_lon",
-            alt_col="posllh_height",
+            lat_col="lat_deg",
+            lon_col="lon_deg",
+            alt_col="h_ell_m",
         )
         sync.add_litchi_gps(sample_litchi_gps)
 
@@ -251,13 +249,13 @@ class TestCoordinateStandardization:
         litchi_df = result["litchi"]
 
         # Verify standardized column names (litchi already has lowercase latitude/longitude)
-        assert "latitude" in litchi_df.columns
-        assert "longitude" in litchi_df.columns
-        assert "altitude" in litchi_df.columns
+        assert "lat_deg" in litchi_df.columns
+        assert "lon_deg" in litchi_df.columns
+        assert "h_ell_m" in litchi_df.columns
         assert "timestamp" in litchi_df.columns
 
-        # altitude(m) should be renamed to altitude
-        assert "altitude(m)" not in litchi_df.columns
+        # The height above take-off is kept, h_ell_m is added
+        assert "h_rel_m" in litchi_df.columns
 
     def test_payload_gps_coordinates_standardized(self, sample_gps_payload):
         """Payload GPS outputs standard latitude/longitude/altitude columns."""
@@ -267,9 +265,9 @@ class TestCoordinateStandardization:
         sync.add_gps_reference(
             sample_gps_payload,
             timestamp_col="timestamp",
-            lat_col="posllh_lat",
-            lon_col="posllh_lon",
-            alt_col="posllh_height",
+            lat_col="lat_deg",
+            lon_col="lon_deg",
+            alt_col="h_ell_m",
         )
 
         result = sync.synchronize(target_rate={"drone": 10.0})
@@ -278,15 +276,10 @@ class TestCoordinateStandardization:
         gps_df = result["reference_gps"]
 
         # Verify standardized column names
-        assert "latitude" in gps_df.columns
-        assert "longitude" in gps_df.columns
-        assert "altitude" in gps_df.columns
+        assert "lat_deg" in gps_df.columns
+        assert "lon_deg" in gps_df.columns
+        assert "h_ell_m" in gps_df.columns
         assert "timestamp" in gps_df.columns
-
-        # Verify original u-blox names removed
-        assert "posllh_lat" not in gps_df.columns
-        assert "posllh_lon" not in gps_df.columns
-        assert "posllh_height" not in gps_df.columns
 
     def test_all_gps_sources_same_column_names(
         self, sample_gps_payload, sample_drone_dji_rtk, sample_litchi_gps
@@ -298,16 +291,16 @@ class TestCoordinateStandardization:
         sync.add_gps_reference(
             sample_gps_payload,
             timestamp_col="timestamp",
-            lat_col="posllh_lat",
-            lon_col="posllh_lon",
-            alt_col="posllh_height",
+            lat_col="lat_deg",
+            lon_col="lon_deg",
+            alt_col="h_ell_m",
         )
         sync.add_drone_gps(
             sample_drone_dji_rtk,
             timestamp_col="timestamp",
-            lat_col="RTK:lat_p",
-            lon_col="RTK:lon_p",
-            alt_col="RTK:hmsl_p",
+            lat_col="rtk_lat_deg",
+            lon_col="rtk_lon_deg",
+            alt_col="rtk_h_ell_m",
         )
         sync.add_litchi_gps(sample_litchi_gps)
 
@@ -315,28 +308,28 @@ class TestCoordinateStandardization:
 
         # Get coordinate columns from each source
         drone_coords = set(result["drone"].columns) & {
-            "latitude",
-            "longitude",
-            "altitude",
+            "lat_deg",
+            "lon_deg",
+            "h_ell_m",
             "timestamp",
         }
         litchi_coords = set(result["litchi"].columns) & {
-            "latitude",
-            "longitude",
-            "altitude",
+            "lat_deg",
+            "lon_deg",
+            "h_ell_m",
             "timestamp",
         }
         ref_coords = set(result["reference_gps"].columns) & {
-            "latitude",
-            "longitude",
-            "altitude",
+            "lat_deg",
+            "lon_deg",
+            "h_ell_m",
             "timestamp",
         }
 
         # All sources should have the same standard coordinate columns
-        assert drone_coords == {"latitude", "longitude", "altitude", "timestamp"}
-        assert litchi_coords == {"latitude", "longitude", "altitude", "timestamp"}
-        assert ref_coords == {"latitude", "longitude", "altitude", "timestamp"}
+        assert drone_coords == {"lat_deg", "lon_deg", "h_ell_m", "timestamp"}
+        assert litchi_coords == {"lat_deg", "lon_deg", "h_ell_m", "timestamp"}
+        assert ref_coords == {"lat_deg", "lon_deg", "h_ell_m", "timestamp"}
 
     def test_coordinate_values_unchanged(
         self, sample_gps_payload, sample_drone_dji_rtk
@@ -350,16 +343,16 @@ class TestCoordinateStandardization:
         sync.add_gps_reference(
             sample_gps_payload,
             timestamp_col="timestamp",
-            lat_col="posllh_lat",
-            lon_col="posllh_lon",
-            alt_col="posllh_height",
+            lat_col="lat_deg",
+            lon_col="lon_deg",
+            alt_col="h_ell_m",
         )
         sync.add_drone_gps(
             sample_drone_dji_rtk,
             timestamp_col="timestamp",
-            lat_col="RTK:lat_p",
-            lon_col="RTK:lon_p",
-            alt_col="RTK:hmsl_p",
+            lat_col="rtk_lat_deg",
+            lon_col="rtk_lon_deg",
+            alt_col="rtk_h_ell_m",
         )
 
         result = sync.synchronize(target_rate={"drone": 10.0})
@@ -368,9 +361,9 @@ class TestCoordinateStandardization:
 
         # Values should be reasonable (filter out NaN from interpolation edges)
         # Polars drop_nulls() doesn't remove NaN, so filter explicitly
-        valid_lat = drone_df.filter(pl.col("latitude").is_not_nan())["latitude"]
-        valid_lon = drone_df.filter(pl.col("longitude").is_not_nan())["longitude"]
-        valid_alt = drone_df.filter(pl.col("altitude").is_not_nan())["altitude"]
+        valid_lat = drone_df.filter(pl.col("lat_deg").is_not_nan())["lat_deg"]
+        valid_lon = drone_df.filter(pl.col("lon_deg").is_not_nan())["lon_deg"]
+        valid_alt = drone_df.filter(pl.col("h_ell_m").is_not_nan())["h_ell_m"]
 
         assert valid_lat.mean() > 44.5
         assert valid_lat.mean() < 45.5

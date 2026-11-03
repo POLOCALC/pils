@@ -27,6 +27,7 @@ In pytest tests, fixtures can be loaded using:
 from pathlib import Path
 import pytest
 
+
 @pytest.fixture
 def sample_gps_csv(tmp_path):
     """Create a sample GPS CSV file."""

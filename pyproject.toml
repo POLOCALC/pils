@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pils"
-version = "2026.3.5"
+version = "2026.10.0"
 description = "PILS - POLOCALC Inertial & Drone Loading System. Integrated flight data loading and decoding with STOUT database interface"
 readme = "README.md"
 license = {text = "MIT"}
@@ -17,15 +17,14 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 
 dependencies = [
     "polars>=0.20.0",
     "numpy>=1.23.0",
-    "opencv-python>=4.6.0",
     "matplotlib>=3.5.0",
     "pyubx2>=1.2.0",
     "pymap3d>=2.9.0",
@@ -36,6 +35,9 @@ dependencies = [
     "ahrs>=0.3.0",
     "telemetry-parser>=0.1.0",
     "pyarrow>=14.0.0",
+    "numdifftools>=0.9.41",
+    # STOUT owns the data folder's layout (stout.data_layout, 2.1.0+): pils reads it there
+    "stout @ git+https://github.com/POLOCALC/stout.git@main",
 ]
 
 [project.optional-dependencies]
@@ -46,7 +48,7 @@ docs = [
     "mkdocstrings>=0.24.0",
     "mkdocstrings-python>=1.7.0",
 ]
-stout = ["stout>=2.0.0"]
+stout = []  # STOUT is a dependency now; kept so "pils[stout]" still installs
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
@@ -56,6 +58,9 @@ dev = [
     "pyright>1.1",
 ]
 
+[project.scripts]
+pils = "pils.cli:main"
+
 [project.urls]
 Repository = "https://github.com/POLOCALC/data-loader"
 Documentation = "https://github.com/POLOCALC/data-loader/wiki"
@@ -64,6 +69,14 @@ Documentation = "https://github.com/POLOCALC/data-loader/wiki"
 where = ["."]
 include = ["pils*"]
 exclude = ["tests*", "site*", "plans*", "examples*", "docs*", "htmlcov*"]
+
+[tool.setuptools.package-data]
+# The SO detector layouts (pils.geometry.detectors) and the CLASS/LAT
+# detector tables (pils.geometry.detector_tables)
+pils = [
+    "geometry/data/focal_planes/*.npz",
+    "geometry/data/detector_tables/*.txt",
+]
 
 [tool.ruff]
 line-length = 88
@@ -78,12 +91,19 @@ select = [
   "F",    # pyflakes
   "W",    # pycodestyle warnings
   "UP",   # pyupgrade
-  "I"     # import sorting
+  "I",    # import sorting
+  "D",    # docstrings (PEP 257, numpydoc convention)
 ]
 ignore = [
   "E501",  # line too long (allows flexibility)
   "C901",  # function too complex (allows legacy code)
 ]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D"]  # test names say what they check
 
 [tool.ruff.format]
 quote-style = "double"
@@ -98,13 +118,13 @@ python_functions = "test_*"
 addopts = "-v --cov=pils --cov-report=term --cov-report=html"
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
 
 [tool.bumpver]
-current_version = "2026.3.5"
+current_version = "2026.10.0"
 version_pattern = "YYYY.MM.INC0"
 commit_message = "chore: bump version {old_version} -> {new_version}"
 tag_message = "Release {new_version}"

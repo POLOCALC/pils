@@ -1,62 +1,138 @@
+"""Payload IMU: accelerometer, gyroscope, barometer and magnetometer files."""
+
+import io
+import logging
 from pathlib import Path
 
 import polars as pl
 
+logger = logging.getLogger(__name__)
+
+# Columns after the timestamp (microseconds since the epoch) in each file
 SENSOR_COLUMNS = {
-    "baro": ["timestamp", "pressure", "temperature"],
-    "magneto": ["timestamp", "mag_x", "mag_y", "mag_z"],
-    "accelero": ["timestamp", "acc_x", "acc_y", "acc_z"],
-    "gyro": ["timestamp", "x", "y", "z"],
+    "baro": ["pressure", "temperature"],
+    "magneto": ["mag_x", "mag_y", "mag_z"],
+    "accelero": ["acc_x", "acc_y", "acc_z"],
+    "gyro": ["gyro_x", "gyro_y", "gyro_z"],
 }
+
+# File name patterns in the sensors folder, newest first
+SENSOR_FILES = {
+    "baro": ("*_BAR.bin", "barometer.bin"),
+    "magneto": ("*_MAG.bin", "magnetometer.bin"),
+    "accelero": ("*_ACC.bin", "accelerometer.bin"),
+    "gyro": ("*_GYR.bin", "gyroscope.bin"),
+}
+
+# Shorter than this, a sensor is reported as stopped early
+SHORT_RECORDING_S = 60.0
+
+
+def _find_file(dirpath: Path, sensor_type: str) -> Path | None:
+    for pattern in SENSOR_FILES[sensor_type]:
+        matches = sorted(Path(dirpath).glob(pattern))
+        if matches:
+            return matches[0]
+    return None
 
 
 class IMUSensor:
     """
     Individual IMU sensor (barometer, accelerometer, gyroscope, or magnetometer).
 
+    Each file is text, one sample per line: the timestamp in microseconds
+    since the epoch, then the values (see ``SENSOR_COLUMNS``). Accelerations
+    are in g, pressure in hPa and temperature in deg C; gyroscope and
+    magnetometer values are as logged.
+
     Attributes
     ----------
-    path : str | Path
-        Path to sensor data file.
+    path : Path or None
+        Path to sensor data file (None if the payload has no such file).
     type : str
         Sensor type (baro, accelero, gyro, magneto).
     data : Optional[pl.DataFrame]
-        Polars DataFrame with sensor data (None until load_data is called).
+        Polars DataFrame with sensor data (None until load_data is called,
+        or if the file is missing or empty).
     """
 
-    def __init__(self, path: str | Path, sensor_type: str) -> None:
+    def __init__(self, path: str | Path | None, sensor_type: str) -> None:
         """Initialize IMU sensor.
 
         Parameters
         ----------
-        path : Union[str, Path]
-            Path to sensor binary file.
+        path : Union[str, Path] or None
+            Path to sensor file.
         sensor_type : str
             Sensor type (baro, accelero, gyro, magneto).
         """
-        self.path = path
+        self.path = Path(path) if path is not None else None
         self.type = sensor_type
         self.data: pl.DataFrame | None = None
 
     def load_data(self) -> None:
         """
-        Load sensor data from binary file.
+        Load sensor data from the file.
 
-        Reads space-separated data and converts timestamp to datetime.
         Sets the `data` attribute with a polars DataFrame containing:
-        - timestamp column (microseconds)
-        - sensor-specific columns (defined in SENSOR_COLUMNS)
-        - datetime column (converted from timestamp)
+
+        - ``timestamp``: seconds since the epoch
+        - ``timestamp_us``: microseconds since the epoch, as logged
+        - the sensor columns (defined in SENSOR_COLUMNS)
+        - ``datetime``: UTC
+
+        A recording that stopped uncleanly ends with zero bytes or a cut
+        line; these, and any other malformed line, are dropped. Barometer
+        samples with zero pressure (the first one) are dropped too.
         """
-        self.data = pl.read_csv(
-            self.path,
+        self.data = None
+        if self.path is None or not self.path.exists():
+            return
+        raw = self.path.read_bytes()
+        end = raw.find(b"\x00")
+        if end >= 0:
+            raw = raw[:end]
+        # The last line is complete only if it ends with a newline
+        raw = raw[: raw.rfind(b"\n") + 1]
+        if not raw:
+            return
+
+        columns = ["timestamp_us", *SENSOR_COLUMNS[self.type]]
+        data = pl.read_csv(
+            io.BytesIO(raw),
             has_header=False,
-            new_columns=SENSOR_COLUMNS[self.type],
+            new_columns=columns,
             separator=" ",
+            infer_schema_length=0,
+            truncate_ragged_lines=True,
         )
-        self.data = self.data.with_columns(
-            pl.from_epoch(pl.col("timestamp"), time_unit="us").alias("datetime")
-        )
+        data = data.with_columns(
+            pl.col("timestamp_us").cast(pl.Int64, strict=False),
+            *(pl.col(c).cast(pl.Float64, strict=False) for c in columns[1:]),
+        ).drop_nulls()
+        if self.type == "baro":
+            data = data.filter(pl.col("pressure") != 0)
+        if self.type == "magneto":
+            data = data.with_columns(pl.col(columns[1:]).cast(pl.Int64))
+        dropped = raw.count(b"\n") - data.height
+        if dropped:
+            logger.info(f"{self.path.name}: dropped {dropped} malformed lines")
+
+        data = data.with_columns(
+            (pl.col("timestamp_us") / 1e6).alias("timestamp"),
+            pl.from_epoch(pl.col("timestamp_us"), time_unit="us")
+            .dt.replace_time_zone("UTC")
+            .alias("datetime"),
+        ).select(["timestamp", "timestamp_us", *columns[1:], "datetime"])
+        if data.is_empty():
+            return
+        span = data["timestamp"][-1] - data["timestamp"][0]
+        if span < SHORT_RECORDING_S:
+            logger.warning(
+                f"{self.path.name}: only {span:.1f} s of data, the recording "
+                "stopped early"
+            )
+        self.data = data
 
 
 class IMU:
@@ -84,17 +160,14 @@ class IMU:
         Parameters
         ----------
         dirpath : Path
-            Directory containing sensor binary files:
-            - barometer.bin
-            - accelerometer.bin
-            - gyroscope.bin
-            - magnetometer.bin
+            Directory containing sensor files: ``*_BAR.bin``, ``*_ACC.bin``,
+            ``*_GYR.bin`` and ``*_MAG.bin``.
         """
-        self.dirpath = dirpath
-        self.barometer = IMUSensor(dirpath / "barometer.bin", "baro")
-        self.accelerometer = IMUSensor(dirpath / "accelerometer.bin", "accelero")
-        self.gyroscope = IMUSensor(dirpath / "gyroscope.bin", "gyro")
-        self.magnetometer = IMUSensor(dirpath / "magnetometer.bin", "magneto")
+        self.dirpath = Path(dirpath)
+        self.barometer = IMUSensor(_find_file(self.dirpath, "baro"), "baro")
+        self.accelerometer = IMUSensor(_find_file(self.dirpath, "accelero"), "accelero")
+        self.gyroscope = IMUSensor(_find_file(self.dirpath, "gyro"), "gyro")
+        self.magnetometer = IMUSensor(_find_file(self.dirpath, "magneto"), "magneto")
 
     def load_all(self) -> None:
         """
@@ -102,7 +175,24 @@ class IMU:
 
         Calls load_data() on each sensor (barometer, accelerometer,
         gyroscope, magnetometer).
+
+        Raises
+        ------
+        FileNotFoundError
+            If the folder has none of the IMU files.
         """
-        for sensor in vars(self).values():
-            if isinstance(sensor, IMUSensor):
-                sensor.load_data()
+        sensors = [s for s in vars(self).values() if isinstance(s, IMUSensor)]
+        if all(sensor.path is None for sensor in sensors):
+            raise FileNotFoundError(f"No IMU files in {self.dirpath}")
+        for sensor in sensors:
+            sensor.load_data()
+
+    @property
+    def data(self) -> dict[str, pl.DataFrame] | None:
+        """The loaded sensors with data, by name, or None if there are none."""
+        tables = {
+            name: sensor.data
+            for name, sensor in vars(self).items()
+            if isinstance(sensor, IMUSensor) and sensor.data is not None
+        }
+        return tables or None
