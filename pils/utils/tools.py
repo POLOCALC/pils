@@ -92,10 +92,20 @@ def read_log_time(
 #         pl.DataFrame(data) if data else pl.DataFrame({"timestamp": [], "frame_num": []})
 #     )
 
+ALVIUM_NEW_FRAME = re.compile(r"host_time_ns=(\d+).*frame=(\d+)")
+ALVIUM_OLD_FRAME = re.compile(
+    r"\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+) - INFO\].*frame_(\d+)\.raw captured"
+)
+
+
 def read_alvium_log_time(logfile: str | Path) -> pl.DataFrame:
     """
-    Read the new-format Alvium log, where each frame line carries
-    ``host_time_ns=<int> ... frame=<int>``.
+    Read the frame timestamps of an Alvium log, in either format.
+
+    - new: ``... host_time_ns=<int> camera_time=<int> frame=<int>``
+    - old (up to ~2026-06): ``[YYYY-MM-DD HH:MM:SS.mmm - INFO] .../frame_<n>.raw captured.``
+
+    The new format is used whenever present; the old one is the fallback.
 
     Parameters
     ----------
@@ -106,17 +116,24 @@ def read_alvium_log_time(logfile: str | Path) -> pl.DataFrame:
     -------
     pl.DataFrame
         DataFrame with columns 'timestamp' (Float64, UTC epoch seconds) and
-        'frame_num' (Int64). Empty if the log has no ``host_time_ns`` lines
-        (old log format, no longer supported).
+        'frame_num' (Int64). Empty if the log has no frame lines in either format.
     """
-    pattern = re.compile(r"host_time_ns=(\d+).*frame=(\d+)")
-
-    rows = []
+    rows_new, rows_old = [], []
     with open(Path(logfile)) as f:
         for line in f:
-            match = pattern.search(line)
+            match = ALVIUM_NEW_FRAME.search(line)
             if match:
-                rows.append((int(match.group(1)) / 1e9, int(match.group(2))))
+                rows_new.append((int(match.group(1)) / 1e9, int(match.group(2))))
+                continue
+            match = ALVIUM_OLD_FRAME.search(line)
+            if match:
+                # The log's wall clock is UTC (matching the drone GPS clock); attach
+                # it explicitly so the epoch does not depend on the machine's timezone.
+                dt = datetime.datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S.%f")
+                timestamp = dt.replace(tzinfo=datetime.timezone.utc).timestamp()
+                rows_old.append((timestamp, int(match.group(2))))
+
+    rows = rows_new or rows_old
 
     return pl.DataFrame(
         rows,
