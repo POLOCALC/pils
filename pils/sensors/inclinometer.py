@@ -500,8 +500,12 @@ class Inclinometer:
         self._init_decoder()
 
     def _auto_detect(self) -> None:
-        """Auto-detect inclinometer type from config.yml file."""
-        # First try config-based detection (primary method)
+        """Auto-detect inclinometer type: IMX5 files first, then config.yml, then files."""
+        inc_type = detect_inclinometer_type_from_files(self._lookout_path)
+        if inc_type == "imx5":
+            self.sensor_type = inc_type
+            return
+
         config_type = detect_inclinometer_type_from_config(self._lookout_path)
 
         if config_type is not None:

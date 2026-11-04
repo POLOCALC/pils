@@ -457,6 +457,18 @@ class DJIDrone:
                 if aligned is not None:
                     self.data = aligned
 
+        # DAT: `datetime` is the raw GPS/RTK record time (string, whole seconds, null on the other
+        # records) -> kept as `datetime_raw`; `datetime` = the corrected `timestamp` as a UTC Datetime,
+        # same as the CSV and PSDK loaders
+        if (self.source_format == "dat" and isinstance(self.data, pl.DataFrame)
+                and "timestamp" in self.data.columns):
+            if "datetime" in self.data.columns:
+                self.data = self.data.rename({"datetime": "datetime_raw"})
+            self.data = self.data.with_columns(
+                pl.from_epoch((pl.col("timestamp") * 1e6).round().cast(pl.Int64), time_unit="us")
+                .alias("datetime")
+            )
+
     def _load_from_csv(self, cols: list[str] | None) -> None:
         """Load drone data from CSV file.
 

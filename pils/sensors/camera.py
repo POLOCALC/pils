@@ -288,7 +288,7 @@ class Camera:
             ).replace(tzinfo=None)
             logger.info(f"Alvium tstart: {self.tstart}")
         else:
-            logger.warning(f"No host_time_ns frame lines found in {self.logpath}")
+            logger.warning(f"No frame lines (old or new format) found in {self.logpath}")
             self.tstart = None
 
         self.fps = self._estimate_fps_from_log(camera_data)
