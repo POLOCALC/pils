@@ -164,6 +164,24 @@ def test_flight_save_and_load(tmp_path):
         Flight.load(tmp_path / "out", sync_revision="rev_missing")
 
 
+def test_flight_save_keeps_raw_sources_not_reloaded(tmp_path):
+    flight = Flight({"drone_data_folder_path": str(tmp_path / "drone")})
+    flight.raw_data.payload_data.gps = pl.DataFrame({"timestamp": [0.0]})
+    flight.raw_data.payload_data.adc = pl.DataFrame({"timestamp": [0.0, 1.0]})
+    flight.save(tmp_path / "out")
+    first = store.read_manifest(tmp_path / "out" / "raw")["saved_at"]
+
+    # Re-packaged with the ADC only (and a new ADC table)
+    again = Flight({"drone_data_folder_path": str(tmp_path / "drone")})
+    again.raw_data.payload_data.adc = pl.DataFrame({"timestamp": [0.0, 1.0, 2.0]})
+    again.save(tmp_path / "out")
+    loaded = Flight.load(tmp_path / "out")
+    assert loaded.raw_data.payload_data.gps.height == 1
+    assert loaded.raw_data.payload_data.adc.height == 3
+    raw = store.read_manifest(tmp_path / "out" / "raw")
+    assert raw["metadata"]["carried_over"] == {"payload/gps": first}
+
+
 def test_migrate_legacy_files(tmp_path):
     import h5py
 
