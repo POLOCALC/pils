@@ -50,6 +50,7 @@ def legacy_ppk_tables(
     unchanged.
     """
     from pils.analyze.ppkdata.utils import GPS_EPOCH_UNIX, gps_utc_offset, to_utc
+    from pils.utils.gnss_time import leap_seconds
 
     position = position.rename(
         {k: v for k, v in LEGACY_POSITION_NAMES.items() if k in position.columns}
@@ -72,7 +73,7 @@ def legacy_ppk_tables(
             gps_first = (
                 first.timestamp()  # type: ignore[union-attr]
                 - GPS_EPOCH_UNIX
-                + 18  # leap seconds only matter at a week boundary
+                + leap_seconds(first)  # only matters at a week boundary
             )
             week0 = int(gps_first // 604800)
             tow0 = gps_first - week0 * 604800
