@@ -200,7 +200,7 @@ base_data_path/
 
 - Python 3.11+
 - polars >= 0.19.0
-- STOUT >= 2.0.0 (optional, for database integration)
+- STOUT >= 2.1.0 (POLOCALC/stout, installed with pils: the data layout and the flight database)
 - RTKLIB (optional, for PPK analysis - requires `rnx2rtkp` binary)
 
 ## License

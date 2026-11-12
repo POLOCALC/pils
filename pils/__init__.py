@@ -36,7 +36,8 @@ import importlib
 from typing import Any
 
 # Imported when first used, so that reading saved data (pils.store,
-# pils.schema) does not load the decoders and their dependencies
+# pils.schema) does not load the decoders and their dependencies (it needs
+# only polars and STOUT's data layout)
 _LAZY = {
     "Flight": ("pils.flight", "Flight"),
     "PILS": ("pils.pils", "PILS"),
