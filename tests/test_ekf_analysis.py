@@ -686,6 +686,34 @@ class TestRustBinaryValidation:
             # Restore original path
             ekf_module._EKF_BINARY_PATH = original_path
 
+    def test_send_ipc_to_rust_large_output_no_deadlock(self, tmp_path, monkeypatch):
+        """A process that writes a lot before reading its input does not block."""
+        import struct
+        import sys
+
+        import pils.analyze.ekf as ekf_module
+        from pils.analyze.ekf import EKFAnalysis
+
+        fake = tmp_path / "rust-ekf"
+        fake.write_text(
+            f"#!{sys.executable}\n"
+            "import sys\n"
+            "sys.stdout.buffer.write(b'x' * 1_000_000)\n"
+            "sys.stdout.flush()\n"
+            "data = sys.stdin.buffer.read()\n"
+            "sys.stderr.write(str(len(data)))\n"
+        )
+        fake.chmod(0o755)
+        monkeypatch.setattr(ekf_module, "_EKF_BINARY_PATH", fake)
+        imu, photo = b"i" * 500_000, b"p" * 300_000
+        result = EKFAnalysis._send_ipc_to_rust(
+            imu, photo, output_dir=tmp_path, config_file=tmp_path / "c.yaml"
+        )
+        assert len(result.stdout) == 1_000_000
+        assert int(result.stderr) == len(imu) + len(photo) + 2 * len(
+            struct.pack("<Q", 0)
+        )
+
 
 # ==================== Persistence Tests ====================
 
