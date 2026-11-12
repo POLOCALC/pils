@@ -401,13 +401,33 @@ def find_containers(root: str | Path) -> list[Path]:
     return found
 
 
+# Metadata keys naming the revision a result was made from, and the folder
+# (in the same flight's ``proc/``) of that revision
+REVISION_DEPENDENCIES = {
+    "sync_revision": "flight",  # flight/sync/rev_*
+    "azel_version": "azel",  # azel/<TELESCOPE>/rev_*
+}
+
+
+def _flight_proc(container: Path, root: Path) -> Path:
+    """Find the ``proc/`` folder of the flight a container belongs to (or ``root``)."""
+    for folder in [container, *container.parents]:
+        if folder.name == layout.PROC_FOLDER:
+            return folder
+        if folder == root:
+            break
+    return root
+
+
 def prune_versions(root: str | Path, keep: int, dry_run: bool = False) -> list[Path]:
     """Delete old revisions: keep the newest ``keep`` of each folder.
 
     Every folder of revisions under ``root`` (e.g. a flight's ``proc/``:
     ``flight/sync``, ``azel/<TELESCOPE>``, ``power/...``, ``ekf``, ``ppk``) is
-    pruned on its own. A synchronized revision that a kept revision was made
-    from (its ``sync_revision`` metadata) is kept too.
+    pruned on its own. A revision that a kept revision was made from (in its
+    metadata, :data:`REVISION_DEPENDENCIES`: ``sync_revision``,
+    ``azel_version``) is kept too, and so on down the chain; dependencies are
+    looked up in the same flight only.
 
     Parameters
     ----------
@@ -425,21 +445,32 @@ def prune_versions(root: str | Path, keep: int, dry_run: bool = False) -> list[P
     """
     if keep < 1:
         raise ValueError("keep must be at least 1")
+    root = Path(root)
     containers = {c: list_versions(c) for c in find_containers(root)}
     kept = {c: set(v[-keep:]) for c, v in containers.items()}
-    # Keep what the kept revisions were made from
-    needed = set()
-    for container, versions in kept.items():
-        for version in versions:
-            metadata = read_manifest(container / version).get("metadata", {})
-            if metadata.get("sync_revision"):
-                needed.add(metadata["sync_revision"])
+    # Keep what the kept revisions were made from, in the same flight
+    pending = [(c, v) for c, versions in kept.items() for v in versions]
+    while pending:
+        container, version = pending.pop()
+        metadata = read_manifest(container / version).get("metadata") or {}
+        proc = _flight_proc(container, root)
+        for key, folder in REVISION_DEPENDENCIES.items():
+            name = metadata.get(key)
+            if not name:
+                continue
+            for other, versions in containers.items():
+                if (
+                    name in versions
+                    and name not in kept[other]
+                    and other.is_relative_to(proc / folder)
+                    and _flight_proc(other, root) == proc
+                ):
+                    kept[other].add(name)
+                    pending.append((other, name))
     removed = []
     for container, versions in containers.items():
         for version in versions:
             if version in kept[container]:
-                continue
-            if container.name == "sync" and version in needed:
                 continue
             removed.append(container / version)
             if not dry_run:
