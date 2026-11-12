@@ -165,3 +165,86 @@ class TestGPS:
         assert result is not None
         assert isinstance(result, pl.DataFrame)
         assert "unix_time_ms" in result.columns
+
+
+# -- the GPS week ---------------------------------------------------------------
+
+
+def _ubx_file(path, utc_times, valid=1, timegps_week=None):
+    """NAV-PVT (and NAV-TIMEGPS) messages at the given UTC times."""
+    from datetime import timedelta
+
+    from pyubx2 import UBXMessage
+
+    from pils.utils.gnss_time import GPS_EPOCH, leap_seconds
+
+    data = b""
+    for utc in utc_times:
+        gps = utc + timedelta(seconds=leap_seconds(utc))
+        itow = int((gps - GPS_EPOCH).total_seconds() * 1000) % (604800 * 1000)
+        data += UBXMessage(
+            "NAV",
+            "NAV-PVT",
+            0,
+            iTOW=itow,
+            year=utc.year,
+            month=utc.month,
+            day=utc.day,
+            hour=utc.hour,
+            min=utc.minute,
+            second=utc.second,
+            validDate=valid,
+            validTime=valid,
+            fixType=3,
+            lat=45.0,
+            lon=10.0,
+            height=100000,
+        ).serialize()
+        data += UBXMessage(
+            "NAV", "NAV-POSLLH", 0, iTOW=itow, lat=45.0, lon=10.0, height=100000
+        ).serialize()
+        if timegps_week is not None:
+            data += UBXMessage(
+                "NAV",
+                "NAV-TIMEGPS",
+                0,
+                iTOW=itow,
+                week=timegps_week,
+                leapS=18,
+                towValid=1,
+                weekValid=1,
+            ).serialize()
+    path.write_bytes(data)
+
+
+# Saturday 2024-01-13 23:59:50 UTC is already Sunday in GPS time (week 2297);
+# a local-time file name says Saturday (week 2296)
+UTC_TIMES = [datetime(2024, 1, 13, 23, 59, 50 + i) for i in range(5)]
+
+
+def test_week_from_nav_pvt(tmp_path):
+    path = tmp_path / "20240113_235950_GPS.bin"
+    _ubx_file(path, UTC_TIMES)
+    gps = GPS(path, logpath=None)
+    gps.logpath = None
+    gps.load_data()
+    expected = [t.replace(tzinfo=None) for t in UTC_TIMES]
+    assert gps.data["datetime"].to_list() == expected
+
+
+def test_week_from_nav_timegps(tmp_path):
+    path = tmp_path / "20240106_235950_GPS.bin"  # a week off
+    _ubx_file(path, UTC_TIMES, valid=0, timegps_week=2297)
+    gps = GPS(path, logpath=None)
+    gps.logpath = None
+    gps.load_data()
+    assert gps.data["datetime"].to_list() == UTC_TIMES
+
+
+def test_week_from_file_name_without_valid_receiver_date(tmp_path):
+    path = tmp_path / "20240114_000000_GPS.bin"
+    _ubx_file(path, UTC_TIMES, valid=0)
+    gps = GPS(path, logpath=None)
+    gps.logpath = None
+    gps.load_data()
+    assert gps.data["datetime"].to_list() == UTC_TIMES

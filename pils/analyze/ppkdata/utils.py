@@ -4,6 +4,10 @@ import datetime
 
 import polars as pl
 
+# GPS time constants, re-exported for the PPK readers
+from pils.utils.gnss_time import GPS_EPOCH_UNIX as GPS_EPOCH_UNIX
+from pils.utils.gnss_time import GPS_UTC_LEAP_SECONDS
+
 # =============================================================================
 # GNSS CONSTANTS
 # =============================================================================
@@ -217,19 +221,8 @@ __all__ = [
 # TIME SYSTEMS
 # =============================================================================
 
-# GPS - UTC (leap seconds), from the date each value starts
-GPS_UTC_LEAP_SECONDS = (
-    ("2017-01-01", 18),
-    ("2015-07-01", 17),
-    ("2012-07-01", 16),
-    ("2009-01-01", 15),
-    ("2006-01-01", 14),
-    ("1999-01-01", 13),
-)
-# Start of GPS time, as a UNIX timestamp (1980-01-06 00:00:00)
-GPS_EPOCH_UNIX = 315964800.0
 
-
+# GPS - UTC (leap seconds) and the start of GPS time: pils.utils.gnss_time
 def gps_utc_offset(gps_time: pl.Expr) -> pl.Expr:
     """GPS - UTC in seconds for a GPS-time datetime expression.
 
