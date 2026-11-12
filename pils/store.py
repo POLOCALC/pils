@@ -186,6 +186,51 @@ def _container(root: str | Path, parent: str | None) -> Path:
     return Path(root) / parent if parent else Path(root)
 
 
+def _only_tables(path: Path) -> bool:
+    """Tell whether ``path`` is a table file, or a folder of nothing but tables."""
+    if path.is_symlink() or path.is_file():
+        return path.suffix == ".parquet"
+    return path.is_dir() and all(_only_tables(item) for item in path.iterdir())
+
+
+_RENAME_EXCHANGE = 2  # renameat2 flag (Linux)
+
+
+def _exchange(a: Path, b: Path) -> bool:
+    """Swap two paths atomically (Linux ``renameat2``); False if not supported."""
+    try:
+        import ctypes
+
+        libc = ctypes.CDLL(None, use_errno=True)
+        renameat2 = libc.renameat2
+    except (OSError, AttributeError):
+        return False
+    at_fdcwd = -100
+    result = renameat2(
+        at_fdcwd, os.fsencode(a), at_fdcwd, os.fsencode(b), _RENAME_EXCHANGE
+    )
+    return result == 0
+
+
+def _swap_directory(staging: Path, directory: Path) -> None:
+    """Put ``staging`` in place of the existing ``directory``, dropping the old one.
+
+    Atomic where the system can exchange two paths; otherwise the old
+    directory is moved aside first (and put back if the move fails).
+    """
+    if _exchange(staging, directory):
+        shutil.rmtree(staging)  # now the old directory
+        return
+    old = directory.parent / f".{directory.name}.{uuid.uuid4().hex[:8]}.old"
+    os.rename(directory, old)
+    try:
+        os.rename(staging, directory)
+    except BaseException:
+        os.rename(old, directory)
+        raise
+    shutil.rmtree(old)
+
+
 def write_tables(
     directory: str | Path,
     tables: Tables,
@@ -197,8 +242,10 @@ def write_tables(
 
     The tables go to a temporary folder first. Without ``replace`` the
     directory may already hold other files of the run (plots, CSV) but not a
-    manifest; with ``replace`` the whole directory is swapped for the new one
-    (for caches such as the flight's raw data).
+    manifest; tables left there by an interrupted write (no manifest) are
+    replaced. With ``replace`` the whole directory is swapped for the new one
+    (for caches such as the flight's raw data), atomically where the system
+    supports it.
 
     Parameters
     ----------
@@ -247,18 +294,21 @@ def write_tables(
         if replace or not directory.exists():
             (staging / MANIFEST).write_text(dumps(manifest))
             if directory.exists():
-                old = directory.parent / f".{directory.name}.{uuid.uuid4().hex[:8]}.old"
-                os.rename(directory, old)
-                os.rename(staging, directory)
-                shutil.rmtree(old)
+                _swap_directory(staging, directory)
             else:
                 os.rename(staging, directory)
         else:
-            # Next to the run's other files: tables first, manifest last
+            # Next to the run's other files: tables first, manifest last. A
+            # table left by an interrupted write (no manifest yet) is replaced
             for item in staging.iterdir():
                 target = directory / item.name
-                if target.exists():
-                    raise FileExistsError(f"{target} exists")
+                if target.exists() or target.is_symlink():
+                    if not _only_tables(target):
+                        raise FileExistsError(f"{target} exists")
+                    if target.is_dir() and not target.is_symlink():
+                        shutil.rmtree(target)
+                    else:
+                        target.unlink()
                 os.rename(item, target)
             (directory / MANIFEST).write_text(dumps(manifest))
     finally:

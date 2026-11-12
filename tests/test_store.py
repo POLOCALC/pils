@@ -93,6 +93,37 @@ def test_replace(tmp_path, tables):
     assert [p.name for p in tmp_path.iterdir()] == ["raw"]
 
 
+def test_replace_without_exchange(tmp_path, tables, monkeypatch):
+    monkeypatch.setattr(store, "_exchange", lambda a, b: False)
+    store.write_tables(tmp_path / "raw", tables, replace=True)
+    store.write_tables(
+        tmp_path / "raw", {"drone": tables["drone"].head(1)}, replace=True
+    )
+    loaded, _ = store.read_tables(tmp_path / "raw")
+    assert set(loaded) == {"drone"}
+    assert [p.name for p in tmp_path.iterdir()] == ["raw"]
+
+
+def test_retry_after_interrupted_write(tmp_path, tables):
+    run = tmp_path / "rev_1"
+    run.mkdir()
+    (run / "plot.png").write_bytes(b"png")
+    # An interrupted write: a table moved in, no manifest
+    store.write_parquet(tables["drone"], run / "drone.parquet")
+    store.write_tables(run, tables)
+    loaded, _ = store.read_tables(run)
+    assert set(loaded) == set(tables)
+    assert (run / "plot.png").read_bytes() == b"png"
+
+
+def test_table_does_not_replace_other_files(tmp_path, tables):
+    run = tmp_path / "rev_1"
+    (run / "drone").mkdir(parents=True)
+    (run / "drone" / "notes.txt").write_text("x")
+    with pytest.raises(FileExistsError):
+        store.write_tables(run, {"drone": {"a": tables["drone"]}})
+
+
 def test_flight_save_and_load(tmp_path):
     flight = Flight({"drone_data_folder_path": str(tmp_path / "drone")})
     flight._Flight__drone_model = "dji"
