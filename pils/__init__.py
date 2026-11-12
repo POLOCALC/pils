@@ -26,7 +26,7 @@ Example Usage:
     print(synced["drone"].head())
 """
 
-__version__ = "2026.11.2"
+__version__ = "2026.11.3"
 __author__ = "POLOCALC Team"
 __license__ = "MIT"
 
