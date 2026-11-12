@@ -152,6 +152,7 @@ class OffsetEstimationMixin:
         time2: np.ndarray,
         values2: np.ndarray,
         rate_hz: float = 100.0,
+        allow_anticorrelation: bool = False,
     ) -> tuple[float, np.ndarray, np.ndarray, float] | None:
         """
         Time offset that aligns source 2 to source 1, by least squares.
@@ -172,15 +173,22 @@ class OffsetEstimationMixin:
             Signals, shape ``(k, n1)`` and ``(k, n2)`` (``k`` axes).
         rate_hz : float, default=100.0
             Rate of the common grid for the coarse lag.
+        allow_anticorrelation : bool, default=False
+            Also accept a negative correlation peak, aligning source 2 after
+            flipping its sign. Only for signals whose sign convention may
+            differ between the sources (pitch, gyro axes); never for
+            positions or velocities, where an anti-correlated peak is a
+            half-period alias of a periodic pattern (raster, back and forth).
 
         Returns
         -------
         tuple or None
             ``(offset, axis_offsets, axis_correlations, correlation)``:
             offset in seconds to add to ``time2``; the coarse offset of each
-            axis; the absolute Pearson correlation of each axis and of all
-            axes after alignment (source 2 flipped if anti-correlated). None
-            if there are fewer than 10 s of overlap.
+            axis; the Pearson correlation of each axis and of all axes after
+            alignment (absolute, with source 2 flipped if anti-correlated,
+            when ``allow_anticorrelation``). None if there are fewer than
+            10 s of overlap.
         """
         values1 = np.atleast_2d(np.asarray(values1, dtype=float))
         values2 = np.atleast_2d(np.asarray(values2, dtype=float))
@@ -221,7 +229,9 @@ class OffsetEstimationMixin:
         )
 
         def peak(corr: np.ndarray) -> float:
-            corr = np.where(usable, np.abs(corr), -np.inf)
+            if allow_anticorrelation:
+                corr = np.abs(corr)
+            corr = np.where(usable, corr, -np.inf)
             k = int(np.argmax(corr))
             if 0 < k < corr.size - 1 and np.all(np.isfinite(corr[k - 1 : k + 2])):
                 y1, y2, y3 = corr[k - 1 : k + 2]
@@ -234,9 +244,10 @@ class OffsetEstimationMixin:
         total = per_axis.sum(axis=0)
         coarse = peak(total)
         # Anti-correlated signals (e.g. pitch with the opposite sign) are
-        # aligned after flipping source 2
-        sign = np.sign(total[np.argmin(np.abs(lags * dt - coarse))]) or 1.0
-        values2 = sign * values2
+        # aligned after flipping source 2, when that is allowed
+        if allow_anticorrelation:
+            sign = np.sign(total[np.argmin(np.abs(lags * dt - coarse))]) or 1.0
+            values2 = sign * values2
 
         def residual(offset: float) -> np.ndarray:
             inside = (time1 > time2[0] + offset) & (time1 < time2[-1] + offset)
@@ -269,12 +280,11 @@ class OffsetEstimationMixin:
                 np.sum(x**2, axis=1) * np.sum(y**2, axis=1)
             )
             corr = np.sum(x * y) / np.sqrt(np.sum(x**2) * np.sum(y**2))
-        return (
-            offset,
-            axis_offsets,
-            np.abs(np.nan_to_num(axis_corr)),
-            float(np.nan_to_num(corr)),
-        )
+        axis_corr = np.nan_to_num(axis_corr)
+        corr = float(np.nan_to_num(corr))
+        if allow_anticorrelation:
+            axis_corr, corr = np.abs(axis_corr), abs(corr)
+        return offset, axis_offsets, axis_corr, corr
 
     @staticmethod
     def _find_gps_offset(
@@ -393,7 +403,7 @@ class OffsetEstimationMixin:
             return None
         time_offset, axis_offsets, axis_corr, correlation = estimate
         offset_e, offset_n, offset_u = axis_offsets
-        corr_e_strength, corr_n_strength, corr_u_strength = np.abs(axis_corr)
+        corr_e_strength, corr_n_strength, corr_u_strength = axis_corr
 
         if correlation < 0.1:
             logger.warning("GPS correlation too weak, cannot detect reliable offset")
@@ -499,7 +509,12 @@ class OffsetEstimationMixin:
         Time offset: -1.500 s
         """
         estimate = OffsetEstimationMixin._estimate_time_offset(
-            time1, np.asarray(pitch1), time2, np.asarray(pitch2), target_rate_hz
+            time1,
+            np.asarray(pitch1),
+            time2,
+            np.asarray(pitch2),
+            target_rate_hz,
+            allow_anticorrelation=True,
         )
         if estimate is None:
             logger.warning("Insufficient pitch overlap for the offset")

@@ -186,6 +186,51 @@ def _container(root: str | Path, parent: str | None) -> Path:
     return Path(root) / parent if parent else Path(root)
 
 
+def _only_tables(path: Path) -> bool:
+    """Tell whether ``path`` is a table file, or a folder of nothing but tables."""
+    if path.is_symlink() or path.is_file():
+        return path.suffix == ".parquet"
+    return path.is_dir() and all(_only_tables(item) for item in path.iterdir())
+
+
+_RENAME_EXCHANGE = 2  # renameat2 flag (Linux)
+
+
+def _exchange(a: Path, b: Path) -> bool:
+    """Swap two paths atomically (Linux ``renameat2``); False if not supported."""
+    try:
+        import ctypes
+
+        libc = ctypes.CDLL(None, use_errno=True)
+        renameat2 = libc.renameat2
+    except (OSError, AttributeError):
+        return False
+    at_fdcwd = -100
+    result = renameat2(
+        at_fdcwd, os.fsencode(a), at_fdcwd, os.fsencode(b), _RENAME_EXCHANGE
+    )
+    return result == 0
+
+
+def _swap_directory(staging: Path, directory: Path) -> None:
+    """Put ``staging`` in place of the existing ``directory``, dropping the old one.
+
+    Atomic where the system can exchange two paths; otherwise the old
+    directory is moved aside first (and put back if the move fails).
+    """
+    if _exchange(staging, directory):
+        shutil.rmtree(staging)  # now the old directory
+        return
+    old = directory.parent / f".{directory.name}.{uuid.uuid4().hex[:8]}.old"
+    os.rename(directory, old)
+    try:
+        os.rename(staging, directory)
+    except BaseException:
+        os.rename(old, directory)
+        raise
+    shutil.rmtree(old)
+
+
 def write_tables(
     directory: str | Path,
     tables: Tables,
@@ -197,8 +242,10 @@ def write_tables(
 
     The tables go to a temporary folder first. Without ``replace`` the
     directory may already hold other files of the run (plots, CSV) but not a
-    manifest; with ``replace`` the whole directory is swapped for the new one
-    (for caches such as the flight's raw data).
+    manifest; tables left there by an interrupted write (no manifest) are
+    replaced. With ``replace`` the whole directory is swapped for the new one
+    (for caches such as the flight's raw data), atomically where the system
+    supports it.
 
     Parameters
     ----------
@@ -247,18 +294,21 @@ def write_tables(
         if replace or not directory.exists():
             (staging / MANIFEST).write_text(dumps(manifest))
             if directory.exists():
-                old = directory.parent / f".{directory.name}.{uuid.uuid4().hex[:8]}.old"
-                os.rename(directory, old)
-                os.rename(staging, directory)
-                shutil.rmtree(old)
+                _swap_directory(staging, directory)
             else:
                 os.rename(staging, directory)
         else:
-            # Next to the run's other files: tables first, manifest last
+            # Next to the run's other files: tables first, manifest last. A
+            # table left by an interrupted write (no manifest yet) is replaced
             for item in staging.iterdir():
                 target = directory / item.name
-                if target.exists():
-                    raise FileExistsError(f"{target} exists")
+                if target.exists() or target.is_symlink():
+                    if not _only_tables(target):
+                        raise FileExistsError(f"{target} exists")
+                    if target.is_dir() and not target.is_symlink():
+                        shutil.rmtree(target)
+                    else:
+                        target.unlink()
                 os.rename(item, target)
             (directory / MANIFEST).write_text(dumps(manifest))
     finally:
@@ -401,13 +451,33 @@ def find_containers(root: str | Path) -> list[Path]:
     return found
 
 
+# Metadata keys naming the revision a result was made from, and the folder
+# (in the same flight's ``proc/``) of that revision
+REVISION_DEPENDENCIES = {
+    "sync_revision": "flight",  # flight/sync/rev_*
+    "azel_version": "azel",  # azel/<TELESCOPE>/rev_*
+}
+
+
+def _flight_proc(container: Path, root: Path) -> Path:
+    """Find the ``proc/`` folder of the flight a container belongs to (or ``root``)."""
+    for folder in [container, *container.parents]:
+        if folder.name == layout.PROC_FOLDER:
+            return folder
+        if folder == root:
+            break
+    return root
+
+
 def prune_versions(root: str | Path, keep: int, dry_run: bool = False) -> list[Path]:
     """Delete old revisions: keep the newest ``keep`` of each folder.
 
     Every folder of revisions under ``root`` (e.g. a flight's ``proc/``:
     ``flight/sync``, ``azel/<TELESCOPE>``, ``power/...``, ``ekf``, ``ppk``) is
-    pruned on its own. A synchronized revision that a kept revision was made
-    from (its ``sync_revision`` metadata) is kept too.
+    pruned on its own. A revision that a kept revision was made from (in its
+    metadata, :data:`REVISION_DEPENDENCIES`: ``sync_revision``,
+    ``azel_version``) is kept too, and so on down the chain; dependencies are
+    looked up in the same flight only.
 
     Parameters
     ----------
@@ -425,21 +495,32 @@ def prune_versions(root: str | Path, keep: int, dry_run: bool = False) -> list[P
     """
     if keep < 1:
         raise ValueError("keep must be at least 1")
+    root = Path(root)
     containers = {c: list_versions(c) for c in find_containers(root)}
     kept = {c: set(v[-keep:]) for c, v in containers.items()}
-    # Keep what the kept revisions were made from
-    needed = set()
-    for container, versions in kept.items():
-        for version in versions:
-            metadata = read_manifest(container / version).get("metadata", {})
-            if metadata.get("sync_revision"):
-                needed.add(metadata["sync_revision"])
+    # Keep what the kept revisions were made from, in the same flight
+    pending = [(c, v) for c, versions in kept.items() for v in versions]
+    while pending:
+        container, version = pending.pop()
+        metadata = read_manifest(container / version).get("metadata") or {}
+        proc = _flight_proc(container, root)
+        for key, folder in REVISION_DEPENDENCIES.items():
+            name = metadata.get(key)
+            if not name:
+                continue
+            for other, versions in containers.items():
+                if (
+                    name in versions
+                    and name not in kept[other]
+                    and other.is_relative_to(proc / folder)
+                    and _flight_proc(other, root) == proc
+                ):
+                    kept[other].add(name)
+                    pending.append((other, name))
     removed = []
     for container, versions in containers.items():
         for version in versions:
             if version in kept[container]:
-                continue
-            if container.name == "sync" and version in needed:
                 continue
             removed.append(container / version)
             if not dry_run:

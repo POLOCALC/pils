@@ -99,7 +99,7 @@ class TestWithoutStout:
         ],
     )
     def test_every_query_raises_stout_unavailable(self, no_stout, call):
-        with pytest.raises(stout_db.StoutUnavailable, match=r"pils\[stout\]"):
+        with pytest.raises(stout_db.StoutUnavailable, match="STOUT is not installed"):
             call()
 
     def test_stout_unavailable_is_an_import_error(self):

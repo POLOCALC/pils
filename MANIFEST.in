@@ -1,7 +1,7 @@
 include README.md
-include README_NEW.md
-include LICENSE
 include pyproject.toml
-include setup.py
-recursive-include polocalc_data_loader *.py
+include requirements.txt
+recursive-include pils/geometry/data *.npz *.txt
+include pils/analyze/ekf/bin/rust-ekf
+include pils/analyze/ekf/bin/config.yaml
 recursive-include tests *.py

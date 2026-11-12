@@ -7,7 +7,7 @@ on:
     branches: [ main, develop ]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   test:
@@ -20,9 +20,6 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      with:
-        ref: ${{ github.head_ref }}
-        token: ${{ secrets.GITHUB_TOKEN }}
     
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
@@ -42,27 +39,10 @@ jobs:
         python -m pip install --upgrade pip
         pip install -e ".[dev]" --no-cache-dir
     
-    - name: Auto-fix with ruff
-      if: matrix.python-version == '3.11' && github.event_name == 'pull_request'
-      run: |
-        python -m ruff check --fix pils/ tests/
-        python -m ruff format pils/ tests/
-    
-    - name: Commit formatting changes
-      if: matrix.python-version == '3.11' && github.event_name == 'pull_request'
-      run: |
-        git config --local user.email "github-actions[bot]@users.noreply.github.com"
-        git config --local user.name "github-actions[bot]"
-        git diff --quiet && git diff --staged --quiet || (git add -A && git commit -m "style: auto-format code with ruff")
-    
-    - name: Push changes
-      if: matrix.python-version == '3.11' && github.event_name == 'pull_request'
-      run: |
-        git push || echo "Push failed, continuing..."
-    
     - name: Lint with ruff
       run: |
-        python -m ruff check pils/ tests/ --fix
+        python -m ruff check pils/ tests/
+        python -m ruff format --check pils/ tests/
     
     - name: Type check with pyright
       run: |

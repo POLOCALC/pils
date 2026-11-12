@@ -135,11 +135,33 @@ def is_held_column(column: str) -> bool:
 _CLOCK_FIELDS = re.compile(r"(^|_)(date|time)$")
 
 
+GAP_FACTOR = 3.0
+"""A source gap longer than this many median sample spacings is not bridged."""
+
+MIN_GAP_S = 1.0
+"""Source gaps up to this length (s) are always bridged (see :func:`max_source_gap`)."""
+
+
+def max_source_gap(source_time: np.ndarray) -> float:
+    """Longest gap (s) between source samples that resampling bridges.
+
+    :data:`GAP_FACTOR` times the median spacing of the samples, and at least
+    :data:`MIN_GAP_S`: dropped rows (e.g. DJI RTK epochs without a solution)
+    leave longer gaps, which come out null rather than interpolated.
+    """
+    steps = np.diff(np.asarray(source_time, dtype=float))
+    steps = steps[steps > 0]
+    if steps.size == 0:
+        return MIN_GAP_S
+    return float(max(GAP_FACTOR * np.median(steps), MIN_GAP_S))
+
+
 def resample_table(
     df: pl.DataFrame,
     source_time: np.ndarray,
     target_time: np.ndarray,
     time_col: str = "timestamp",
+    max_gap: float | None = None,
 ) -> pl.DataFrame:
     """Resample a table at ``target_time``.
 
@@ -150,8 +172,9 @@ def resample_table(
       hold their last value and keep their type;
     - angle columns are interpolated across the wrap (:func:`interp_column`),
       the other columns linearly;
-    - outside the source time range, or where the source has no value, the
-      result is null.
+    - outside the source time range, inside a gap between source samples
+      longer than ``max_gap``, or where the source has no value, the result
+      is null (held columns too: a flag is not carried across a gap).
 
     Parameters
     ----------
@@ -163,6 +186,9 @@ def resample_table(
         Times to resample at, increasing.
     time_col : str, default="timestamp"
         Time column of ``df``, not resampled.
+    max_gap : float, optional
+        Longest gap (s) between source samples to interpolate (or hold)
+        across; default :func:`max_source_gap`. ``np.inf`` bridges all gaps.
 
     Returns
     -------
@@ -180,8 +206,13 @@ def resample_table(
     if source_time.size == 0:
         return pl.DataFrame(columns)
     idx = np.clip(np.searchsorted(source_time, target_time, side="right") - 1, 0, None)
+    if max_gap is None:
+        max_gap = max_source_gap(source_time)
+    # Gap after each source sample (none after the last)
+    gap_after = np.append(np.diff(source_time), 0.0)
+    in_gap = (gap_after[idx] > max_gap) & (target_time > source_time[idx])
     outside = pl.Series(
-        (target_time < source_time[0]) | (target_time > source_time[-1])
+        (target_time < source_time[0]) | (target_time > source_time[-1]) | in_gap
     )
     for col in df.columns:
         dtype = df.schema[col]
@@ -202,11 +233,7 @@ def resample_table(
             )
         else:
             values = df[col].cast(pl.Float64).to_numpy()
-            columns.append(
-                pl.Series(
-                    col,
-                    interp_column(target_time, source_time, values, col),
-                    nan_to_null=True,
-                )
-            )
+            resampled = interp_column(target_time, source_time, values, col)
+            resampled[in_gap] = np.nan
+            columns.append(pl.Series(col, resampled, nan_to_null=True))
     return pl.DataFrame(columns)

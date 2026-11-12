@@ -275,10 +275,6 @@ class PPKAnalysis(PPKInputsMixin, PPKStorageMixin):
             if latest is not None:
                 return latest
 
-        # Generate version name and create folder
-        version_name = self._generate_version_name()
-        revision_path = self._create_revision_folder(version_name)
-
         # Initialize nav file variables
         rover_nav: Path | None = None
         base_nav: Path | None = None
@@ -329,7 +325,7 @@ class PPKAnalysis(PPKInputsMixin, PPKStorageMixin):
                 if not obs_path.exists():
                     logger.info("rover obs file not created")
                     raise FileNotFoundError("Conversion failed: .obs file not created")
-                if not obs_path.exists():
+                if not nav_path.exists():
                     logger.info("rover nav file not created")
                     raise FileNotFoundError("Conversion failed: .nav file not created")
 
@@ -379,6 +375,10 @@ class PPKAnalysis(PPKInputsMixin, PPKStorageMixin):
             raise FileNotFoundError(f"Base observation file not found: {base_obs}")
         if not nav_file.exists():
             raise FileNotFoundError(f"Navigation file not found: {nav_file}")
+
+        # The inputs are there: generate the version name and create its folder
+        version_name = self._generate_version_name()
+        revision_path = self._create_revision_folder(version_name)
 
         if analyze_rinex:
             obs_files = [rover_obs, base_obs]

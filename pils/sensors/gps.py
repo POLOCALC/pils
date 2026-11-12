@@ -9,8 +9,9 @@ Notes
 -----
 - The messages are read one by one (:func:`read_ubx`); corrupted bytes
   (some April 2025 files) are skipped with a warning.
-- The GPS week comes from the log's ``Sensor ZED-F9... started`` line or,
-  without a log, from the file name (``YYYYMMDD_hhmmss_GPS.bin``); the time
+- The GPS week comes from the receiver (NAV-TIMEGPS week, or the UTC date
+  of NAV-PVT, when valid); without them, from the log's ``Sensor ZED-F9...
+  started`` line or the file name (``YYYYMMDD_hhmmss_GPS.bin``). The time
   of week rolling over on Sunday is handled.
 - A folder without a GPS file raises ``FileNotFoundError``; a file with one
   epoch or none gives an empty table, and ``Flight.sync`` then uses the
@@ -19,13 +20,19 @@ Notes
 - The raw file is also the PPK rover (``pils.analyze.ppk``).
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
 import polars as pl
 from pyubx2 import UBX_PROTOCOL, UBXReader
 
+from ..utils.gnss_time import (
+    GPS_EPOCH,
+    GPS_EPOCH_UNIX,
+    SECONDS_PER_WEEK,
+    leap_seconds,
+)
 from ..utils.logging_config import get_logger
 from ..utils.tools import get_logpath_from_datapath, read_log_time
 
@@ -60,6 +67,51 @@ def read_ubx(path: Path, protocol: int = UBX_PROTOCOL):
                 yield parsed
     if errors:
         logger.warning(f"{path.name}: {errors} corrupted messages skipped")
+
+
+def _receiver_gps_week(nav_dataframes: dict[str, pl.DataFrame]) -> int | None:
+    """GPS week of the first epoch, from the receiver's own time, or None.
+
+    From NAV-TIMEGPS (``week`` with ``weekValid``) or else NAV-PVT (UTC date
+    and time with ``validDate`` and ``validTime``), at their first valid
+    epoch. The tables have ``iTOW`` counted on from the first epoch (rolled
+    over weeks added) and the original in ``_iTOW_raw``.
+    """
+    week_ms = SECONDS_PER_WEEK * 1000
+    timegps = nav_dataframes.get("NAV-TIMEGPS")
+    if timegps is not None and "timegps_week" in timegps.columns:
+        valid = pl.col("timegps_week") > 0
+        if "timegps_weekValid" in timegps.columns:
+            valid = valid & (pl.col("timegps_weekValid") == 1)
+        rows = timegps.filter(valid)
+        if rows.height:
+            row = rows.row(0, named=True)
+            return int(row["timegps_week"]) - (
+                (row["iTOW"] - row["_iTOW_raw"]) // week_ms
+            )
+    pvt = nav_dataframes.get("NAV-PVT")
+    fields = ["year", "month", "day", "hour", "min", "second"]
+    if pvt is None or not all(f"pvt_{f}" in pvt.columns for f in fields):
+        return None
+    valid = pl.col("pvt_year") >= 1980
+    for flag in ("validDate", "validTime"):
+        if f"pvt_{flag}" in pvt.columns:
+            valid = valid & (pl.col(f"pvt_{flag}") == 1)
+    rows = pvt.filter(valid)
+    if not rows.height:
+        return None
+    row = rows.row(0, named=True)
+    try:
+        utc = datetime(*(int(row[f"pvt_{f}"]) for f in fields))
+    except ValueError:
+        return None
+    gps_ms = ((utc - GPS_EPOCH).total_seconds() + leap_seconds(utc)) * 1000 - row[
+        "iTOW"
+    ]
+    # The week of the first epoch: GPS time of this epoch minus its time of
+    # week counted from there (to the nearest week: the UTC time has whole
+    # seconds, iTOW milliseconds)
+    return int(round(gps_ms / week_ms))
 
 
 class GPS:
@@ -188,8 +240,23 @@ class GPS:
                     df = df.rename(renamed_cols)
                 nav_dataframes[msg_type] = df
 
-        # Get the date from log file to compute GPS week ("ZED-F9P", in
-        # 2023 "ZED-F9R"); else from the file name (YYYYMMDD_hhmmss_GPS.bin)
+        week = 7 * 24 * 60 * 60 * 1000
+        for msg_type, df in nav_dataframes.items():
+            if "iTOW" in df.columns:
+                # The time of week restarts on Sunday 00:00 GPS time: counted
+                # from the week of the first epoch
+                rollover = (pl.col("iTOW").diff() < -week // 2).cum_sum().fill_null(0)
+                nav_dataframes[msg_type] = df.with_columns(
+                    pl.col("iTOW").alias("_iTOW_raw"),
+                    pl.col("iTOW") + rollover * week,
+                )
+
+        # The GPS week of the first epoch: from the receiver (NAV-TIMEGPS
+        # week, or the NAV-PVT UTC date) if it has it; else from the date of
+        # the log ("Sensor ZED-F9P", in 2023 "ZED-F9R") or of the file name
+        # (YYYYMMDD_hhmmss_GPS.bin), which can be a week off near Sunday
+        # 00:00 GPS time or with local-time names
+        gps_week = _receiver_gps_week(nav_dataframes)
         time_start, date = None, None
         if self.logpath is not None:
             time_start, date = read_log_time(
@@ -202,34 +269,43 @@ class GPS:
                 )
                 date = time_start.date()
             except ValueError:
-                logger.warning(
-                    f"No date for {self.data_path}: no log, no date in the name"
-                )
-                self.data = pl.DataFrame()
-                return
+                if gps_week is None:
+                    logger.warning(
+                        f"No date for {self.data_path}: no log, no date in the "
+                        "name, none from the receiver"
+                    )
+                    self.data = pl.DataFrame()
+                    return
+        if gps_week is None:
+            assert date is not None
+            gps_week = (date - GPS_EPOCH.date()).days // 7
+        elif date is not None and gps_week != (date - GPS_EPOCH.date()).days // 7:
+            logger.info(
+                f"GPS week {gps_week} from the receiver, "
+                f"{(date - GPS_EPOCH.date()).days // 7} from the date {date}"
+            )
 
-        # GPS epoch and leap seconds offset (GPS time is ahead of UTC by 18 seconds as of 2017)
-        gps_epoch = datetime(1980, 1, 6).date()
-        unix_epoch = datetime(1970, 1, 1).date()
-        gps_leap_seconds = 18  # GPS-UTC offset in seconds
+        # Unix time = GPS epoch + week + iTOW - leap seconds (GPS - UTC)
+        gps_to_unix_offset_ms = int(GPS_EPOCH_UNIX) * 1000
+        epoch_utc = GPS_EPOCH + timedelta(weeks=gps_week)
+        leap_seconds_ms = leap_seconds(epoch_utc) * 1000
+        week_ms = gps_week * week
 
-        duration = date - gps_epoch
-        gps_week = duration.days // 7
-
-        # Compute Unix timestamp in ms for each dataframe
-        # GPS time = GPS epoch + (week * 7 days) + iTOW (in ms)
-        # Unix time = GPS time - (GPS epoch - Unix epoch) - leap_seconds
-        gps_to_unix_offset_ms = (gps_epoch - unix_epoch).days * 24 * 60 * 60 * 1000
-        leap_seconds_ms = gps_leap_seconds * 1000
-        week_ms = gps_week * 7 * 24 * 60 * 60 * 1000
-
-        week = 7 * 24 * 60 * 60 * 1000
         for msg_type, df in nav_dataframes.items():
             if "iTOW" in df.columns:
-                # The time of week restarts on Sunday 00:00 GPS time
-                rollover = (pl.col("iTOW").diff() < -week // 2).cum_sum().fill_null(0)
-                df = df.with_columns(pl.col("iTOW") + rollover * week)
+                df = df.drop("_iTOW_raw")
                 first_itow = df["iTOW"][0]
+                start = (
+                    time_start
+                    if time_start is not None
+                    else datetime(1970, 1, 1)
+                    + timedelta(
+                        milliseconds=week_ms
+                        + gps_to_unix_offset_ms
+                        - leap_seconds_ms
+                        + first_itow
+                    )
+                )
                 # Create Unix timestamp in ms
                 # unix_time_ms = gps_week_ms + iTOW + gps_epoch_offset - leap_seconds
                 df = df.with_columns(
@@ -240,7 +316,7 @@ class GPS:
                         ).alias("unix_time_ms"),
                         # Relative datetime: time_start + (iTOW - iTOW[0])
                         (
-                            pl.lit(time_start)
+                            pl.lit(start)
                             + pl.duration(milliseconds=pl.col("iTOW") - first_itow)
                         ).alias("datetime_relative"),
                     ]

@@ -307,6 +307,27 @@ def test_time_coverage():
     ref = pl.Series([0.0, 100.0])
     assert _time_coverage(pl.Series([50.0, 300.0]), ref) == 0.5
     assert _time_coverage(pl.Series([200.0, 300.0]), ref) == 0.0
+    # an empty reference (or none of its own times) is not covered
+    assert (
+        _time_coverage(pl.Series([50.0, 300.0]), pl.Series([], dtype=pl.Float64)) == 0.0
+    )
+    assert _time_coverage(pl.Series([], dtype=pl.Float64), ref) == 0.0
+
+
+@pytest.mark.parametrize("gps_span", [None, (0.0, 300.0)])
+def test_dji_rtk_without_a_fix_falls_back_to_the_drone_gnss(gps_span):
+    flight = flight_with(gps_span=gps_span)
+    drone = flight.raw_data.drone_data.drone
+    # DJI table: the main receiver as gps_*, RTK columns all without a solution
+    flight.raw_data.drone_data.drone = drone.rename(
+        {c: f"gps_{c}" for c in ("lat_deg", "lon_deg", "h_msl_m")}
+    ).with_columns(
+        rtk_lat_deg=pl.lit(0.0), rtk_lon_deg=pl.lit(0.0), rtk_h_ell_m=pl.lit(0.0)
+    )
+    flight._Flight__drone_model = "dji"
+    synced = flight.sync(target_rate={"drone": 5.0, "payload": 10.0})
+    assert flight.sync_position_columns["drone"]["lat"] == "gps_lat_deg"
+    assert synced["drone"]["lat_deg"].drop_nulls().len() > 100
 
 
 def test_positions_at_zero_are_dropped():

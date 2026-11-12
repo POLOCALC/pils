@@ -47,10 +47,10 @@ def _time_coverage(times: pl.Series, reference: pl.Series) -> float:
     """Fraction of the span of ``reference`` covered by the span of ``times``."""
     ref = reference.drop_nulls().to_numpy().astype(float)
     own = times.drop_nulls().to_numpy().astype(float)
+    if ref.size == 0 or own.size == 0:
+        return 0.0
     if ref.size < 2 or ref.max() <= ref.min():
         return 1.0
-    if own.size == 0:
-        return 0.0
     overlap = min(ref.max(), own.max()) - max(ref.min(), own.min())
     return float(max(overlap, 0.0) / (ref.max() - ref.min()))
 
@@ -169,7 +169,18 @@ class FlightSyncMixin:
 
             model = (self._drone_model or "").lower()
             records_gps = (self.raw_data.drone_data.records or {}).get("gps")
+            rtk_df = None
             if "dji" in model and use_rtk_data and "rtk_lat_deg" in drone_df.columns:
+                # Positions only where the RTK receiver has a solution (rows
+                # without one are at 0, 0, 0)
+                rtk_df = _valid_positions(drone_df, "rtk_lat_deg", "rtk_lon_deg")
+                if rtk_df.is_empty():
+                    logger.warning(
+                        "Drone RTK has no solution: the drone GNSS is used instead"
+                    )
+                    rtk_df = None
+            if rtk_df is not None:
+                drone_df = rtk_df
                 lat_col, lon_col, alt_col = "rtk_lat_deg", "rtk_lon_deg", "rtk_h_ell_m"
             else:
                 # The main receiver: in the drone table (DatCon CSV,
@@ -199,9 +210,8 @@ class FlightSyncMixin:
                     drone_df = drone_df.with_columns(
                         (pl.col(f"{prefix}h_msl_m") + separation).alias(alt_col)
                     )
-            # Positions only where the receiver has a solution (DJI RTK rows
-            # without one are at 0, 0, 0)
-            drone_df = _valid_positions(drone_df, lat_col, lon_col)
+                # Positions only where the receiver has a solution
+                drone_df = _valid_positions(drone_df, lat_col, lon_col)
             position_columns = {"lat": lat_col, "lon": lon_col, "alt": alt_col}
             if gps_data is not None:
                 coverage = _time_coverage(gps_data["timestamp"], drone_df["timestamp"])
