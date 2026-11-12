@@ -93,7 +93,7 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
     ...     'weather': 'clear'
     ... })
     >>> # Load drone data (auto-detects DJI or BlackSquare)
-    >>> flight.add_drone_data(dji_drone_loader='dat')
+    >>> flight.add_drone_data(dji_dat_loader=True)
     >>> # Load sensor data
     >>> flight.add_sensor_data(['gps', 'imu', 'adc'])
     >>> # Load camera data (Sony or Alvium)
@@ -108,8 +108,8 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
     >>> camera_df = flight['raw_data']['payload']['camera']
     >>> # Synchronize all data sources
     >>> sync_df = flight.sync(target_rate={'drone': 10.0, 'payload': 100.0})
-    >>> # Perform operations on the data
-    >>> high_altitude = drone_df.filter(pl.col('altitude') > 100)
+    >>> # Perform operations on the data (DJI RTK heights, metres)
+    >>> high_altitude = drone_df.filter(pl.col('rtk_h_ell_m') > 100)
     >>> print(f"Points above 100m: {len(high_altitude)}")
     """
 

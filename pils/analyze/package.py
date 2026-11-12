@@ -532,7 +532,9 @@ class FlightPackager:
         manifest = {
             "pils_version": getattr(pils, "__version__", "unknown"),
             "pils": store.code_version(),
-            "created_at": datetime.datetime.now().isoformat(timespec="seconds"),
+            "created_at": datetime.datetime.now(datetime.UTC).isoformat(
+                timespec="seconds"
+            ),
             "flight_id": self.flight_info.get("flight_id"),
             "inputs": inputs,
             **result.to_dict(),
