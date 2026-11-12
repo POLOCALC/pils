@@ -451,3 +451,19 @@ class TestOffsetAccuracy:
         result = Synchronizer._find_pitch_offset(t, pitch, t + shift, sign * pitch + 3)
         assert result["time_offset"] == pytest.approx(-shift, abs=2e-3)
         assert result["correlation"] > 0.99
+
+    def test_gps_raster_no_half_period_alias(self):
+        """A raster (triangle-wave east) is not matched to its anti-correlated alias."""
+        import pymap3d as pm
+        from scipy import signal
+
+        from pils.synchronizer import Synchronizer
+
+        t = np.arange(0, 600, 0.1)
+        east = 100 * signal.sawtooth(2 * np.pi * t / 60, 0.5)  # period 60 s
+        lat, lon, alt = pm.enu2geodetic(east, 0 * t, 0 * t + 50, 45.0, 10.0, 0.0)
+        # Source 2 clock 18 s behind: the offset to add to it is -18 s, and
+        # the anti-correlated half-period alias sits at +12 s
+        result = Synchronizer._find_gps_offset(t, lat, lon, alt, t + 18, lat, lon, alt)
+        assert result["time_offset"] == pytest.approx(-18.0, abs=1e-2)
+        assert result["correlation"] > 0.99
