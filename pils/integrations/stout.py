@@ -41,7 +41,7 @@ __all__ = [
     "payload",
 ]
 
-INSTALL_HINT = "pip install pils[stout]"
+INSTALL_HINT = "pip install 'stout @ git+https://github.com/POLOCALC/stout.git@main'"
 
 # One service of each class (a STOUT service opens the database)
 _services: dict[Any, Any] = {}
