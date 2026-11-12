@@ -147,9 +147,9 @@ class Synchronizer(SourcesMixin, OffsetEstimationMixin):
             time column; missing values are null (see :func:`resample_table`).
 
             GPS sources (drone, litchi, reference_gps) use standardized coordinate columns:
-            - latitude: Latitude in degrees (WGS84)
-            - longitude: Longitude in degrees (WGS84)
-            - altitude: Altitude in meters (ellipsoidal height)
+            - lat_deg: Latitude in degrees (WGS84)
+            - lon_deg: Longitude in degrees (WGS84)
+            - h_ell_m: Height above the WGS84 ellipsoid in meters
             - timestamp: Time in seconds
 
             Non-coordinate columns preserve their original names.
@@ -302,6 +302,14 @@ class Synchronizer(SourcesMixin, OffsetEstimationMixin):
                 "No Litchi pitch for the inclinometer offset: the payload clock "
                 "is taken as the reference time"
             )
+        if self.inclinometer is not None and "inclinometer" not in self.offsets:
+            # Its own clock (Kernel-100) and no Litchi pitch offset
+            logger.warning(
+                "Inclinometer NOT synchronized: it has its own clock and no "
+                "offset to the Litchi pitch ("
+                + ("no Litchi log" if self.litchi_gps is None else "no pitch match")
+                + "); it is left out of the synchronized data"
+            )
 
         rates = {
             "drone": float(target_rate.get("drone", 10.0)),
@@ -316,7 +324,9 @@ class Synchronizer(SourcesMixin, OffsetEstimationMixin):
         self.rates = rates
 
         def grid(rate: float) -> np.ndarray:
-            return np.linspace(t_start, t_end, int((t_end - t_start) * rate) + 1)
+            # Exactly 1/rate apart, from t_start to at most t_end
+            n = int(np.floor((t_end - t_start) * rate + 1e-9)) + 1
+            return t_start + np.arange(n) / rate
 
         def align(
             df: pl.DataFrame, time_col: str, offset: float, rate: float
@@ -382,7 +392,10 @@ class Synchronizer(SourcesMixin, OffsetEstimationMixin):
                 f"(litchi→gps: {litchi_offset:.3f}s)"
             )
             camera_time = self.camera[self._camera_names["timestamp"]].to_numpy()
-            camera_rate = float(np.average(1 / np.diff(camera_time)))
+            # From the median spacing (repeated timestamps left out)
+            steps = np.diff(np.sort(camera_time.astype(float)))
+            steps = steps[steps > 0]
+            camera_rate = float(1.0 / np.median(steps)) if steps.size else 1.0
             rates["camera"] = camera_rate
             synced["camera"] = align(
                 self.camera, self._camera_names["timestamp"], total_offset, camera_rate
@@ -465,6 +478,7 @@ class Synchronizer(SourcesMixin, OffsetEstimationMixin):
                     self.inclinometer[incl_col].to_numpy(),
                     gyro["timestamp"].to_numpy(),
                     np.degrees(gyro[imu_col].to_numpy()),
+                    allow_anticorrelation=True,
                 )
                 if estimate is not None and (best is None or estimate[3] > best[3]):
                     best = (*estimate, axis)

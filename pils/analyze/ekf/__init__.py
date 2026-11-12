@@ -17,8 +17,9 @@ from pils.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-# Path to the compiled Rust EKF binary (relative to this module)
-_EKF_BIN_DIR = Path(__file__).parent / "ekf" / "bin"
+# The compiled Rust EKF binary and its default config (package data; built
+# from the sst-rust-ekf submodule next to them)
+_EKF_BIN_DIR = Path(__file__).parent / "bin"
 _EKF_BINARY_PATH = _EKF_BIN_DIR / "rust-ekf"
 _EKF_DEFAULT_CONFIG = _EKF_BIN_DIR / "config.yaml"
 
@@ -421,27 +422,20 @@ class EKFAnalysis:
             stderr=subprocess.PIPE,
         )
 
-        # Send length-prefixed IPC payloads
-        try:
-            # IMU: 8-byte LE length + IPC payload
-            process.stdin.write(struct.pack("<Q", len(imu_bytes)))
-            process.stdin.write(imu_bytes)
-
-            # Photogrammetry: 8-byte LE length + IPC payload
-            process.stdin.write(struct.pack("<Q", len(photo_bytes)))
-            process.stdin.write(photo_bytes)
-
-            process.stdin.flush()
-            logger.info("IMU + photogrammetry data sent to Rust EKF via IPC")
-
-        except BrokenPipeError as err:
-            raise RuntimeError(
-                "Rust EKF process closed the connection unexpectedly. "
-                "Check binary compatibility and input data."
-            ) from err
-
-        # communicate() flushes, closes stdin, reads stdout/stderr, and waits
-        stdout, stderr = process.communicate()
+        # Length-prefixed IPC payloads (8-byte LE length + IPC payload), IMU
+        # then photogrammetry. communicate() writes them while reading
+        # stdout/stderr (no deadlock on full pipes), closes stdin and waits;
+        # a process that exits early fails on its return code below
+        payload = b"".join(
+            [
+                struct.pack("<Q", len(imu_bytes)),
+                imu_bytes,
+                struct.pack("<Q", len(photo_bytes)),
+                photo_bytes,
+            ]
+        )
+        stdout, stderr = process.communicate(input=payload)
+        logger.info("IMU + photogrammetry data sent to Rust EKF via IPC")
 
         # Log process output — stdout carries raw Arrow IPC binary, not text
         if stderr:

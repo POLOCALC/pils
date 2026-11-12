@@ -93,7 +93,7 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
     ...     'weather': 'clear'
     ... })
     >>> # Load drone data (auto-detects DJI or BlackSquare)
-    >>> flight.add_drone_data(dji_drone_loader='dat')
+    >>> flight.add_drone_data(dji_dat_loader=True)
     >>> # Load sensor data
     >>> flight.add_sensor_data(['gps', 'imu', 'adc'])
     >>> # Load camera data (Sony or Alvium)
@@ -108,8 +108,8 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
     >>> camera_df = flight['raw_data']['payload']['camera']
     >>> # Synchronize all data sources
     >>> sync_df = flight.sync(target_rate={'drone': 10.0, 'payload': 100.0})
-    >>> # Perform operations on the data
-    >>> high_altitude = drone_df.filter(pl.col('altitude') > 100)
+    >>> # Perform operations on the data (DJI RTK heights, metres)
+    >>> high_altitude = drone_df.filter(pl.col('rtk_h_ell_m') > 100)
     >>> print(f"Points above 100m: {len(high_altitude)}")
     """
 
@@ -343,23 +343,29 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
             raise FileNotFoundError(f"No drone log in {drone_folder} (empty folder)")
         records: dict[str, pl.DataFrame] = {}  # other .dat records (DJI)
 
-        if isinstance(self._drone_model, str) and "dji" in self._drone_model.lower():
-            drone_data_path = None
-            litchi_data_path = None
+        # DJI logs by name: the flight log (*drone.dat, or *drone.csv from
+        # DatCon) and the Litchi mission log (*litchi.csv)
+        drone_data_path = None
+        litchi_data_path = None
+        for file in available_files:
+            fname = file.lower()
+            if dji_dat_loader and fname.endswith("drone.dat"):
+                drone_data_path = file
+            elif fname.endswith("drone.csv") and drone_data_path is None:
+                drone_data_path = file
+            if fname.endswith("litchi.csv"):
+                litchi_data_path = file
 
-            for file in available_files:
-                fname = file.lower()
+        model = self._drone_model.lower() if isinstance(self._drone_model, str) else ""
+        is_dji = "dji" in model
+        if not is_dji and "black" not in model and drone_data_path is not None:
+            # Unknown model, but a DJI flight log in the folder
+            logger.info(
+                f"Drone model {self._drone_model!r}: DJI log found, read as DJI"
+            )
+            is_dji = True
 
-                if dji_dat_loader and fname.endswith("drone.dat"):
-                    drone_data_path = file
-
-                else:
-                    if fname.endswith("drone.csv") and drone_data_path is None:
-                        drone_data_path = file
-
-                if fname.endswith("litchi.csv") and "dji" in self._drone_model.lower():
-                    litchi_data_path = file
-
+        if is_dji:
             if drone_data_path is None:
                 raise FileNotFoundError(
                     f"No DJI drone log (*drone.dat, *drone.csv) in {drone_folder}"
@@ -377,38 +383,18 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
                 litchi_loader.load_data()
                 litchi_data = litchi_loader.data
 
-        elif isinstance(self._drone_model, str) and (
-            "black" in self._drone_model.lower()
-            or "blacksquare" in self._drone_model.lower()
-        ):
-            drone = BlackSquareDrone(drone_folder)
+        else:
+            # BlackSquare, or an unknown model without a DJI log
+            if "black" not in model:
+                logger.info(
+                    f"Drone model {self._drone_model!r}: no DJI log, read as BlackSquare"
+                )
+            drone = BlackSquareDrone(str(drone_folder))
             drone.load_data()
             drone_data = drone.data
             litchi_data = None
 
-        else:
-            try:
-                drone = DJIDrone(drone_data_path or str(drone_folder))
-                drone.load_data(use_dat=dji_dat_loader)
-                drone_data = drone.data
-                litchi_loader = Litchi(litchi_data_path or str(drone_folder))
-                litchi_loader.load_data()
-                litchi_data = litchi_loader.data
-            except Exception as e:
-                # Broad: a format probe, any failure to read the folder as DJI
-                # (parse errors of many kinds) means trying BlackSquare
-                logger.info(f"Not a DJI drone folder ({e}); trying BlackSquare")
-                drone = BlackSquareDrone(str(drone_folder))
-                drone.load_data()
-                drone_data = drone.data
-                litchi_data = None
-
-        drone_kind = (
-            "blacksquare"
-            if isinstance(self._drone_model, str)
-            and "black" in self._drone_model.lower()
-            else "dji"
-        )
+        drone_kind = "dji" if is_dji else "blacksquare"
         self.raw_data.drone_data = DroneData(
             _standardize(drone_data, drone_kind),
             _standardize(litchi_data, "litchi"),
@@ -582,6 +568,50 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
                 tables["payload"][name] = data
         return {k: v for k, v in tables.items() if v}
 
+    @staticmethod
+    def _carry_over_raw(raw_dir: Path, tables: dict[str, Any]) -> dict[str, Any]:
+        """Add to ``tables`` the saved raw tables of sources not in them.
+
+        A source is ``drone/<table>`` (``drone``, ``litchi``, ``records``) or
+        ``payload/<sensor>``. A save with fewer sources (a re-package without
+        some sensor) keeps the ones already saved rather than dropping them.
+
+        Returns
+        -------
+        dict
+            For the raw manifest: the sources carried over, and when they
+            were saved; empty if none.
+        """
+        from pils import store
+
+        if not (raw_dir / store.MANIFEST).is_file():
+            return {}
+        manifest = store.read_manifest(raw_dir)
+
+        def source(key: str) -> str:
+            return "/".join(key.split("/")[:2])
+
+        new = {source(key) for key in store._flatten(tables)}
+        carried = sorted(
+            key for key in manifest.get("tables", {}) if source(key) not in new
+        )
+        if not carried:
+            return {}
+        for key in carried:
+            *parents, name = key.split("/")
+            node = tables
+            for parent in parents:
+                node = node.setdefault(parent, {})
+            node[name] = store.read_parquet(raw_dir / f"{key}.parquet")
+        sources = sorted({source(key) for key in carried})
+        previous = manifest.get("metadata", {}).get("carried_over", {})
+        logger.warning(f"Raw data not reloaded, kept from the previous save: {sources}")
+        return {
+            "carried_over": {
+                s: previous.get(s, manifest.get("saved_at")) for s in sources
+            }
+        }
+
     def save(
         self,
         directory: str | Path,
@@ -593,7 +623,8 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
         Layout (see :mod:`pils.store`)::
 
             <directory>/
-            ├── raw/                      # replaced at each save
+            ├── raw/                      # rewritten at each save (sources
+            │   │                         # not reloaded are kept)
             │   ├── manifest.json         # flight info, loaders, code version
             │   ├── drone/drone.parquet, drone/litchi.parquet,
             │   │   drone/records/<record>.parquet
@@ -620,9 +651,11 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
         from pils import store
 
         directory = Path(directory)
+        tables = self._raw_tables()
+        carried = self._carry_over_raw(directory / "raw", tables)
         raw = store.write_tables(
             directory / "raw",
-            self._raw_tables(),
+            tables,
             metadata={
                 "flight_info": self.flight_info,
                 "flight_metadata": self.metadata,
@@ -630,6 +663,7 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
                 "inclinometer": self._inclinometer,
                 "camera_model": self._camera_model,
                 "use_photogrammetry": self._use_photogrammetry,
+                **carried,
             },
             kind="flight_raw",
             replace=True,

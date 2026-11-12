@@ -1,31 +1,29 @@
 """
 PILS - POLOCALC Inertial & Drone Loading System.
 
-A comprehensive Python package for loading, decoding, and analyzing flight data
-from drone missions with integrated STOUT campaign management system support.
+Loading, decoding, synchronizing and analyzing the flight data of POLOCALC's
+drone missions, with flights found through STOUT.
 
 Modules:
-    - loader: StoutDataLoader for querying flights and accessing raw data paths
-    - decoder: DataDecoder for parsing and decoding sensor and drone data
-    - handler: FlightDataHandler for unified data access with automatic decoding
-    - sensors: Sensor-specific data decoders (GPS, IMU, Camera, etc.)
-    - drones: Drone-specific data parsers (DJI, BlackSquare, Litchi)
-    - utils: Utility functions for path handling and log parsing
+    - loader: PathLoader and StoutLoader, to find flights and their raw data paths
+    - flight: Flight, holding a flight's drone and payload data
+      (``add_drone_data``, ``add_sensor_data``, ``sync``, ``save``/``load``)
+    - synchronizer: Synchronizer, aligning the sources by GPS and pitch correlation
+    - sensors, drones, decoders: the sensor and drone log readers
+    - store: Parquet revisions of the processed data
+    - analyze: AZEL, PPK, EKF, power and the flight packaging
+    - utils: helpers (paths, logs, GNSS time, units)
 
 Example Usage:
-    from pils import FlightDataHandler
+    from pils.flight import Flight
+    from pils.loader import PathLoader
 
-    # Initialize with STOUT database
-    handler = FlightDataHandler(use_stout=True)
-
-    # Load and decode all flights from a campaign
-    flights = handler.load_campaign_flights(campaign_id="camp-123")
-
-    # Access decoded sensor data
-    for flight in flights:
-        print(f"Flight: {flight.flight_name}")
-        print(f"GPS data: {flight.payload.gps.data.head()}")
-        print(f"IMU data: {flight.payload.imu.data}")
+    info = PathLoader("/data").load_single_flight(flight_name="flight_...")
+    flight = Flight(info)
+    flight.add_drone_data()
+    flight.add_sensor_data(["gps", "imu", "adc"])
+    synced = flight.sync()
+    print(synced["drone"].head())
 """
 
 __version__ = "2026.11.2"
@@ -36,7 +34,8 @@ import importlib
 from typing import Any
 
 # Imported when first used, so that reading saved data (pils.store,
-# pils.schema) does not load the decoders and their dependencies
+# pils.schema) does not load the decoders and their dependencies (it needs
+# only polars and STOUT's data layout)
 _LAZY = {
     "Flight": ("pils.flight", "Flight"),
     "PILS": ("pils.pils", "PILS"),

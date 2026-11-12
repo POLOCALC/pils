@@ -5,8 +5,10 @@ A comprehensive Python package for loading, decoding, and analyzing flight data 
 ## Installation
 
 ### Basic Installation
+pils is not on PyPI; it installs from POLOCALC's GitHub repository (private: GitHub
+access needed), with STOUT:
 ```bash
-pip install pils
+pip install "pils @ git+https://github.com/POLOCALC/pils.git@main"
 ```
 
 ### STOUT
@@ -116,20 +118,15 @@ The documentation includes:
 
 ## Examples
 
-See the `examples/` folder for comprehensive examples:
+See the `examples/` folder (Jupyter notebooks):
 
-- `pils_examples.ipynb` - Interactive notebook with all major features
-- `ppk_analysis_example.py` - Complete PPK workflow
-- `examples.py` - General usage examples
-
-Run examples:
+- `loader.ipynb` - Loading flights with PathLoader and StoutLoader
+- `gps_comparison_notebook.ipynb` - Comparing the GPS receivers
+- `ppk_stout_analysis.ipynb` - PPK analysis of flights found through STOUT
+- `quick_azel.ipynb` - AZEL of a flight (with `azel_20251206_1304.csv`, a sample output)
 
 ```bash
-# Jupyter notebooks
-jupyter notebook examples/pils_examples.ipynb
-
-# Python scripts
-python examples/ppk_analysis_example.py
+jupyter notebook examples/loader.ipynb
 ```
 
 ## Testing
@@ -200,7 +197,7 @@ base_data_path/
 
 - Python 3.11+
 - polars >= 0.19.0
-- STOUT >= 2.0.0 (optional, for database integration)
+- STOUT >= 2.1.0 (POLOCALC/stout, installed with pils: the data layout and the flight database)
 - RTKLIB (optional, for PPK analysis - requires `rnx2rtkp` binary)
 
 ## License

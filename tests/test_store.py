@@ -93,6 +93,37 @@ def test_replace(tmp_path, tables):
     assert [p.name for p in tmp_path.iterdir()] == ["raw"]
 
 
+def test_replace_without_exchange(tmp_path, tables, monkeypatch):
+    monkeypatch.setattr(store, "_exchange", lambda a, b: False)
+    store.write_tables(tmp_path / "raw", tables, replace=True)
+    store.write_tables(
+        tmp_path / "raw", {"drone": tables["drone"].head(1)}, replace=True
+    )
+    loaded, _ = store.read_tables(tmp_path / "raw")
+    assert set(loaded) == {"drone"}
+    assert [p.name for p in tmp_path.iterdir()] == ["raw"]
+
+
+def test_retry_after_interrupted_write(tmp_path, tables):
+    run = tmp_path / "rev_1"
+    run.mkdir()
+    (run / "plot.png").write_bytes(b"png")
+    # An interrupted write: a table moved in, no manifest
+    store.write_parquet(tables["drone"], run / "drone.parquet")
+    store.write_tables(run, tables)
+    loaded, _ = store.read_tables(run)
+    assert set(loaded) == set(tables)
+    assert (run / "plot.png").read_bytes() == b"png"
+
+
+def test_table_does_not_replace_other_files(tmp_path, tables):
+    run = tmp_path / "rev_1"
+    (run / "drone").mkdir(parents=True)
+    (run / "drone" / "notes.txt").write_text("x")
+    with pytest.raises(FileExistsError):
+        store.write_tables(run, {"drone": {"a": tables["drone"]}})
+
+
 def test_flight_save_and_load(tmp_path):
     flight = Flight({"drone_data_folder_path": str(tmp_path / "drone")})
     flight._Flight__drone_model = "dji"
@@ -131,6 +162,24 @@ def test_flight_save_and_load(tmp_path):
     assert Flight.load(tmp_path / "out", sync_revision=False).sync_data is None
     with pytest.raises(ValueError):
         Flight.load(tmp_path / "out", sync_revision="rev_missing")
+
+
+def test_flight_save_keeps_raw_sources_not_reloaded(tmp_path):
+    flight = Flight({"drone_data_folder_path": str(tmp_path / "drone")})
+    flight.raw_data.payload_data.gps = pl.DataFrame({"timestamp": [0.0]})
+    flight.raw_data.payload_data.adc = pl.DataFrame({"timestamp": [0.0, 1.0]})
+    flight.save(tmp_path / "out")
+    first = store.read_manifest(tmp_path / "out" / "raw")["saved_at"]
+
+    # Re-packaged with the ADC only (and a new ADC table)
+    again = Flight({"drone_data_folder_path": str(tmp_path / "drone")})
+    again.raw_data.payload_data.adc = pl.DataFrame({"timestamp": [0.0, 1.0, 2.0]})
+    again.save(tmp_path / "out")
+    loaded = Flight.load(tmp_path / "out")
+    assert loaded.raw_data.payload_data.gps.height == 1
+    assert loaded.raw_data.payload_data.adc.height == 3
+    raw = store.read_manifest(tmp_path / "out" / "raw")
+    assert raw["metadata"]["carried_over"] == {"payload/gps": first}
 
 
 def test_migrate_legacy_files(tmp_path):
@@ -173,6 +222,31 @@ def test_prune_keeps_newest_and_referenced(tmp_path):
     assert len(removed) == 4
     with pytest.raises(ValueError):
         store.prune_versions(tmp_path, keep=0)
+
+
+def test_prune_keeps_dependency_chain_per_flight(tmp_path):
+    frame = {"t": pl.DataFrame({"timestamp": [0.0]})}
+    a, b = tmp_path / "flight_a" / "proc", tmp_path / "flight_b" / "proc"
+    for proc in (a, b):
+        for i in range(3):
+            store.save_version(proc / "flight" / "sync", f"rev_{i}", frame, {})
+            store.save_version(
+                proc / "azel",
+                f"rev_{i}",
+                frame,
+                {"sync_revision": f"rev_{i}"},
+                parent="SATP1",
+            )
+    # Flight A: the newest power revision is made from the oldest AZEL one
+    store.save_version(
+        a / "power", "rev_9", frame, {"azel_version": "rev_0"}, parent="SATP1_ws0"
+    )
+    store.prune_versions(tmp_path, keep=1)
+    # power -> azel rev_0 -> sync rev_0, in flight A only
+    assert store.list_versions(a / "azel", "SATP1") == ["rev_0", "rev_2"]
+    assert store.list_versions(a / "flight" / "sync") == ["rev_0", "rev_2"]
+    assert store.list_versions(b / "azel", "SATP1") == ["rev_2"]
+    assert store.list_versions(b / "flight" / "sync") == ["rev_2"]
 
 
 def test_find_datasets_latest_and_columns(tmp_path):

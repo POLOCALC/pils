@@ -150,6 +150,55 @@ class TestSynchronize:
         assert "drone_IMU" not in result
 
 
+def reference_only(t_end):
+    t = np.linspace(0, t_end, 1000)
+    sync = Synchronizer()
+    sync.add_gps_reference(
+        pl.DataFrame({"timestamp": t, "lat": 45 + 0 * t, "lon": 10 + 0 * t, "alt": t}),
+        lat_col="lat",
+        lon_col="lon",
+        alt_col="alt",
+    )
+    return sync
+
+
+class TestGrids:
+    def test_grid_spacing_is_one_over_rate(self):
+        sync = reference_only(100.05)
+        sync.add_payload_sensor(
+            "adc", pl.DataFrame({"timestamp": np.arange(0, 100.05, 0.01), "v": 1.0})
+        )
+        result = sync.synchronize(target_rate={"payload": 7.0})
+        t = result["adc"]["timestamp"].to_numpy()
+        np.testing.assert_allclose(np.diff(t), 1 / 7.0, rtol=0, atol=1e-9)
+        assert t[0] == 0.0 and t[-1] <= 100.05
+
+    def test_camera_rate_with_repeated_timestamps(self):
+        sync = reference_only(10.0)
+        times = [0.0, 0.0, 0.5, 1.0, 1.0, 1.5, 2.0]
+        sync.add_camera(
+            pl.DataFrame({"timestamp": times, "exposure": np.arange(7.0)}),
+            use_photogrammetry=False,
+            camera_model="alvium",
+        )
+        result = sync.synchronize(target_rate={})
+        assert sync.rates["camera"] == pytest.approx(2.0)
+        assert result["camera"].height > 0
+
+    def test_inclinometer_on_its_own_clock_without_litchi_warns(self, caplog):
+        sync = reference_only(10.0)
+        t = np.arange(0, 10, 0.01)
+        sync.add_inclinometer(
+            pl.DataFrame({"timestamp": t, "pitch_deg": np.sin(t)}),
+            "kernel",
+            clock="own",
+        )
+        with caplog.at_level("WARNING"):
+            result = sync.synchronize(target_rate={})
+        assert "inclinometer" not in result
+        assert "Inclinometer NOT synchronized" in caplog.text
+
+
 class TestResampleTable:
     def test_rules(self):
         from datetime import datetime
@@ -188,6 +237,43 @@ class TestResampleTable:
             df, df["timestamp"].to_numpy().astype(float), np.array([1.0])
         )
         assert out["v"].to_list() == [10.0]
+
+    def test_gap_of_dropped_rows_is_null(self):
+        """RTK epochs without a solution are dropped: the gap is not bridged."""
+        from pils.flight.sync import _valid_positions
+        from pils.synchronizer import resample_table
+
+        flags = [50, 50, 50, 0, 0, 0, 0, 0, 50, 50]
+        t = np.arange(10.0)
+        fixed = np.array(flags) == 50
+        df = pl.DataFrame(
+            {
+                "timestamp": t,
+                "rtk_lat_deg": np.where(fixed, 45.0 + 1e-5 * t, 0.0),
+                "rtk_lon_deg": np.where(fixed, 10.0 + 1e-5 * t, 0.0),
+                "rtk_pos_flag_1": pl.Series(flags, dtype=pl.Int64),
+            }
+        )
+        df = _valid_positions(df, "rtk_lat_deg", "rtk_lon_deg")
+        target = np.arange(0.0, 9.01, 0.5)
+        out = resample_table(df, df["timestamp"].to_numpy(), target)
+        gap = (target > 2.0) & (target < 8.0)
+        assert out.filter(pl.Series(gap))["rtk_lat_deg"].null_count() == gap.sum()
+        assert out.filter(pl.Series(gap))["rtk_pos_flag_1"].null_count() == gap.sum()
+        kept = out.filter(pl.col("rtk_pos_flag_1") == 50)["timestamp"].to_list()
+        assert kept == [0.0, 0.5, 1.0, 1.5, 2.0, 8.0, 8.5, 9.0]
+        assert out["rtk_lat_deg"][1] == pytest.approx(45.0 + 0.5e-5)
+
+    def test_gap_bridged_on_request(self):
+        from pils.synchronizer import resample_table
+
+        df = pl.DataFrame(
+            {"timestamp": [0.0, 1.0, 2.0, 10.0], "v": [0.0, 1.0, 2.0, 10.0]}
+        )
+        target = np.array([6.0])
+        assert resample_table(df, df["timestamp"].to_numpy(), target)["v"][0] is None
+        out = resample_table(df, df["timestamp"].to_numpy(), target, max_gap=np.inf)
+        assert out["v"][0] == pytest.approx(6.0)
 
 
 def test_raw_and_sync_provenance(tmp_path):
