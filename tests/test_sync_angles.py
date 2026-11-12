@@ -189,6 +189,43 @@ class TestResampleTable:
         )
         assert out["v"].to_list() == [10.0]
 
+    def test_gap_of_dropped_rows_is_null(self):
+        """RTK epochs without a solution are dropped: the gap is not bridged."""
+        from pils.flight.sync import _valid_positions
+        from pils.synchronizer import resample_table
+
+        flags = [50, 50, 50, 0, 0, 0, 0, 0, 50, 50]
+        t = np.arange(10.0)
+        fixed = np.array(flags) == 50
+        df = pl.DataFrame(
+            {
+                "timestamp": t,
+                "rtk_lat_deg": np.where(fixed, 45.0 + 1e-5 * t, 0.0),
+                "rtk_lon_deg": np.where(fixed, 10.0 + 1e-5 * t, 0.0),
+                "rtk_pos_flag_1": pl.Series(flags, dtype=pl.Int64),
+            }
+        )
+        df = _valid_positions(df, "rtk_lat_deg", "rtk_lon_deg")
+        target = np.arange(0.0, 9.01, 0.5)
+        out = resample_table(df, df["timestamp"].to_numpy(), target)
+        gap = (target > 2.0) & (target < 8.0)
+        assert out.filter(pl.Series(gap))["rtk_lat_deg"].null_count() == gap.sum()
+        assert out.filter(pl.Series(gap))["rtk_pos_flag_1"].null_count() == gap.sum()
+        kept = out.filter(pl.col("rtk_pos_flag_1") == 50)["timestamp"].to_list()
+        assert kept == [0.0, 0.5, 1.0, 1.5, 2.0, 8.0, 8.5, 9.0]
+        assert out["rtk_lat_deg"][1] == pytest.approx(45.0 + 0.5e-5)
+
+    def test_gap_bridged_on_request(self):
+        from pils.synchronizer import resample_table
+
+        df = pl.DataFrame(
+            {"timestamp": [0.0, 1.0, 2.0, 10.0], "v": [0.0, 1.0, 2.0, 10.0]}
+        )
+        target = np.array([6.0])
+        assert resample_table(df, df["timestamp"].to_numpy(), target)["v"][0] is None
+        out = resample_table(df, df["timestamp"].to_numpy(), target, max_gap=np.inf)
+        assert out["v"][0] == pytest.approx(6.0)
+
 
 def test_raw_and_sync_provenance(tmp_path):
     import h5py
