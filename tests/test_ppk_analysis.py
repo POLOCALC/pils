@@ -1481,3 +1481,36 @@ class TestRevisionFolderCleanup:
         # Revision folder should exist
         assert result.revision_path.exists()
         assert result.revision_path.is_dir()
+
+
+class TestRunInputs:
+    """Inputs are checked before a revision folder is created."""
+
+    def test_missing_rover_creates_no_revision(self, tmp_path):
+        flight_path = tmp_path / "flight_010"
+        flight_path.mkdir()
+        ppk = PPKAnalysis(create_flight_from_path(flight_path))
+        config = tmp_path / "x.conf"
+        config.write_text("pos1-posmode=kinematic\n")
+        assert ppk._run_analysis(config, force=True, optimize=False) is None
+        assert not list(ppk.ppk_dir.glob("rev_*"))
+
+    def test_rover_nav_not_converted(self, tmp_path, monkeypatch):
+        import pils.analyze.ppk.core as core
+
+        flight_path = tmp_path / "flight_011"
+        sensors = flight_path / "aux" / "sensors"
+        sensors.mkdir(parents=True)
+        (sensors / "x_GPS.bin").write_bytes(b"")
+        ppk = PPKAnalysis(create_flight_from_path(flight_path))
+        config = tmp_path / "x.conf"
+        config.write_text("pos1-posmode=kinematic\n")
+
+        def convbin(cmd, check):
+            Path(cmd[cmd.index("-o") + 1]).write_text("obs")  # no .nav
+
+        monkeypatch.setattr(core, "rtklib_binary", lambda name: name)
+        monkeypatch.setattr(core.subprocess, "run", convbin)
+        with pytest.raises(FileNotFoundError, match=r"\.nav"):
+            ppk._run_analysis(config, force=True, optimize=False)
+        assert not list(ppk.ppk_dir.glob("rev_*"))
