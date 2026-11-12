@@ -175,6 +175,31 @@ def test_prune_keeps_newest_and_referenced(tmp_path):
         store.prune_versions(tmp_path, keep=0)
 
 
+def test_prune_keeps_dependency_chain_per_flight(tmp_path):
+    frame = {"t": pl.DataFrame({"timestamp": [0.0]})}
+    a, b = tmp_path / "flight_a" / "proc", tmp_path / "flight_b" / "proc"
+    for proc in (a, b):
+        for i in range(3):
+            store.save_version(proc / "flight" / "sync", f"rev_{i}", frame, {})
+            store.save_version(
+                proc / "azel",
+                f"rev_{i}",
+                frame,
+                {"sync_revision": f"rev_{i}"},
+                parent="SATP1",
+            )
+    # Flight A: the newest power revision is made from the oldest AZEL one
+    store.save_version(
+        a / "power", "rev_9", frame, {"azel_version": "rev_0"}, parent="SATP1_ws0"
+    )
+    store.prune_versions(tmp_path, keep=1)
+    # power -> azel rev_0 -> sync rev_0, in flight A only
+    assert store.list_versions(a / "azel", "SATP1") == ["rev_0", "rev_2"]
+    assert store.list_versions(a / "flight" / "sync") == ["rev_0", "rev_2"]
+    assert store.list_versions(b / "azel", "SATP1") == ["rev_2"]
+    assert store.list_versions(b / "flight" / "sync") == ["rev_2"]
+
+
 def test_find_datasets_latest_and_columns(tmp_path):
     proc = tmp_path / "proc"
     frame = {"gps": pl.DataFrame({"timestamp": [0.0, 1.0], "lat": [1.0, 2.0]})}
