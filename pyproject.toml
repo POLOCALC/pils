@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pils"
-version = "2026.11.2"
+version = "2026.11.3"
 description = "PILS - POLOCALC Inertial & Drone Loading System. Integrated flight data loading and decoding with STOUT database interface"
 readme = "README.md"
 license = {text = "MIT"}
@@ -132,7 +132,7 @@ warn_unused_configs = true
 disallow_untyped_defs = false
 
 [tool.bumpver]
-current_version = "2026.11.2"
+current_version = "2026.11.3"
 version_pattern = "YYYY.MM.INC0"
 commit_message = "chore: bump version {old_version} -> {new_version} [skip ci]"  # no workflow for it: only the version changes
 tag_message = "Release {new_version}"
