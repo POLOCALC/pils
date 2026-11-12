@@ -150,6 +150,55 @@ class TestSynchronize:
         assert "drone_IMU" not in result
 
 
+def reference_only(t_end):
+    t = np.linspace(0, t_end, 1000)
+    sync = Synchronizer()
+    sync.add_gps_reference(
+        pl.DataFrame({"timestamp": t, "lat": 45 + 0 * t, "lon": 10 + 0 * t, "alt": t}),
+        lat_col="lat",
+        lon_col="lon",
+        alt_col="alt",
+    )
+    return sync
+
+
+class TestGrids:
+    def test_grid_spacing_is_one_over_rate(self):
+        sync = reference_only(100.05)
+        sync.add_payload_sensor(
+            "adc", pl.DataFrame({"timestamp": np.arange(0, 100.05, 0.01), "v": 1.0})
+        )
+        result = sync.synchronize(target_rate={"payload": 7.0})
+        t = result["adc"]["timestamp"].to_numpy()
+        np.testing.assert_allclose(np.diff(t), 1 / 7.0, rtol=0, atol=1e-9)
+        assert t[0] == 0.0 and t[-1] <= 100.05
+
+    def test_camera_rate_with_repeated_timestamps(self):
+        sync = reference_only(10.0)
+        times = [0.0, 0.0, 0.5, 1.0, 1.0, 1.5, 2.0]
+        sync.add_camera(
+            pl.DataFrame({"timestamp": times, "exposure": np.arange(7.0)}),
+            use_photogrammetry=False,
+            camera_model="alvium",
+        )
+        result = sync.synchronize(target_rate={})
+        assert sync.rates["camera"] == pytest.approx(2.0)
+        assert result["camera"].height > 0
+
+    def test_inclinometer_on_its_own_clock_without_litchi_warns(self, caplog):
+        sync = reference_only(10.0)
+        t = np.arange(0, 10, 0.01)
+        sync.add_inclinometer(
+            pl.DataFrame({"timestamp": t, "pitch_deg": np.sin(t)}),
+            "kernel",
+            clock="own",
+        )
+        with caplog.at_level("WARNING"):
+            result = sync.synchronize(target_rate={})
+        assert "inclinometer" not in result
+        assert "Inclinometer NOT synchronized" in caplog.text
+
+
 class TestResampleTable:
     def test_rules(self):
         from datetime import datetime
