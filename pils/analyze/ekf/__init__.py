@@ -17,8 +17,9 @@ from pils.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-# Path to the compiled Rust EKF binary (relative to this module)
-_EKF_BIN_DIR = Path(__file__).parent / "ekf" / "bin"
+# The compiled Rust EKF binary and its default config (package data; built
+# from the sst-rust-ekf submodule next to them)
+_EKF_BIN_DIR = Path(__file__).parent / "bin"
 _EKF_BINARY_PATH = _EKF_BIN_DIR / "rust-ekf"
 _EKF_DEFAULT_CONFIG = _EKF_BIN_DIR / "config.yaml"
 

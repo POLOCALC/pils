@@ -62,8 +62,8 @@ dev = [
 pils = "pils.cli:main"
 
 [project.urls]
-Repository = "https://github.com/POLOCALC/data-loader"
-Documentation = "https://github.com/POLOCALC/data-loader/wiki"
+Repository = "https://github.com/POLOCALC/pils"
+Documentation = "https://github.com/POLOCALC/pils#readme"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -71,11 +71,14 @@ include = ["pils*"]
 exclude = ["tests*", "site*", "plans*", "examples*", "docs*", "htmlcov*"]
 
 [tool.setuptools.package-data]
-# The SO detector layouts (pils.geometry.detectors) and the CLASS/LAT
-# detector tables (pils.geometry.detector_tables)
+# The SO detector layouts (pils.geometry.detectors), the CLASS/LAT
+# detector tables (pils.geometry.detector_tables), and the Rust EKF binary
+# and its default config (pils.analyze.ekf)
 pils = [
     "geometry/data/focal_planes/*.npz",
     "geometry/data/detector_tables/*.txt",
+    "analyze/ekf/bin/rust-ekf",
+    "analyze/ekf/bin/config.yaml",
 ]
 
 [tool.ruff]
