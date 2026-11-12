@@ -193,3 +193,44 @@ class TestFlightTypeGuards:
             payload = temp_flight.raw_data.payload_data
             assert payload is not None  # Type guard
             assert hasattr(payload, "list_loaded_sensors")
+
+
+class TestDroneLoaderChoice:
+    """An unknown drone model is read as DJI when a DJI log is there."""
+
+    @staticmethod
+    def loaders(monkeypatch):
+        import pils.flight.core as core
+
+        used = []
+
+        class Fake:
+            def __init__(self, path):
+                self.path = path
+                self.data = pl.DataFrame({"timestamp": [0.0, 1.0]})
+                self.records = {}
+
+            def load_data(self, **kwargs):
+                used.append((type(self).__name__, str(self.path)))
+
+        monkeypatch.setattr(core, "DJIDrone", type("DJIDrone", (Fake,), {}))
+        monkeypatch.setattr(core, "Litchi", type("Litchi", (Fake,), {}))
+        monkeypatch.setattr(
+            core, "BlackSquareDrone", type("BlackSquareDrone", (Fake,), {})
+        )
+        return used
+
+    def test_unknown_model_with_dji_log(self, tmp_path, monkeypatch):
+        used = self.loaders(monkeypatch)
+        (tmp_path / "x_drone.csv").write_text("")
+        (tmp_path / "x_litchi.csv").write_text("")
+        flight = Flight({"drone_data_folder_path": str(tmp_path)})
+        flight.add_drone_data(drone_model="m300")
+        assert [name for name, _ in used] == ["DJIDrone", "Litchi"]
+
+    def test_unknown_model_without_dji_log(self, tmp_path, monkeypatch):
+        used = self.loaders(monkeypatch)
+        (tmp_path / "x.bin").write_text("")
+        flight = Flight({"drone_data_folder_path": str(tmp_path)})
+        flight.add_drone_data(drone_model="m300")
+        assert [name for name, _ in used] == ["BlackSquareDrone"]
