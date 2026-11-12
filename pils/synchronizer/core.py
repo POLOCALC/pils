@@ -147,9 +147,9 @@ class Synchronizer(SourcesMixin, OffsetEstimationMixin):
             time column; missing values are null (see :func:`resample_table`).
 
             GPS sources (drone, litchi, reference_gps) use standardized coordinate columns:
-            - latitude: Latitude in degrees (WGS84)
-            - longitude: Longitude in degrees (WGS84)
-            - altitude: Altitude in meters (ellipsoidal height)
+            - lat_deg: Latitude in degrees (WGS84)
+            - lon_deg: Longitude in degrees (WGS84)
+            - h_ell_m: Height above the WGS84 ellipsoid in meters
             - timestamp: Time in seconds
 
             Non-coordinate columns preserve their original names.

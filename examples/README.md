@@ -4,61 +4,17 @@ This folder contains example scripts and notebooks demonstrating PILS functional
 
 ## Files
 
-### Jupyter Notebooks
-
-- **`pils_examples.ipynb`** - Comprehensive examples notebook covering all major features:
-  - Loading flight data
-  - Working with sensors (GPS, IMU, ADC)
-  - Processing drone telemetry
-  - Time synchronization
-  - PPK analysis
-  - Data export
-  - HDF5 operations
-  - Advanced trajectory analysis
-
-- **`loader.ipynb`** - Examples of loading flight data with PathLoader and StoutLoader
-
+- **`loader.ipynb`** - Loading flight data with PathLoader and StoutLoader
 - **`gps_comparison_notebook.ipynb`** - GPS data comparison and validation
-
-- **`test.ipynb`** - Testing and debugging notebook
-
-- **`test_hdf5_methods.ipynb`** - HDF5 save/load method testing
-
-### Python Scripts
-
-- **`ppk_analysis_example.py`** - Complete PPK analysis workflow
-- **`examples.py`** - General PILS usage examples
-- **`compare_dat_csv.py`** - DAT vs CSV file comparison
-- **`compare_gps_csv.py`** - GPS data format comparison
+- **`ppk_stout_analysis.ipynb`** - PPK analysis of flights found through STOUT
+- **`quick_azel.ipynb`** - AZEL (azimuth, elevation) of a flight
+- **`azel_20251206_1304.csv`** - A sample AZEL output
 
 ## Getting Started
 
-### Running Notebooks
-
 ```bash
-# Activate conda environment
 conda activate dm
-
-# Install Jupyter
-conda install jupyter
-
-# Start Jupyter
-jupyter notebook
-
-# Open pils_examples.ipynb
-```
-
-### Running Scripts
-
-```bash
-# Activate environment
-conda activate dm
-
-# Run PPK analysis example
-python ppk_analysis_example.py
-
-# Run general examples
-python examples.py
+jupyter notebook loader.ipynb
 ```
 
 ## Quick Example
@@ -76,7 +32,7 @@ flight = loader.load_single_flight(data_path="/path/to/flight")
 flight.add_sensor_data(['gps', 'imu'])
 
 # Access data
-gps_data = flight['gps'].data
+gps_data = flight.raw_data.payload_data.gps
 print(gps_data.head())
 
 # Export
