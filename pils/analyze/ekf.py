@@ -421,27 +421,20 @@ class EKFAnalysis:
             stderr=subprocess.PIPE,
         )
 
-        # Send length-prefixed IPC payloads
-        try:
-            # IMU: 8-byte LE length + IPC payload
-            process.stdin.write(struct.pack("<Q", len(imu_bytes)))
-            process.stdin.write(imu_bytes)
-
-            # Photogrammetry: 8-byte LE length + IPC payload
-            process.stdin.write(struct.pack("<Q", len(photo_bytes)))
-            process.stdin.write(photo_bytes)
-
-            process.stdin.flush()
-            logger.info("IMU + photogrammetry data sent to Rust EKF via IPC")
-
-        except BrokenPipeError as err:
-            raise RuntimeError(
-                "Rust EKF process closed the connection unexpectedly. "
-                "Check binary compatibility and input data."
-            ) from err
-
-        # communicate() flushes, closes stdin, reads stdout/stderr, and waits
-        stdout, stderr = process.communicate()
+        # Length-prefixed IPC payloads (8-byte LE length + IPC payload), IMU
+        # then photogrammetry. communicate() writes them while reading
+        # stdout/stderr (no deadlock on full pipes), closes stdin and waits;
+        # a process that exits early fails on its return code below
+        payload = b"".join(
+            [
+                struct.pack("<Q", len(imu_bytes)),
+                imu_bytes,
+                struct.pack("<Q", len(photo_bytes)),
+                photo_bytes,
+            ]
+        )
+        stdout, stderr = process.communicate(input=payload)
+        logger.info("IMU + photogrammetry data sent to Rust EKF via IPC")
 
         # Log process output — stdout carries raw Arrow IPC binary, not text
         if stderr:
