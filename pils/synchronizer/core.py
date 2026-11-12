@@ -465,6 +465,7 @@ class Synchronizer(SourcesMixin, OffsetEstimationMixin):
                     self.inclinometer[incl_col].to_numpy(),
                     gyro["timestamp"].to_numpy(),
                     np.degrees(gyro[imu_col].to_numpy()),
+                    allow_anticorrelation=True,
                 )
                 if estimate is not None and (best is None or estimate[3] > best[3]):
                     best = (*estimate, axis)
