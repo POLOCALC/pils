@@ -343,23 +343,29 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
             raise FileNotFoundError(f"No drone log in {drone_folder} (empty folder)")
         records: dict[str, pl.DataFrame] = {}  # other .dat records (DJI)
 
-        if isinstance(self._drone_model, str) and "dji" in self._drone_model.lower():
-            drone_data_path = None
-            litchi_data_path = None
+        # DJI logs by name: the flight log (*drone.dat, or *drone.csv from
+        # DatCon) and the Litchi mission log (*litchi.csv)
+        drone_data_path = None
+        litchi_data_path = None
+        for file in available_files:
+            fname = file.lower()
+            if dji_dat_loader and fname.endswith("drone.dat"):
+                drone_data_path = file
+            elif fname.endswith("drone.csv") and drone_data_path is None:
+                drone_data_path = file
+            if fname.endswith("litchi.csv"):
+                litchi_data_path = file
 
-            for file in available_files:
-                fname = file.lower()
+        model = self._drone_model.lower() if isinstance(self._drone_model, str) else ""
+        is_dji = "dji" in model
+        if not is_dji and "black" not in model and drone_data_path is not None:
+            # Unknown model, but a DJI flight log in the folder
+            logger.info(
+                f"Drone model {self._drone_model!r}: DJI log found, read as DJI"
+            )
+            is_dji = True
 
-                if dji_dat_loader and fname.endswith("drone.dat"):
-                    drone_data_path = file
-
-                else:
-                    if fname.endswith("drone.csv") and drone_data_path is None:
-                        drone_data_path = file
-
-                if fname.endswith("litchi.csv") and "dji" in self._drone_model.lower():
-                    litchi_data_path = file
-
+        if is_dji:
             if drone_data_path is None:
                 raise FileNotFoundError(
                     f"No DJI drone log (*drone.dat, *drone.csv) in {drone_folder}"
@@ -377,38 +383,18 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
                 litchi_loader.load_data()
                 litchi_data = litchi_loader.data
 
-        elif isinstance(self._drone_model, str) and (
-            "black" in self._drone_model.lower()
-            or "blacksquare" in self._drone_model.lower()
-        ):
-            drone = BlackSquareDrone(drone_folder)
+        else:
+            # BlackSquare, or an unknown model without a DJI log
+            if "black" not in model:
+                logger.info(
+                    f"Drone model {self._drone_model!r}: no DJI log, read as BlackSquare"
+                )
+            drone = BlackSquareDrone(str(drone_folder))
             drone.load_data()
             drone_data = drone.data
             litchi_data = None
 
-        else:
-            try:
-                drone = DJIDrone(drone_data_path or str(drone_folder))
-                drone.load_data(use_dat=dji_dat_loader)
-                drone_data = drone.data
-                litchi_loader = Litchi(litchi_data_path or str(drone_folder))
-                litchi_loader.load_data()
-                litchi_data = litchi_loader.data
-            except Exception as e:
-                # Broad: a format probe, any failure to read the folder as DJI
-                # (parse errors of many kinds) means trying BlackSquare
-                logger.info(f"Not a DJI drone folder ({e}); trying BlackSquare")
-                drone = BlackSquareDrone(str(drone_folder))
-                drone.load_data()
-                drone_data = drone.data
-                litchi_data = None
-
-        drone_kind = (
-            "blacksquare"
-            if isinstance(self._drone_model, str)
-            and "black" in self._drone_model.lower()
-            else "dji"
-        )
+        drone_kind = "dji" if is_dji else "blacksquare"
         self.raw_data.drone_data = DroneData(
             _standardize(drone_data, drone_kind),
             _standardize(litchi_data, "litchi"),
