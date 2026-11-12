@@ -568,6 +568,50 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
                 tables["payload"][name] = data
         return {k: v for k, v in tables.items() if v}
 
+    @staticmethod
+    def _carry_over_raw(raw_dir: Path, tables: dict[str, Any]) -> dict[str, Any]:
+        """Add to ``tables`` the saved raw tables of sources not in them.
+
+        A source is ``drone/<table>`` (``drone``, ``litchi``, ``records``) or
+        ``payload/<sensor>``. A save with fewer sources (a re-package without
+        some sensor) keeps the ones already saved rather than dropping them.
+
+        Returns
+        -------
+        dict
+            For the raw manifest: the sources carried over, and when they
+            were saved; empty if none.
+        """
+        from pils import store
+
+        if not (raw_dir / store.MANIFEST).is_file():
+            return {}
+        manifest = store.read_manifest(raw_dir)
+
+        def source(key: str) -> str:
+            return "/".join(key.split("/")[:2])
+
+        new = {source(key) for key in store._flatten(tables)}
+        carried = sorted(
+            key for key in manifest.get("tables", {}) if source(key) not in new
+        )
+        if not carried:
+            return {}
+        for key in carried:
+            *parents, name = key.split("/")
+            node = tables
+            for parent in parents:
+                node = node.setdefault(parent, {})
+            node[name] = store.read_parquet(raw_dir / f"{key}.parquet")
+        sources = sorted({source(key) for key in carried})
+        previous = manifest.get("metadata", {}).get("carried_over", {})
+        logger.warning(f"Raw data not reloaded, kept from the previous save: {sources}")
+        return {
+            "carried_over": {
+                s: previous.get(s, manifest.get("saved_at")) for s in sources
+            }
+        }
+
     def save(
         self,
         directory: str | Path,
@@ -579,7 +623,8 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
         Layout (see :mod:`pils.store`)::
 
             <directory>/
-            ├── raw/                      # replaced at each save
+            ├── raw/                      # rewritten at each save (sources
+            │   │                         # not reloaded are kept)
             │   ├── manifest.json         # flight info, loaders, code version
             │   ├── drone/drone.parquet, drone/litchi.parquet,
             │   │   drone/records/<record>.parquet
@@ -606,9 +651,11 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
         from pils import store
 
         directory = Path(directory)
+        tables = self._raw_tables()
+        carried = self._carry_over_raw(directory / "raw", tables)
         raw = store.write_tables(
             directory / "raw",
-            self._raw_tables(),
+            tables,
             metadata={
                 "flight_info": self.flight_info,
                 "flight_metadata": self.metadata,
@@ -616,6 +663,7 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
                 "inclinometer": self._inclinometer,
                 "camera_model": self._camera_model,
                 "use_photogrammetry": self._use_photogrammetry,
+                **carried,
             },
             kind="flight_raw",
             replace=True,
