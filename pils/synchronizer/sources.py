@@ -304,9 +304,9 @@ class SourcesMixin:
             self._camera_names = {"timestamp": timestamp_col, "pitch": pitch_col}
         else:
             self._camera_model = camera_model
-
-            if camera_model and camera_model.lower() == "sony":
-                self._camera_names = {"timestamp": timestamp_col, "pitch": pitch_col}
+            # The timestamp for every model (alvium: its clock), the pitch
+            # for the sony
+            self._camera_names = {"timestamp": timestamp_col, "pitch": pitch_col}
 
         self.camera = camera_data
 
