@@ -22,6 +22,19 @@ from pils.utils.tools import read_alvium_log_time, read_log_time
 
 logger = logging.getLogger(__name__)
 
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
+CAMERA_MODELS = ("sony", "alvium")
+
+
+def normalize_camera_model(camera_model: str | None) -> str | None:
+    """``"Sony"`` / ``"alvium_camera"`` ... -> ``"sony"`` / ``"alvium"``; ``None`` stays ``None``."""
+    if camera_model is None:
+        return None
+    model = str(camera_model).strip().lower().removesuffix("_camera")
+    if model not in CAMERA_MODELS:
+        raise ValueError(f"Unknown camera model {camera_model!r}: one of {CAMERA_MODELS}")
+    return model
+
 
 # ---------------------------------------------------------------------------
 # Camera
@@ -41,7 +54,11 @@ class Camera:
        Falls back to empty DataFrame if telemetry is unavailable.
 
     3. **Alvium industrial camera mode** (image sequence + ``.log`` file):
-       Reads frame timestamps from log file.
+       Reads frame timestamps from log file. Images from ``proc/images/`` (the
+       recorded ``frame_*.raw`` converted to png).
+
+    ``camera_model`` (``"sony"`` / ``"alvium"``) chooses between 2 and 3 when the
+    flight recorded both cameras; ``None`` = Sony if there is an ``.mp4``, else Alvium.
 
     4. **Photogrammetry pipeline mode** (``run_photogrammetry``):
        Orchestrates the full IPA_flight pipeline using a ``PhotogrammetryConfig``
@@ -53,9 +70,11 @@ class Camera:
         path: str | Path,
         use_photogrammetry: bool = False,
         buffer_size: int = 128,
+        camera_model: str | None = None,
     ) -> None:
         self.path = Path(path)
         self.use_photogrammetry = use_photogrammetry
+        self.camera_model = normalize_camera_model(camera_model)
 
         self.capture = None
         self.fps: float | None = None
@@ -95,7 +114,13 @@ class Camera:
     #     self.data = (camera_data, camera_model)
 
     def load_data(self) -> None:
-        """Detect camera type and load data into ``self.data``."""
+        """Load the camera data into ``self.data``.
+
+        ``self.camera_model`` picks the camera: ``"sony"`` reads the ``.mp4`` in ``self.path``,
+        ``"alvium"`` the image sequence in ``proc/images/`` (the recorded ``aux/camera/frame_*.raw``
+        converted to png, see ``pils.analyze.photogrammetry.load_flight_camera``).
+        ``None`` detects it: Sony if there is an ``.mp4``, else Alvium.
+        """
         if not self.path.exists():
             raise FileNotFoundError(f"Camera path does not exist: {self.path}")
 
@@ -103,26 +128,35 @@ class Camera:
             camera_data, camera_model = self._load_photogrammetry_data()
         else:
             video_files = [p for p in self.path.iterdir() if p.suffix.lower() == ".mp4"]
+            alvium_raw  = self._alvium_raw_files()
 
-            if video_files:
+            if self.camera_model == "sony" and not video_files:
+                raise FileNotFoundError(f"camera_model='sony' but there is no .mp4 in {self.path}")
+            if self.camera_model is None and video_files and alvium_raw:
+                logger.warning(
+                    f"{self.path} has both a Sony video and {len(alvium_raw)} Alvium frames -- "
+                    "loading the Sony video; pass camera_model='alvium' (config key `camera`) for the Alvium."
+                )
+
+            if video_files and self.camera_model != "alvium":
                 camera_data, camera_model = self._load_sony_camera_data(video_files)
             else:
-                # Check for Alvium: log in self.path, images in ../../proc/images/
+                # Alvium: log in self.path, images in ../../proc/images/
                 log_files  = list(self.path.glob("*.[Ll][Oo][Gg]"))
                 images_dir = self.path.parent.parent / "proc" / "images"
-                image_extensions = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
-                image_files = (
-                    [p for p in images_dir.iterdir() if p.suffix.lower() in image_extensions]
-                    if images_dir.exists() else []
-                )
+                image_files = self._image_files(images_dir)
 
                 if log_files and image_files:
                     camera_data, camera_model = self._load_alvium_camera_data()
                 elif log_files:
                     # Log present but no images — raise clearly
+                    hint = (f" -- convert the {len(alvium_raw)} frame_*.raw first "
+                            "(pils.analyze.photogrammetry.load_flight_camera does it)" if alvium_raw else "")
                     raise FileNotFoundError(
-                        f"Alvium log found in {self.path} but no images in {images_dir}"
+                        f"Alvium log found in {self.path} but no images in {images_dir}{hint}"
                     )
+                elif self.camera_model == "alvium":
+                    raise FileNotFoundError(f"camera_model='alvium' but there is no Alvium log in {self.path}")
                 else:
                     raise FileNotFoundError(
                         f"No recognised camera data found in {self.path}. "
@@ -130,6 +164,17 @@ class Camera:
                     )
 
         self.data = (camera_data, camera_model)
+
+    @staticmethod
+    def _image_files(images_dir: Path) -> list[Path]:
+        if not images_dir.exists():
+            return []
+        return [p for p in images_dir.iterdir()
+                if p.suffix.lower() in IMAGE_EXTENSIONS and not p.name.startswith(".")]
+
+    def _alvium_raw_files(self) -> list[Path]:
+        """Alvium frames as recorded: ``frame_*.raw`` next to the acquisition log."""
+        return [p for p in self.path.glob("frame_*.raw") if not p.name.startswith(".")]
 
 
 
@@ -264,11 +309,7 @@ class Camera:
                 f"Expected Alvium images directory not found: {images_dir}"
             )
 
-        image_extensions = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
-        self.images = sorted(
-            str(p) for p in images_dir.iterdir()
-            if p.suffix.lower() in image_extensions
-        )
+        self.images = sorted(str(p) for p in self._image_files(images_dir))
 
         if not self.images:
             raise FileNotFoundError(f"No images found in {images_dir}")

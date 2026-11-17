@@ -416,7 +416,8 @@ class Flight:
     # CHANGED: now also stores camera_obj for run_photogrammetry()
     # -------------------------------------------------------------------------
     def add_camera_data(
-        self, use_photogrammetry: bool = False, get_sony_angles: bool = True
+        self, use_photogrammetry: bool = False, get_sony_angles: bool = True,
+        camera_model: str | None = None,
     ) -> None:
         """
         Load camera data from the payload.
@@ -441,6 +442,12 @@ class Flight:
         get_sony_angles : bool, default=True
             For Sony cameras, whether to compute Euler angles and quaternions from
             telemetry gyro/accel data using AHRS (Madgwick) filter.
+        camera_model : {"sony", "alvium", None}, default=None
+            Camera to load when the flight recorded both: ``"sony"`` = the ``.mp4`` in
+            aux/camera, ``"alvium"`` = the image sequence in proc/images (the aux/camera/frame_*.raw
+            converted to png: ``pils.analyze.photogrammetry.load_flight_camera`` converts and
+            loads). None: Sony if there is an ``.mp4``, else Alvium.
+            Usually ``PhotogrammetryConfig(...).camera_model`` (config key ``camera``).
 
         Raises
         ------
@@ -473,7 +480,7 @@ class Flight:
             path = Path(self.flight_info["aux_data_folder_path"]) / "camera"
 
         if path.exists():
-            camera = Camera(path, use_photogrammetry=use_photogrammetry)
+            camera = Camera(path, use_photogrammetry=use_photogrammetry, camera_model=camera_model)
             camera.load_data()
 
             # DataFrame — unchanged, used by sync() and other consumers

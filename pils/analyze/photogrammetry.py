@@ -34,8 +34,14 @@ import pandas as pd
 import polars as pl
 
 from pils.flight import Flight
+from pils.sensors.camera import normalize_camera_model
 
 logger = logging.getLogger(__name__)
+
+# Yaw/pitch/roll mount correction used when the camera block has no `mount_rotation_zyx_deg`
+# (scipy "ZYX" [z, y, x] deg about the OpenCV camera axes): the Sony sensor is rotated +90 deg
+# about the LOS, the Alvium is in the reference orientation.
+DEFAULT_MOUNT_ROTATION_ZYX_DEG = {"sony": [-90.0, 0.0, 0.0], "alvium": [0.0, 0.0, 0.0]}
 
 
 # ---------------------------------------------------------------------------
@@ -52,10 +58,14 @@ class PhotogrammetryConfig:
         and IPA_flight pipeline parameters.
     camera_model : str | None
         Explicit camera model key (e.g. ``"sony"`` or ``"alvium"``).
-        If ``None``, the single camera block present in the YAML is used.
+        If ``None``, the top-level ``camera`` key of the YAML, else the single
+        camera block present in the YAML.
 
     Attributes
     ----------
+    camera_model : str
+        Camera the config is for, ``"sony"`` or ``"alvium"``: its calibration block is
+        used, and ``Flight.add_camera_data(camera_model=...)`` loads that camera's data.
     camera_matrix : np.ndarray
         3×3 camera intrinsic matrix.
     distortion_coeffs : np.ndarray
@@ -108,6 +118,13 @@ class PhotogrammetryConfig:
         self.camera_matrix = np.array(cam["camera_matrix"], dtype=np.float64)
         self.distortion_coeffs = np.array(cam["distortion_coeffs"], dtype=np.float64)
 
+        # Mount correction for the yaw/pitch/roll (AttitudeReconstruction): scipy "ZYX" [z, y, x]
+        # deg about the camera axes. Missing -> the camera's usual mount (Sony +90 deg about the LOS).
+        mount = cam.get("mount_rotation_zyx_deg")
+        if mount is None:
+            mount = DEFAULT_MOUNT_ROTATION_ZYX_DEG.get(self.camera_model, [0.0, 0.0, 0.0])
+        self.mount_rotation_zyx_deg = np.array(mount, dtype=np.float64).reshape(3)
+
         pipeline = self.raw.get("pipeline", {})
         self.reference_point = np.array(pipeline["reference_point"], dtype="double")
 
@@ -127,24 +144,55 @@ class PhotogrammetryConfig:
         self.polarization = pipeline.get("polarization", {})
 
     def _resolve_camera_model(self) -> str:
-        if self.camera_model is not None:
-            model = self.camera_model.lower()
-            return model if model.endswith("_camera") else f"{model}_camera"
+        model = normalize_camera_model(self.camera_model) or self._camera_in_yaml(self.raw)
+        if model is None:
+            raise ValueError(
+                f"{self.config_path} contains multiple camera calibrations and no `camera` key. "
+                "Add `camera: sony` / `camera: alvium` to it or pass camera_model= to PhotogrammetryConfig."
+            )
+        self.camera_model = model
+        return f"{model}_camera"
 
-        camera_keys = [k for k in self.raw.keys() if k.endswith("_camera")]
-        if len(camera_keys) == 1:
-            return camera_keys[0]
+    @staticmethod
+    def _camera_in_yaml(raw: dict) -> str | None:
+        """The top-level ``camera`` key, else the single ``*_camera`` block, else None."""
+        if raw.get("camera"):
+            return normalize_camera_model(raw["camera"])
+        camera_keys = [k for k in raw if k.endswith("_camera")]
+        return normalize_camera_model(camera_keys[0]) if len(camera_keys) == 1 else None
 
-        raise ValueError(
-            "Config contains multiple camera calibrations. "
-            "Pass camera_model='sony' or 'alvium' to PhotogrammetryConfig."
-        )
+    @staticmethod
+    def camera_of(config_path: str | Path) -> str | None:
+        """Camera a config file is for (``camera`` key or single camera block), None if it doesn't say."""
+        import yaml
+
+        with open(config_path, "r") as f:
+            return PhotogrammetryConfig._camera_in_yaml(yaml.safe_load(f) or {})
 
     def __repr__(self) -> str:
         return (
-            f"PhotogrammetryConfig(config={self.config_path}, "
+            f"PhotogrammetryConfig(config={self.config_path}, camera={self.camera_model}, "
             f"camera_matrix={self.camera_matrix.shape})"
         )
+
+
+def load_flight_camera(flight: Flight, camera_model: str | None = None):
+    """Load the flight's camera for the pipeline and return its ``Camera`` object.
+
+    ``camera_model`` (usually ``PhotogrammetryConfig.camera_model``, config key ``camera``):
+    ``"sony"`` loads the ``.mp4`` of aux/camera; ``"alvium"`` the image sequence, converting the
+    recorded aux/camera/frame_*.raw to proc/images/frame_*.png first if there are no png yet;
+    None: Sony if there is an ``.mp4``, else Alvium.
+    """
+    camera_model = normalize_camera_model(camera_model)
+    aux = Path(flight.flight_info["aux_data_folder_path"])
+    cam_dir = aux / "camera"
+    has_mp4 = cam_dir.is_dir() and any(p.suffix.lower() == ".mp4" for p in cam_dir.iterdir())
+    if cam_dir.is_dir() and (camera_model == "alvium" or (camera_model is None and not has_mp4)):
+        from IPA_flight.IPA_flight.utils import convert_alvium_raw_frames
+        convert_alvium_raw_frames(cam_dir, aux.parent / "proc" / "images")  # no-op if the png exist
+    flight.add_camera_data(use_photogrammetry=False, camera_model=camera_model)
+    return flight.raw_data.payload_data.camera_obj
 
 
 @dataclass
@@ -173,9 +221,10 @@ class PhotogrammetryAnalysis:
     --------
     >>> flight = Flight(flight_info)
     >>> flight.add_drone_data()
-    >>> flight.add_camera_data(use_photogrammetry=False)
+    >>> cfg = PhotogrammetryConfig(cfg_yaml)          # `camera: sony | alvium` in the YAML
+    >>> load_flight_camera(flight, cfg.camera_model)  # Sony .mp4, or Alvium .raw -> png + images
     >>> photo = PhotogrammetryAnalysis(flight)
-    >>> version = photo.run_analysis(csv_file=targets_csv, config=PhotogrammetryConfig(cfg_yaml))
+    >>> version = photo.run_analysis(csv_file=targets_csv, config=cfg)
     >>> version.photogrammetry_data.head()
     >>> # later, without re-running anything
     >>> PhotogrammetryAnalysis(flight).get_latest_version()
@@ -420,6 +469,22 @@ class PhotogrammetryAnalysis:
 
         output_dir = Path(output_dir)
 
+        # The constellation finder has no cross-video initialisation to share
+        # (finderSequentialMultiVideo is sequential-only): every flight is
+        # independent, so run them one by one and stack the stored results.
+        if config.finder.get("method") == "constellation":
+            summary = PhotogrammetryAnalysis.run_batch(
+                flights, csv_file, config, output_dir=output_dir,
+                start_from_dict=start_from_dict, target_indices=target_indices,
+                mcmc_solution=mcmc_solution,
+            )
+            results = [
+                pl.read_parquet(Path(r.output_dir) / "attitude_reconstruction.parquet")
+                .with_columns(pl.lit(i).alias("flight_idx"))
+                for i, r in summary.iterrows() if r.status == "ok"
+            ]
+            return pl.concat(results, how="diagonal_relaxed") if results else pl.DataFrame()
+
         # ── 1. Prepare all flights: drone + camera data ────────────────────
         wrappers      = []   # dh_wrapper per valid flight
         valid_flights = []   # (original_index, flight, camera_obj)
@@ -434,12 +499,11 @@ class PhotogrammetryAnalysis:
                 continue
 
             try:
-                flight.add_camera_data(use_photogrammetry=False)
+                camera_obj = load_flight_camera(flight, config.camera_model)
             except Exception as e:
                 print(f"[SKIP] Flight {i + 1}: camera data failed: {e}")
                 continue
 
-            camera_obj = flight.raw_data.payload_data.camera_obj
             wrappers.append(PhotogrammetryAnalysis._build_dh_wrapper(flight, camera_obj))
             valid_flights.append((i, flight, camera_obj))
 
@@ -538,6 +602,180 @@ class PhotogrammetryAnalysis:
         return pl.concat(all_results, how="vertical")
 
     # ------------------------------------------------------------------
+    # Unattended batch (constellation finder, one flight at a time)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def run_batch(
+        flights: list,
+        csv_file: str | Path,
+        configs,
+        data_root: str | Path = "/data/POLOCALC/",
+        output_dir: str | Path | None = None,
+        use_sync: bool = True,
+        skip_existing: bool = False,
+        plots: bool = True,
+        save_data: bool = True,
+        summary_csv: str | Path | None = None,
+        **run_kwargs,
+    ) -> pd.DataFrame:
+        """Run the pipeline on many flights without any interaction.
+
+        Each flight is processed on its own (drone, camera, payload GPS + IMX5, sync,
+        p2-p6) with ``finder.method`` forced to ``"constellation"`` -- the only finder
+        that needs no clicks. Plots are written to files (Agg backend), never shown;
+        a flight that fails is logged in the summary and the batch goes on.
+
+        Parameters
+        ----------
+        flights : list
+            Flight names (looked up under ``data_root``), flight_info dicts or Flight objects.
+        csv_file : str | Path
+            Geodetic targets + telescopes CSV.
+        configs : str | Path | PhotogrammetryConfig | dict
+            One config for every flight (its ``camera`` key picks the camera loaded, Alvium
+            .raw converted to png if needed), or ``{"sony": ..., "alvium": ...}`` to pick
+            the config by the camera each flight was recorded with (Sony if it has an .mp4).
+            The camera block of the config is always the flight's camera.
+        data_root : str | Path
+            Root of the data tree, for flight names.
+        output_dir : str | Path | None
+            As in `run_analysis` (None: ``<flight>/proc/photogrammetry/``).
+        use_sync : bool
+            As in `run_analysis`.
+        skip_existing : bool
+            Skip flights that already have a stored version in ``photogrammetry_solution.h5``.
+        plots : bool
+            Write the diagnostic plots of every step (``<output>/plots/``).
+        save_data : bool
+            Store each result as a new version (``photogrammetry_solution.h5``).
+        summary_csv : str | Path | None
+            Optional path for the summary table.
+        **run_kwargs
+            Forwarded to `run_analysis` (``start_from_dict``, ``target_indices``, ``mcmc_solution``).
+
+        Returns
+        -------
+        pd.DataFrame
+            One row per flight: flight_name, camera, status (ok / failed / skipped),
+            n_frames, median_projection_error, sync_offsets_s, version, output_dir,
+            error, elapsed_s.
+        """
+        import gc
+        import time
+        import traceback
+        import warnings
+
+        import matplotlib
+        import matplotlib.pyplot as plt
+
+        from pils.loader.path import PathLoader
+
+        def config_path_for(camera_model):
+            c = configs.get(camera_model) if isinstance(configs, dict) else configs
+            if c is None:
+                raise ValueError(f"No config given for camera {camera_model!r} "
+                                 f"(configs has {sorted(configs)})")
+            return c.config_path if isinstance(c, PhotogrammetryConfig) else Path(c)
+
+        if isinstance(configs, dict):
+            wanted_camera = None                 # each flight's own camera, then its config
+        elif isinstance(configs, PhotogrammetryConfig):
+            wanted_camera = configs.camera_model
+        else:
+            wanted_camera = PhotogrammetryConfig.camera_of(configs)
+
+        run_kwargs.setdefault("remove_by_eye", False)
+        loader = PathLoader(str(data_root))
+        rows = []
+        prev_backend = matplotlib.get_backend()
+        plt.switch_backend("Agg")
+        try:
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message=".*non-interactive.*")
+                for n, item in enumerate(flights, 1):
+                    t0 = time.time()
+                    row = dict(flight_name=str(item), camera=None, status="failed", n_frames=0,
+                               median_projection_error=np.nan, sync_offsets_s=None,
+                               version=None, output_dir=None, error=None)
+                    camera_obj = None
+                    try:
+                        if isinstance(item, Flight):
+                            flight = item
+                        else:
+                            info = loader.load_single_flight(flight_name=item) if isinstance(item, str) else item
+                            if info is None:
+                                raise FileNotFoundError(f"Flight {item!r} not found under {data_root}")
+                            flight = Flight(info)
+                        row["flight_name"] = flight.flight_info.get("flight_name") or Path(flight.flight_path).name
+                        print(f"\n{'=' * 60}\n  [{n}/{len(flights)}] {row['flight_name']}\n{'=' * 60}")
+
+                        photo = PhotogrammetryAnalysis(flight)
+                        if skip_existing and output_dir is None and photo.list_versions():
+                            row.update(status="skipped", error="already has a stored version")
+                            print("⏭  already processed -- skipped")
+                            continue
+
+                        flight.add_drone_data()
+                        # one config: its `camera` picks the camera; {"sony": .., "alvium": ..}: the flight's
+                        camera_obj = load_flight_camera(flight, wanted_camera)
+                        for sensor in ("gps", "inclinometer"):
+                            try:
+                                flight.add_sensor_data(sensor)
+                            except Exception as e:
+                                logger.warning(f"{row['flight_name']}: payload {sensor} not loaded: {e}")
+
+                        camera_model = camera_obj.data[1]
+                        row["camera"] = camera_model
+                        cfg = PhotogrammetryConfig(config_path_for(camera_model), camera_model=camera_model)
+                        if cfg.finder.get("method") != "constellation":
+                            print(f"ℹ  {cfg.config_path.name}: finder.method "
+                                  f"{cfg.finder.get('method')!r} -> 'constellation' (no clicks)")
+                        cfg.finder = {**cfg.finder, "method": "constellation"}
+
+                        version = photo.run_analysis(
+                            csv_file=csv_file,
+                            config=cfg,
+                            output_dir=output_dir,
+                            check_results=None if plots else False,
+                            use_sync=use_sync,
+                            save_data=save_data,
+                            **run_kwargs,
+                        )
+                        res = version.photogrammetry_data
+                        pe = res["projection_error"].drop_nulls().drop_nans() if "projection_error" in res.columns else None
+                        row.update(
+                            status="ok",
+                            n_frames=int(res["frame"].n_unique()),
+                            median_projection_error=float(pe.median()) if pe is not None and len(pe) else np.nan,
+                            sync_offsets_s=version.metadata.get("sync_offsets_s"),
+                            version=version.version_name,
+                            output_dir=version.metadata.get("output_dir"),
+                        )
+                        print(f"✅ {row['flight_name']}: {row['n_frames']} frames, median projection "
+                              f"error {row['median_projection_error']:.2f} px")
+                    except Exception as e:
+                        row["error"] = f"{type(e).__name__}: {e}"
+                        logger.error(f"{row['flight_name']} failed:\n{traceback.format_exc()}")
+                        print(f"❌ {row['flight_name']}: {row['error']}")
+                    finally:
+                        row["elapsed_s"] = round(time.time() - t0, 1)
+                        rows.append(row)
+                        if camera_obj is not None:
+                            camera_obj.release()
+                        plt.close("all")
+                        gc.collect()
+        finally:
+            plt.switch_backend(prev_backend)
+
+        summary = pd.DataFrame(rows)
+        if summary_csv:
+            summary.to_csv(summary_csv, index=False)
+        counts = summary["status"].value_counts().to_dict()
+        print(f"\n🏁 Batch done: {counts}")
+        return summary
+
+    # ------------------------------------------------------------------
     # Single-flight photogrammetry pipeline
     # ------------------------------------------------------------------
 
@@ -624,6 +862,13 @@ class PhotogrammetryAnalysis:
 
         # ── Time base: drone + camera shifted onto the payload GPS clock ───
         flight, camera, sync_offsets = self._synced_inputs(use_sync)
+        loaded_camera = camera.data[1] if camera is not None and camera.data else None
+        if loaded_camera is not None and loaded_camera != getattr(config, "camera_model", loaded_camera):
+            raise ValueError(
+                f"The flight's camera is {loaded_camera!r} but the config is for {config.camera_model!r}: "
+                f"load it with load_flight_camera(flight, {config.camera_model!r}) "
+                "(or Flight.add_camera_data(camera_model=...)) before run_analysis."
+            )
 
         # ── Per-flight output subfolder ────────────────────────────────────
         flight_name = (
@@ -674,10 +919,20 @@ class PhotogrammetryAnalysis:
             params["reference_point"],
             params["video_code"],
         )
+        # GPS/INS pose prior of finder.method = "constellation": RTK base correction and the
+        # IMX5 clock offset (inclinometer -> Litchi -> payload GPS, as the camera shift above)
+        target_finder.gps_offset = gps_offset
+        if use_sync:
+            offs = self.flight.sync_offsets or {}
+            target_finder.inclinometer_time_offset = (
+                float(offs.get("inclinometer", {}).get("time_offset", 0.0))
+                + float(sync_offsets.get("litchi", 0.0))
+            )
 
         attitude_reconstruction = AttitudeReconstruction(
             config.camera_matrix,
             config.distortion_coeffs,
+            mount_rotation_zyx_deg=config.mount_rotation_zyx_deg,
         )
 
         drone_data = IPADroneData(flight, params["reference_point"])
@@ -855,18 +1110,21 @@ class PhotogrammetryAnalysis:
             )
 
             if check_results:
-                self._run_check_results(
-                    camera,
-                    current_dict,
-                    step_name,
-                    Path(check_results),
-                    draw_results_on_last_frame,
-                    plot_targets_coordinates,
-                    plot_attitude,
-                    plot_drone_gps_alignment,
-                    plot_telescope_pointing,
-                    plot_telescope_attitude,
-                )
+                try:
+                    self._run_check_results(
+                        camera,
+                        current_dict,
+                        step_name,
+                        Path(check_results),
+                        draw_results_on_last_frame,
+                        plot_targets_coordinates,
+                        plot_attitude,
+                        plot_drone_gps_alignment,
+                        plot_telescope_pointing,
+                        plot_telescope_attitude,
+                    )
+                except Exception as e:  # a diagnostic plot must not kill the run
+                    logger.warning(f"Diagnostic plots of {step_name} failed: {e}")
 
         # ── Merge final results ────────────────────────────────────────────
         # Several steps re-emit columns unchanged from the step before them
@@ -912,6 +1170,7 @@ class PhotogrammetryAnalysis:
                 "flight_name": flight_name,
                 "config_file": str(config.config_path),
                 "camera_model": camera.data[1] if camera.data else None,
+                "mount_rotation_zyx_deg": getattr(config, "mount_rotation_zyx_deg", np.zeros(3)).tolist(),
                 "csv_file": str(csv_file),
                 "output_dir": str(output_dir),
                 "sync_offsets_s": sync_offsets,

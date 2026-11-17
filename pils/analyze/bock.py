@@ -151,7 +151,8 @@ class BOCKAnalysis:
             ``camera``, ``imu`` (t, gx..gz [rad/s], ax..az [m/s^2]), ``photo`` (one row per
             frame x target: frame, target_id, x, y, target_E/N/U, t, cam_E/N/U, rvec_x/y/z =
             GPS-corrected PnP, pnp_E/N/U), ``raw_pnp`` (raw PnP pose per frame x target),
-            ``intrinsics`` (nominal camera fx..k3), ``photo_version``.
+            ``intrinsics`` (nominal camera fx..k3), ``mount_rotation_zyx_deg`` (camera mount
+            correction of the attitude angles, to pass to the BOCK classes), ``photo_version``.
         """
         photo_version = self._resolve_photo_version(photo_version)
         data = photo_version.photogrammetry_data.to_pandas()
@@ -178,6 +179,7 @@ class BOCKAnalysis:
             photo=photo,
             raw_pnp=raw_pnp,
             intrinsics={k: float(v) for k, v in self._intrinsics(photo_version).items()},
+            mount_rotation_zyx_deg=self._mount_rotation(photo_version),
             photo_version=photo_version,
         )
 
@@ -228,10 +230,24 @@ class BOCKAnalysis:
                 .reset_index(drop=True))
 
     @staticmethod
-    def _intrinsics(photo_version: PhotogrammetryVersion) -> dict[str, float]:
-        """fx..k3 from the camera block of the config the photogrammetry version ran with."""
+    def _photo_config(photo_version: PhotogrammetryVersion) -> PhotogrammetryConfig:
+        """The photogrammetry config the photogrammetry version ran with."""
         meta = photo_version.metadata
-        cfg = PhotogrammetryConfig(meta["config_file"], camera_model=meta.get("camera_model"))
+        return PhotogrammetryConfig(meta["config_file"], camera_model=meta.get("camera_model"))
+
+    @classmethod
+    def _mount_rotation(cls, photo_version: PhotogrammetryVersion) -> np.ndarray:
+        """Camera mount correction [z, y, x] deg the photogrammetry version ran with (its metadata), else the one
+        of its config (versions stored before the key existed)."""
+        mount = photo_version.metadata.get("mount_rotation_zyx_deg")
+        if mount is None:
+            mount = cls._photo_config(photo_version).mount_rotation_zyx_deg
+        return np.asarray(mount, dtype=float).reshape(3)
+
+    @classmethod
+    def _intrinsics(cls, photo_version: PhotogrammetryVersion) -> dict[str, float]:
+        """fx..k3 from the camera block of the config the photogrammetry version ran with."""
+        cfg = cls._photo_config(photo_version)
         K = cfg.camera_matrix
         D = np.zeros(5)
         d = np.asarray(cfg.distortion_coeffs, dtype=float).ravel()[:5]
