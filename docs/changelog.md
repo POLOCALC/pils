@@ -10,7 +10,10 @@ All notable changes to PILS are documented here.
   `psdk_telemetry` stream (`M400Telemetry`) and the Gremsy T7 gimbal
   (`pils.gimbals.GremsyT7Telemetry`), as polars tables. `load_telemetry(folder)`
   picks them from the YAML in the data folder. The gimbal's pickle log is read
-  with a restricted unpickler. Tests write the byte layouts independently and
+  with a restricted unpickler. `M400FlightRecord` decodes the `.txt` flight
+  record of the Matrice 400's remote controller with `pydjirecord` (now a
+  required dependency, with `protobuf>=6.31.1`), the app key from
+  `$DJI_API_KEY`. Tests write the byte layouts independently and
   were checked against lager's own loaders.
 
 ### Changed (breaking)
