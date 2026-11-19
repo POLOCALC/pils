@@ -8,9 +8,9 @@ import numpy as np
 import polars as pl
 import pytest
 
-from pils.drones.DJIDrone import (
+from pils.drones.dji.dat import (
     DAT_RECORDS,
-    DJIDrone,
+    DJIDat,
     add_euler_angles,
     calc_checksum,
     decode_records,
@@ -193,7 +193,7 @@ class TestLoadDat:
         return path
 
     def test_gps_rtk_and_records(self, dat_file):
-        drone = DJIDrone(dat_file)
+        drone = DJIDat(dat_file)
         drone._load_from_dat()
 
         gps = drone.data["GPS"]
@@ -213,7 +213,7 @@ class TestLoadDat:
         assert set(drone.records) == {"IMU_ATTI(0)"}
 
     def test_timestamps_from_gps_fit(self, dat_file):
-        drone = DJIDrone(dat_file)
+        drone = DJIDat(dat_file)
         drone._load_from_dat()
         drone.tick_to_time = (1 / 4.5e6, 1_765_000_000.0)
         drone._timestamp_records()
@@ -222,7 +222,7 @@ class TestLoadDat:
         np.testing.assert_allclose(imu["timestamp"].to_numpy(), expected)
 
     def test_no_fit_no_timestamps(self, dat_file):
-        drone = DJIDrone(dat_file)
+        drone = DJIDat(dat_file)
         drone._load_from_dat()
         drone._timestamp_records()
         assert "timestamp" not in drone.records["IMU_ATTI(0)"].columns
@@ -243,7 +243,7 @@ class TestReceivers:
         path = tmp_path / "flight_drone.dat"
         path.write_bytes(data)
 
-        drone = DJIDrone(path)
+        drone = DJIDat(path)
         drone.load_data(use_dat=True)
         assert set(drone.data["msg_type"].unique()) == {53234}
         assert drone.data.height == 20  # 30 records, last 10 dropped

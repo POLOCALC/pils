@@ -231,14 +231,14 @@ def get_leapseconds(year: int, month: int) -> int:
     return leap_seconds
 
 
-class BlackSquareDrone:
+class BlackSquare:
     """Loader for BlackSquare drone ArduPilot log files.
 
     Parses ArduPilot binary log format and provides access to sensor data.
     """
 
     def __init__(self, path: str | Path) -> None:
-        """Initialize BlackSquareDrone loader.
+        """Initialize BlackSquare loader.
 
         Parameters
         ----------

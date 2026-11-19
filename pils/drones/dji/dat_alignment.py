@@ -4,13 +4,13 @@ import numpy as np
 import polars as pl
 from scipy.interpolate import interp1d
 
-from ..utils.logging_config import get_logger
+from ...utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
 
 class DJIAlignmentMixin:
-    """Tick-to-GPS-time alignment for :class:`~pils.drones.DJIDrone.DJIDrone`."""
+    """Tick-to-GPS-time alignment for :class:`~pils.drones.dji.dat.DJIDat`."""
 
     @staticmethod
     def _unwrap_tick(df: pl.DataFrame, wrap_threshold: float = 1e8) -> pl.DataFrame:

@@ -8,9 +8,9 @@ from typing import Any
 import polars as pl
 
 from pils import schema
-from pils.drones.BlackSquareDrone import BlackSquareDrone
-from pils.drones.DJIDrone import DJIDrone
-from pils.drones.litchi import Litchi
+from pils.drones.blacksquare import BlackSquare
+from pils.drones.dji.dat import DJIDat
+from pils.drones.dji.litchi import Litchi
 from pils.flight.containers import DroneData, RawData
 from pils.flight.hdf5 import FlightHDF5Mixin
 from pils.flight.sync import FlightSyncMixin
@@ -371,7 +371,7 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
                     f"No DJI drone log (*drone.dat, *drone.csv) in {drone_folder}"
                 )
             logger.info(f"Drone : {drone_data_path}")
-            drone = DJIDrone(drone_data_path)
+            drone = DJIDat(drone_data_path)
             drone.load_data(use_dat=dji_dat_loader)
             drone_data = drone.data
             records = drone.records
@@ -389,7 +389,7 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
                 logger.info(
                     f"Drone model {self._drone_model!r}: no DJI log, read as BlackSquare"
                 )
-            drone = BlackSquareDrone(str(drone_folder))
+            drone = BlackSquare(str(drone_folder))
             drone.load_data()
             drone_data = drone.data
             litchi_data = None

@@ -14,8 +14,8 @@ from pathlib import Path
 
 import polars as pl
 
-from ..utils.logging_config import get_logger
-from ..utils.tools import drop_nan_and_zero_cols
+from ...utils.logging_config import get_logger
+from ...utils.tools import drop_nan_and_zero_cols
 
 logger = get_logger(__name__)
 

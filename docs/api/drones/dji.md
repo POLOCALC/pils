@@ -1,3 +1,3 @@
-# DJIDrone
+# DJIDat
 
-::: pils.drones.DJIDrone
+::: pils.drones.dji.dat

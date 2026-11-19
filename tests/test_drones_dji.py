@@ -1,4 +1,4 @@
-"""Test suite for DJIDrone module following TDD methodology."""
+"""Test suite for DJIDat module following TDD methodology."""
 
 import logging
 from datetime import datetime
@@ -6,11 +6,11 @@ from datetime import datetime
 import polars as pl
 import pytest
 
-from pils.drones.DJIDrone import DJIDrone
+from pils.drones.dji.dat import DJIDat
 
 
 class TestDJIDroneCSV:
-    """Test suite for DJIDrone CSV loading functionality."""
+    """Test suite for DJIDat CSV loading functionality."""
 
     @pytest.fixture
     def sample_csv_data(self):
@@ -29,22 +29,22 @@ class TestDJIDroneCSV:
         return csv_path
 
     def test_init_with_path_string(self, csv_file):
-        """Test DJIDrone initialization with string path."""
-        drone = DJIDrone(str(csv_file))
+        """Test DJIDat initialization with string path."""
+        drone = DJIDat(str(csv_file))
         assert drone.path == str(csv_file)
         assert drone.data == {}
         assert drone.sync_params is None
         assert drone.source_format is None
 
     def test_init_with_path_object(self, csv_file):
-        """Test DJIDrone initialization with Path object."""
-        drone = DJIDrone(csv_file)
+        """Test DJIDat initialization with Path object."""
+        drone = DJIDat(csv_file)
         assert drone.path == csv_file
         assert drone.data == {}
 
     def test_load_csv_data(self, csv_file):
         """Test loading CSV data successfully."""
-        drone = DJIDrone(csv_file)
+        drone = DJIDat(csv_file)
         drone.load_data(use_dat=False)
         assert isinstance(drone.data, pl.DataFrame)
         assert drone.source_format == "csv"
@@ -52,7 +52,7 @@ class TestDJIDroneCSV:
 
     def test_load_csv_with_column_selection(self, csv_file):
         """Test loading CSV with specific columns."""
-        drone = DJIDrone(csv_file)
+        drone = DJIDat(csv_file)
         cols = ["Clock:offsetTime", "GPS:dateTimeStamp"]
         drone.load_data(cols=cols, use_dat=False)
         assert isinstance(drone.data, pl.DataFrame)
@@ -69,21 +69,21 @@ class TestDJIDroneCSV:
 3000,2024-01-15 10:30:02.123Z,40.7130"""
         csv_with_dups.write_text(data)
 
-        drone = DJIDrone(csv_with_dups)
+        drone = DJIDat(csv_with_dups)
         drone.load_data(use_dat=False, remove_duplicate=True)
         # Should remove duplicate latitude values
         assert drone.data.shape[0] <= 3
 
     def test_csv_datetime_parsing(self, csv_file):
         """Test datetime parsing from CSV."""
-        drone = DJIDrone(csv_file)
+        drone = DJIDat(csv_file)
         drone.load_data(use_dat=False)
         assert "datetime" in drone.data.columns
         assert "timestamp" in drone.data.columns
 
 
 class TestDJIDroneDAT:
-    """Test suite for DJIDrone DAT binary format parsing."""
+    """Test suite for DJIDat DAT binary format parsing."""
 
     @pytest.fixture
     def mock_dat_data(self):
@@ -94,7 +94,7 @@ class TestDJIDroneDAT:
 
     def test_parse_and_decode_message_valid(self):
         """Test parsing valid encrypted message."""
-        drone = DJIDrone("test.dat")
+        drone = DJIDat("test.dat")
         # Create mock message data (header + encrypted payload)
         msg_data = b"\x55\xaa" + b"\x00" * 100
 
@@ -105,20 +105,20 @@ class TestDJIDroneDAT:
 
     def test_parse_and_decode_message_invalid(self):
         """Test parsing invalid message data."""
-        drone = DJIDrone("test.dat")
+        drone = DJIDat("test.dat")
         msg_data = b"\x00" * 10  # Too short
         result = drone._parse_and_decode_message(msg_data)
         assert result is None or result == []
 
     def test_decode_message_data_gps(self):
         """Test decoding GPS message type."""
-        drone = DJIDrone("test.dat")
+        drone = DJIDat("test.dat")
         # Mock GPS payload (66 bytes for message type 2096)
         payload = b"\x00" * 66
         msg_type = 2096
         tick_val = 1000
 
-        from pils.drones.DJIDrone import MESSAGE_DEFINITIONS
+        from pils.drones.dji.dat import MESSAGE_DEFINITIONS
 
         msg_def = MESSAGE_DEFINITIONS[msg_type]
 
@@ -129,13 +129,13 @@ class TestDJIDroneDAT:
 
     def test_decode_message_data_rtk(self):
         """Test decoding RTK message type."""
-        drone = DJIDrone("test.dat")
+        drone = DJIDat("test.dat")
         # Mock RTK payload (72 bytes for message type 53234)
         payload = b"\x00" * 72
         msg_type = 53234
         tick_val = 2000
 
-        from pils.drones.DJIDrone import MESSAGE_DEFINITIONS
+        from pils.drones.dji.dat import MESSAGE_DEFINITIONS
 
         msg_def = MESSAGE_DEFINITIONS[msg_type]
 
@@ -145,13 +145,13 @@ class TestDJIDroneDAT:
 
     def test_load_from_dat_file_not_found(self):
         """Test loading DAT file that doesn't exist."""
-        drone = DJIDrone("nonexistent.dat")
+        drone = DJIDat("nonexistent.dat")
         with pytest.raises(FileNotFoundError):
             drone._load_from_dat()
 
     def test_parse_gps_datetime_valid(self):
         """Test parsing GPS datetime from payload."""
-        drone = DJIDrone("test.dat")
+        drone = DJIDat("test.dat")
         # Create payload with date and time fields
         # Date: 20240115 (0x01340103), Time: 103000 (0x00019238)
         payload = struct.pack("<II", 20240115, 103000) + b"\x00" * 58
@@ -162,57 +162,57 @@ class TestDJIDroneDAT:
 
     def test_parse_gps_datetime_invalid(self):
         """Test parsing invalid GPS datetime."""
-        drone = DJIDrone("test.dat")
+        drone = DJIDat("test.dat")
         payload = b"\x00" * 66  # All zeros
         result = drone._parse_gps_datetime(payload)
         assert result is None
 
 
 class TestDJIDroneUtils:
-    """Test suite for DJIDrone utility methods."""
+    """Test suite for DJIDat utility methods."""
 
     def test_format_date_time_valid(self):
         """Test formatting valid date and time."""
         date = 20240115  # 2024-01-15
         time = 103000  # 10:30:00
-        result = DJIDrone._format_date_time(date, time)
+        result = DJIDat._format_date_time(date, time)
         # Returns string in format 'YYYY-MM-DD HH:MM:SS'
         assert result == "2024-01-15 10:30:00"
 
     def test_format_date_time_zero_date(self):
         """Test formatting with zero date."""
-        result = DJIDrone._format_date_time(0, 103000)
+        result = DJIDat._format_date_time(0, 103000)
         assert result is None
 
     def test_format_date_time_zero_time(self):
         """Test formatting with zero time."""
-        result = DJIDrone._format_date_time(20240115, 0)
+        result = DJIDat._format_date_time(20240115, 0)
         assert result is None
 
     def test_unwrap_tick_no_wrapping(self):
         """Test unwrap_tick with no wrapping."""
         df = pl.DataFrame({"tick": [100, 200, 300, 400]})
-        result = DJIDrone._unwrap_tick(df)
+        result = DJIDat._unwrap_tick(df)
         assert result["tick"].to_list() == [100, 200, 300, 400]
 
     def test_unwrap_tick_with_wrapping(self):
         """Test unwrap_tick with tick counter wrapping."""
         # Simulate tick counter overflow
         df = pl.DataFrame({"tick": [9e7, 9.5e7, 1e6, 2e6]})
-        result = DJIDrone._unwrap_tick(df, wrap_threshold=1e8)
+        result = DJIDat._unwrap_tick(df, wrap_threshold=1e8)
         # After unwrapping, ticks should be monotonically increasing
         ticks = result["tick"].to_list()
         assert all(ticks[i] < ticks[i + 1] for i in range(len(ticks) - 1))
 
     def test_get_tick_offset_no_sync(self):
         """Test get_tick_offset when no sync params exist."""
-        drone = DJIDrone("test.dat")
+        drone = DJIDat("test.dat")
         offset = drone.get_tick_offset()
         assert offset == 0.0
 
     def test_get_tick_offset_with_sync(self):
         """Test get_tick_offset returns a float value."""
-        drone = DJIDrone("test.dat")
+        drone = DJIDat("test.dat")
         # Without sync, should return 0.0
         offset = drone.get_tick_offset()
         assert isinstance(offset, float)
@@ -224,13 +224,13 @@ class TestDJIDroneLogging:
 
     def test_decode_message_logs_error(self, caplog):
         """Test that decode error is logged instead of printed."""
-        drone = DJIDrone("test.dat")
+        drone = DJIDat("test.dat")
         # Create invalid payload that will cause decode error
         payload = b"invalid"
         msg_type = 2096
         tick_val = 1000
 
-        from pils.drones.DJIDrone import MESSAGE_DEFINITIONS
+        from pils.drones.dji.dat import MESSAGE_DEFINITIONS
 
         msg_def = MESSAGE_DEFINITIONS[msg_type]
 
@@ -248,7 +248,7 @@ class TestDJIDroneLogging:
         bad_csv = tmp_path / "bad.csv"
         bad_csv.write_text("not,valid,csv\n1,2")  # Wrong number of columns
 
-        drone = DJIDrone(bad_csv)
+        drone = DJIDat(bad_csv)
         with caplog.at_level(logging.WARNING):
             try:
                 drone.load_data(use_dat=False)
@@ -272,7 +272,7 @@ class TestDJIDroneAlignment:
 
     def test_align_datfile_success(self, sample_gps_df):
         """Test successful alignment of DAT file with GPS."""
-        drone = DJIDrone("test.dat")
+        drone = DJIDat("test.dat")
         # Mock DAT data
         drone.data = {
             "GPS": pl.DataFrame(
@@ -295,7 +295,7 @@ class TestDJIDroneAlignment:
 
     def test_align_datfile_no_dat_data(self, sample_gps_df):
         """Test alignment when DAT data is not loaded."""
-        drone = DJIDrone("test.dat")
+        drone = DJIDat("test.dat")
         drone.data = {}  # No DAT data
 
         with pytest.raises((KeyError, ValueError, TypeError)):

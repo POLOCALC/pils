@@ -561,7 +561,7 @@ class StoutLoader:
         - 'inclinometer': Inclinometer data
 
         Supported drones:
-        - 'dji': DJI drone telemetry from DAT file
+        - 'dji_dat': DJI drone telemetry from the .DAT file (or a DatCon CSV)
         - 'litchi': Litchi flight logs
         - 'blacksquare': BlackSquare drone logs
 
@@ -574,7 +574,7 @@ class StoutLoader:
         sensors : Optional[list[str]]
             list of sensor types to load. If None, loads ['gps'].
         drones : Optional[list[str]]
-            list of drone types to load. If None, loads ['dji'].
+            list of drone types to load. If None, loads ['dji_dat'].
 
         Returns
         -------
@@ -590,15 +590,15 @@ class StoutLoader:
         >>> data = loader.load_flight_data(
         ...     flight_id='some-id',
         ...     sensors=['gps', 'imu'],
-        ...     drones=['dji']
+        ...     drones=['dji_dat']
         ... )
         >>> gps_df = data['gps']
-        >>> drone_df = data['dji']
+        >>> drone_df = data['dji_dat']
         """
         if sensors is None:
             sensors = ["gps"]
         if drones is None:
-            drones = ["dji"]
+            drones = ["dji_dat"]
 
         # Load flight metadata
         flight_info = self.load_single_flight(
@@ -633,7 +633,7 @@ class StoutLoader:
                     f"Unknown drone type: {drone_type}. Available: {list(DRONE_MAP.keys())}"
                 )
                 continue
-            if drone_type == "dji" and dji_drone_type is not None:
+            if drone_type == "dji_dat" and dji_drone_type is not None:
                 dji_drone_type = dji_drone_type
             df = self._load_drone_dataframe(
                 flight_info,
@@ -719,7 +719,7 @@ class StoutLoader:
     def _load_drone_dataframe(
         self,
         flight_info: dict[str, Any],
-        drone_type: str = "dji",
+        drone_type: str = "dji_dat",
         dji_drone_type: str | None = None,
         drone_correct_timestamp: bool | None = True,
         polars_interpolation: bool | None = True,

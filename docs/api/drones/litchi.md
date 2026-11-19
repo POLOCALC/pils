@@ -1,3 +1,3 @@
 # Litchi
 
-::: pils.drones.litchi
+::: pils.drones.dji.litchi

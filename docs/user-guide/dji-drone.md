@@ -72,7 +72,7 @@ PILS can perform automatic decoding of the ```.DAT``` file created by the DJI Ma
     you choose) on the payload time base as `drone_imu_atti_0`, see
     [Synchronization](synchronization.md#resampling).
 
-    The decoder (`DJIDrone`) names the fields as DatCon's CSV columns
+    The decoder (`DJIDat`) names the fields as DatCon's CSV columns
     (`RTK:lat_p`, `IMU_ATTI(0):gyroZ`); `Flight` renames them to the schema
     (`rtk_lat_deg`, `gyro_z_deg_s` in table `imu_atti_0`), see
     [Data Schema](data-schema.md#reference). Every field was compared with
@@ -108,7 +108,7 @@ PILS can perform automatic decoding of the ```.DAT``` file created by the DJI Ma
 
     The layouts come from DatCon's record classes
     ([source](https://github.com/BudWalkerJava/DatCon), `src/DatConRecs`) and
-    are in `pils/drones/DJIDrone.py` (`MESSAGE_DEFINITIONS`, `DAT_RECORDS`).
+    are in `pils/drones/dji/dat_format.py` (`MESSAGE_DEFINITIONS`, `DAT_RECORDS`).
     About 100 record types are in the file; the others are not decoded yet.
 
     #### GPS Message (Type 2096)
