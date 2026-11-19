@@ -39,6 +39,8 @@ Every step is ``done``, ``skipped`` or ``failed`` (:class:`StepResult`);
 |------|--------|---------|
 | ``load <sensor>`` | skipped | no file for the sensor, or a file without data (the reason is given) |
 | ``load drone`` | failed | no drone log (e.g. an empty ``drone/`` folder) |
+| ``load drone <source>`` | done | LAGER ``uav_telemetry`` and ``gimbal``, the Matrice 400 ``flight_record`` |
+| ``load drone <source>`` | skipped | could not be decoded (e.g. ``flight_record`` without ``DJI_API_KEY``) |
 | ``load`` | done | with "synchronized to the drone GPS": no payload GPS |
 | ``load`` | failed | no payload GPS and no drone GPS: nothing to synchronize on |
 | ``sync`` | failed | the synchronization raised (the error is given) |
@@ -282,6 +284,11 @@ class FlightPackager:
             records = getattr(flight.raw_data.drone_data, "records", None) or {}
             if records:
                 result.add("load drone records", "done", _describe(records))
+            drone_data = flight.raw_data.drone_data
+            for name, data in drone_data.sources.items():
+                result.add(f"load drone {name}", "done", _describe(data))
+            for name, error in (drone_data.info.get("errors") or {}).items():
+                result.add(f"load drone {name}", "skipped", error)
         except Exception as e:
             # Broad: recorded (and logged); the payload may still sync
             result.add("load drone", "failed", _error(e))
@@ -290,6 +297,16 @@ class FlightPackager:
         drone = getattr(flight.raw_data.drone_data, "drone", None)
         has_gps = isinstance(gps, pl.DataFrame) and not gps.is_empty()
         has_drone = isinstance(drone, pl.DataFrame | dict) and len(drone) > 0
+        if not has_drone and flight.raw_data.drone_data.telemetry is not None:
+            # A Matrice 400 has no .DAT: its telemetry is the drone GPS
+            from pils.drones.sources import telemetry_positions
+
+            has_drone = (
+                telemetry_positions(
+                    flight.raw_data.drone_data.telemetry, receivers_only=True
+                )
+                is not None
+            )
         if not has_gps and not has_drone:
             result.add("load", "failed", "no payload GPS and no drone GPS to sync to")
             return None
