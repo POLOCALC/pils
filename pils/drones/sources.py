@@ -147,13 +147,24 @@ def load_extra_sources(
 
 
 def telemetry_positions(
-    table: pl.DataFrame,
+    table: pl.DataFrame, receivers_only: bool = False
 ) -> tuple[pl.DataFrame, dict[str, str]] | None:
     """Pick the positions of a telemetry or flight-record table for the synchronization.
 
     The RTK solution where the receiver has one, else the GNSS receiver, else
     the fused position (telemetry), else the app's position (flight record).
-    Rows without a fix (0, 0) are left out.
+    Rows without a fix (0, 0) are left out, and rows that repeat the position of the one
+    before (a value carried forward).
+
+    Parameters
+    ----------
+    table : pl.DataFrame
+        A telemetry or flight-record table (in the schema's names).
+    receivers_only : bool, default=False
+        Only the RTK and GNSS receivers' positions, whose heights the
+        synchronization can refer to the ellipsoid (``rtk_h_ell_m``;
+        ``gps_h_msl_m`` with the geoid separation). The fused position and
+        the app's have a height of unknown reference.
 
     Returns
     -------
@@ -167,7 +178,7 @@ def telemetry_positions(
         ("fused_lat_deg", "fused_lon_deg", "fused_h_m"),
         ("lat_deg", "lon_deg", "h_m"),
     ]
-    for lat, lon, alt in candidates:
+    for lat, lon, alt in candidates[: 2 if receivers_only else None]:
         if not {"timestamp", lat, lon, alt} <= set(table.columns):
             continue
         valid = table.filter(
@@ -177,6 +188,15 @@ def telemetry_positions(
             & ((pl.col(lat) != 0) | (pl.col(lon) != 0))
             & (pl.col(lat).abs() <= 90)
             & (pl.col(lon).abs() <= 180)
+        )
+        # Telemetry carries each value forward until the receiver's next epoch:
+        # keep the row where a position first appears (a held value would lag
+        # the true time by up to one epoch)
+        valid = valid.filter(
+            (
+                (pl.col(lat) != pl.col(lat).shift())
+                | (pl.col(lon) != pl.col(lon).shift())
+            ).fill_null(True)
         )
         if valid.height:
             return valid, {"lat": lat, "lon": lon, "alt": alt}

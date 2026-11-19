@@ -333,6 +333,85 @@ class SourcesMixin:
             ).sort("timestamp")
             logger.info(f"Added drone record '{name}' with {len(df)} samples")
 
+    def add_position_source(
+        self,
+        name: str,
+        data: pl.DataFrame,
+        lat_col: str,
+        lon_col: str,
+        alt_col: str,
+        timestamp_col: str = "timestamp",
+    ) -> None:
+        """
+        Add another source of the drone's position, with its own time offset.
+
+        The offset is found by correlating its track with the reference GPS, as
+        for the drone GPS and Litchi, and recorded as ``offsets["<name>_gps"]``.
+        The synchronized table is ``<name>``, with its own column names (the
+        heights are not converted: they may not be ellipsoidal).
+
+        Parameters
+        ----------
+        name : str
+            Name of the source, e.g. ``"telemetry"`` or ``"flight_record"``.
+        data : pl.DataFrame
+            The source's table, with positions only where it has a fix.
+        lat_col, lon_col, alt_col : str
+            Latitude, longitude and height columns.
+        timestamp_col : str, default='timestamp'
+            Name of the timestamp column.
+
+        Raises
+        ------
+        ValueError
+            If required columns are missing or data is empty
+        """
+        missing = [
+            c
+            for c in (timestamp_col, lat_col, lon_col, alt_col)
+            if c not in data.columns
+        ]
+        if missing:
+            raise ValueError(f"{name} position missing columns: {missing}")
+        if data.height == 0:
+            raise ValueError(f"{name} position data is empty")
+        self.position_sources[name] = data.sort(timestamp_col)
+        self._position_names[name] = {
+            "timestamp": timestamp_col,
+            "lat_col": lat_col,
+            "lon_col": lon_col,
+            "alt_col": alt_col,
+        }
+        logger.info(f"Added position source {name} with {data.height} samples")
+
+    def add_attached_table(self, name: str, data: pl.DataFrame, to: str) -> None:
+        """
+        Add a table on the clock of a source that has a time offset.
+
+        Each table is synchronized as ``name`` with the offset of ``to``
+        (``"drone_gps"``, or ``"<source>_gps"`` of :meth:`add_position_source`):
+        for example the gimbal log, which LAGER stamps with the clock of the
+        drone telemetry. Without a timestamp, or with no offset for ``to``, it
+        is left out.
+
+        Parameters
+        ----------
+        name : str
+            Name of the table in the synchronized data.
+        data : pl.DataFrame
+            Table with a ``timestamp`` column.
+        to : str
+            Key of the offset in :attr:`offsets` that applies to it.
+        """
+        if "timestamp" not in data.columns or data.height == 0:
+            logger.info(f"Skipped table '{name}': no timestamps")
+            return
+        self.attached_tables[name] = (
+            data.filter(pl.col("timestamp").is_not_null()).sort("timestamp"),
+            to,
+        )
+        logger.info(f"Added table '{name}' with {data.height} samples, offset of {to}")
+
     def add_payload_sensor(
         self,
         sensor_name: str,
