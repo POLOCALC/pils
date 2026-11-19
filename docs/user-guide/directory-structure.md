@@ -72,6 +72,12 @@ Drone: DJI `*_drone.dat` (and the DatCon `*_drone.csv` export) every year,
 and `*_litchi.csv` where Litchi flew the mission (see
 [Litchi](../api/drones/litchi.md)).
 
+Matrice 400: the app's `DJIFlightRecord_*.txt` from the remote controller.
+Matrice 400 and 600: the telemetry LAGER logs on the payload computer,
+`uav_telemetry.bin` and `gimbal_telemetry.bin` with the run's YAML (in the
+`drone` or `aux` folder, or a subfolder), decoded by the drone model the YAML
+names (see [LAGER telemetry](../api/drones/lager.md)).
+
 ## Output Structure
 
 Every product in ```proc/``` is stored the same way (`pils.store`): one
@@ -104,6 +110,9 @@ proc/flight/
 │   ├── drone/
 │   │   ├── drone.parquet               # DJI RTK solution (or BlackSquare)
 │   │   ├── litchi.parquet              # Litchi log (if present)
+│   │   ├── uav_telemetry.parquet       # LAGER, Matrice 400 / 600 (if present)
+│   │   ├── gimbal/<message>.parquet    # LAGER gimbal, one table per MAVLink message
+│   │   ├── flight_record.parquet       # Matrice 400 .txt (flight_record_2, ... for more)
 │   │   └── records/                    # DJI .dat records
 │   │       ├── gps.parquet             # main GNSS receiver
 │   │       ├── imu_atti_0.parquet

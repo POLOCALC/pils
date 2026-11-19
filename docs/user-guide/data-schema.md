@@ -241,6 +241,71 @@ still reads HDF5 flight files and renames their columns to the schema.
 | `Longitude` | `lon_deg` | deg |
 | `heightMSL` | `h_msl_m` | m |
 
+### LAGER telemetry, Matrice 400 and 600 (`drone_data.telemetry`)
+
+| Source column | Column | Unit |
+|---|---|---|
+| `t_ticks` | `tick` |  |
+| `roll` | `roll_deg` | deg |
+| `pitch` | `pitch_deg` | deg |
+| `yaw` | `yaw_deg` | deg |
+| `q0` | `quat_w` |  |
+| `q1` | `quat_x` |  |
+| `q2` | `quat_y` |  |
+| `q3` | `quat_z` |  |
+| `ax` | `acc_x_g` | g |
+| `ay` | `acc_y_g` | g |
+| `az` | `acc_z_g` | g |
+| `gx` | `gyro_x_rad_s` | rad/s |
+| `gy` | `gyro_y_rad_s` | rad/s |
+| `gz` | `gyro_z_rad_s` | rad/s |
+| `vx` | `vel_x_m_s` | m/s |
+| `vy` | `vel_y_m_s` | m/s |
+| `vz` | `vel_z_m_s` | m/s |
+| `mx` | `mag_x` |  |
+| `my` | `mag_y` |  |
+| `mz` | `mag_z` |  |
+| `lat_deg` | `fused_lat_deg` | deg |
+| `lon_deg` | `fused_lon_deg` | deg |
+| `alt_m` | `fused_h_m` | m |
+| `gps_hfsl_m` | `gps_h_msl_m` | m |
+| `rtk_hfsl_m` | `rtk_h_ell_m` | m |
+| `gim_roll` | `gimbal_roll_deg` | deg |
+| `gim_pitch` | `gimbal_pitch_deg` | deg |
+| `gim_yaw` | `gimbal_yaw_deg` | deg |
+
+### LAGER gimbal telemetry (`drone_data.gimbal[...]`)
+
+| Source column | Column | Unit |
+|---|---|---|
+| `roll` | `roll_deg` | deg |
+| `pitch` | `pitch_deg` | deg |
+| `yaw` | `yaw_deg` | deg |
+| `yaw_absolute` | `yaw_absolute_deg` | deg |
+
+### Matrice 400 flight record, .txt (`drone_data.flight_record`)
+
+| Source column | Column | Unit |
+|---|---|---|
+| `osd_latitude` | `lat_deg` | deg |
+| `osd_longitude` | `lon_deg` | deg |
+| `osd_height` | `h_rel_m` | m |
+| `osd_altitude` | `h_m` | m |
+| `osd_fly_time` | `fly_time_s` | s |
+| `osd_pitch` | `pitch_deg` | deg |
+| `osd_roll` | `roll_deg` | deg |
+| `osd_yaw` | `yaw_deg` | deg |
+| `osd_x_speed` | `vel_x_m_s` | m/s |
+| `osd_y_speed` | `vel_y_m_s` | m/s |
+| `osd_z_speed` | `vel_z_m_s` | m/s |
+| `osd_h_speed` | `speed_h_m_s` | m/s |
+| `gimbal_pitch` | `gimbal_pitch_deg` | deg |
+| `gimbal_roll` | `gimbal_roll_deg` | deg |
+| `gimbal_yaw` | `gimbal_yaw_deg` | deg |
+| `home_latitude` | `home_lat_deg` | deg |
+| `home_longitude` | `home_lon_deg` | deg |
+| `home_altitude` | `home_h_m` | m |
+
 ### Camera (`payload_data.camera`)
 
 | Source column | Column | Unit |
