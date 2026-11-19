@@ -33,7 +33,7 @@ flowchart TB
     end
     
     subgraph Export
-        H --> K[HDF5]
+        H --> K[Parquet]
         H --> I[Markdown Report]
         J --> L[CSV/Parquet]
     end

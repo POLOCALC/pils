@@ -2,8 +2,7 @@
 
 The lab tree is ``<root>/<band>/<category>/<item name>/<test_type>/``. For
 each quantity the store returns a standard table, read from the latest PILS
-analysis run when there is one (``proc/<analysis>/<stem>/rev_*/``, or a
-legacy ``<analysis>_solution.h5``), otherwise from the processed files written
+analysis run when there is one (``proc/<analysis>/<stem>/rev_*/``), otherwise from the processed files written
 before PILS had lab analyses (``*.csv``, ``*_processed.*``).
 
 A measurement is named by when it was taken (``YYYYMMDD[_HHMMSS]...``). With

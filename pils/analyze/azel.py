@@ -262,7 +262,7 @@ class AZELAnalysis:
         ----------
         telescope_name : str
             Telescope identifier (e.g., 'SATP1') for filtering EMLID data.
-            This will be used as the HDF5 group name when saving.
+            It names the folder of the saved revisions (``azel/<TELESCOPE>/``).
         dji_broadcast_geod : dict[str, float]
             Broadcast DJI base position dict with keys 'lat', 'lon', 'alt'.
             Values in WGS84 degrees (lat, lon) and meters (alt).
@@ -610,7 +610,7 @@ class AZELAnalysis:
             version_name=version_name, azel_data=azel_data, metadata=metadata
         )
 
-        # Save to HDF5 if requested
+        # Save the revision (parquet) if requested
         if save_data:
             self._save_version(version, telescope_name=telescope_name)
 

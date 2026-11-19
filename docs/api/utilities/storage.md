@@ -46,12 +46,13 @@ The flight itself is saved and loaded with `Flight.save(directory)` and
 
 ## Results saved in HDF5
 
-Earlier versions saved the flight in `sync_data.h5` and the analyses in
-`*_solution.h5`. `pils migrate <proc>` converts them to revision
-directories (for a flight's `proc/` or a lab item's `proc/`) and keeps the
-HDF5 files; `Flight.from_hdf5` still reads HDF5 flight files and renames
-their columns to the schema, and the lab analyses still read their HDF5
-runs.
+PILS reads and writes no HDF5 results: every product is parquet. Earlier
+versions saved the analyses in `*_solution.h5`; `pils migrate <proc>`
+converts them, once, to revision directories (for a flight's `proc/` or a
+lab item's `proc/`) and keeps the HDF5 files. It is the only code that reads
+them (`pils.legacy_hdf5`), and goes once the old files are converted.
+Flights in the single-HDF5 format (`sync_data.h5`) are not converted any
+more. HDF5 remains only as an input: the lab's raw `.h5py` measurements.
 
 ::: pils.migrate.migrate_proc
 
@@ -65,4 +66,4 @@ that a kept analysis revision was made from is kept.
 
 ::: pils.store.prune_versions
 
-::: pils.utils.hdf5.read_table
+::: pils.legacy_hdf5.read_table

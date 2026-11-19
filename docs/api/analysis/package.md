@@ -24,7 +24,7 @@ pils package flight_20251208_1927 --dry-run
 # Write somewhere else: <output-dir>/<flight>/proc/
 pils package flight_20251208_1927 --output-dir ~/packages
 
-# Convert results saved in HDF5 by earlier versions (the HDF5 files are kept)
+# Convert results saved in HDF5 by earlier versions to parquet (the HDF5 files are kept)
 pils migrate /mnt/data/POLOCALC/campaigns/202511/20251206/flight_20251206_1833/proc --dry-run
 
 # Delete old revisions, keeping the newest 3 of each analysis (and the

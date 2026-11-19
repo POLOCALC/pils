@@ -78,7 +78,7 @@ print(gps_df.head())
 |---------|-------------|
 | **Polars DataFrames** | All data returned as high-performance Polars DataFrames |
 | **Type Safety** | Full type hints on all public APIs |
-| **HDF5 Export** | Persistent storage with compression |
+| **Parquet storage** | Write-once revisions with a manifest (`pils.store`) |
 | **PPK Versioning** | Track and compare multiple PPK solutions |
 | **Lazy Loading** | Load only what you need |
 | **TDD Tested** | 283+ tests with 63% coverage |

@@ -413,7 +413,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write <output-dir>/<flight>/proc/quicklook/ instead of in the flight folder",
     )
     migrate = sub.add_parser(
-        "migrate", help="Convert HDF5 results in proc/ to the Parquet layout"
+        "migrate", help="Convert old HDF5 results in proc/ to parquet (once)"
     )
     migrate.add_argument(
         "proc_dirs", nargs="+", help="proc/ folders of flights or lab items"

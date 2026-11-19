@@ -186,7 +186,8 @@ def test_migrate_legacy_files(tmp_path):
     import h5py
 
     from pils.migrate import migrate_proc
-    from pils.utils.hdf5 import write_table
+
+    from .legacy_hdf5_writer import write_table
 
     proc = tmp_path / "proc"
     (proc / "azel").mkdir(parents=True)

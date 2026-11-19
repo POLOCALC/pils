@@ -172,9 +172,9 @@ proc/
 `pils quicklook` writes the report there (see
 [Quick look](../api/analysis/quicklook.md)).
 
-Results saved in HDF5 by earlier versions (`sync_data.h5`,
-`*_solution.h5`) are converted with `pils migrate <flight>/proc`; the HDF5
-files are kept.
+Results saved in HDF5 by earlier versions (`*_solution.h5`) are converted
+to parquet with `pils migrate <flight>/proc`; the HDF5 files are kept. PILS
+itself reads and writes no HDF5 results.
 
 ---
 

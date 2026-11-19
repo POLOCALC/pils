@@ -7,13 +7,9 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import h5py
-import polars as pl
-
 from pils import store
-from pils.analyze.ppk.versions import PPKVersion, legacy_ppk_tables
+from pils.analyze.ppk.versions import PPKVersion
 from pils.flight import Flight
-from pils.utils.hdf5 import read_table
 
 if TYPE_CHECKING:
     from pils.analyze.ppk.core import PPKAnalysis
@@ -153,10 +149,9 @@ class PPKStorageMixin:
         Determine if RTKLIB analysis should run.
 
         Smart execution logic:
-        1. Run if no HDF5 file exists (first run)
-        2. Run if no versions loaded (no previous runs)
-        3. Run if config hash differs from latest version
-        4. Skip if config unchanged
+        1. Run if no versions loaded (no previous runs)
+        2. Run if config hash differs from latest version
+        3. Skip if config unchanged
 
         Parameters
         ----------
@@ -213,7 +208,7 @@ class PPKStorageMixin:
 
         Examples
         --------
-        >>> ppk = PPKAnalysis.from_hdf5('/path/to/flight')
+        >>> ppk = PPKAnalysis.load('/path/to/flight')
         >>> latest = ppk.get_latest_version()
         >>> if latest:
         ...     print(f"Latest: {latest.version_name}")
@@ -277,120 +272,13 @@ class PPKStorageMixin:
         self.versions[version_name] = version
         return version
 
-    def _load_version_from_hdf5(self, version_name: str) -> PPKVersion:
-        """
-        Load a single PPKVersion from the legacy ppk_solution.h5 file.
-
-        Reconstructs a PPKVersion object from HDF5 storage, loading position
-        data, statistics data, and metadata. Adds loaded version to self.versions dict.
-
-        Parameters
-        ----------
-        version_name : str
-            Name of version to load (e.g., 'rev_20260204_143022')
-
-        Returns
-        -------
-        PPKVersion
-            Loaded PPKVersion object
-
-        Raises
-        ------
-        KeyError
-            If version_name not found in HDF5 file
-
-        Examples
-        --------
-        >>> ppk = PPKAnalysis('/path/to/flight')
-        >>> version = ppk._load_version_from_hdf5('rev_20260204_143022')
-        >>> print(version.pos_data)
-        """
-        import h5py
-
-        with h5py.File(self.hdf5_path, "r") as f:
-            if version_name not in f:
-                raise KeyError(f"Version {version_name} not found in HDF5")
-
-            version_group = f[version_name]
-            if not isinstance(version_group, h5py.Group):
-                raise TypeError(f"{version_name} is not a group in HDF5 file")
-
-            # Load position DataFrame
-            pos_group = version_group["position"]
-            if not isinstance(pos_group, h5py.Group):
-                raise TypeError("position is not a group in HDF5 file")
-            pos_data = self._load_dataframe_from_hdf5(pos_group)
-
-            # Load statistics DataFrame
-            stat_group = version_group["statistics"]
-            if not isinstance(stat_group, h5py.Group):
-                raise TypeError("statistics is not a group in HDF5 file")
-            stat_data = self._load_dataframe_from_hdf5(stat_group)
-
-            pos_data, stat_data = legacy_ppk_tables(pos_data, stat_data)
-
-            # Load metadata from attrs
-            from pils.flight import _deserialize_from_hdf5
-
-            config_hash = _deserialize_from_hdf5(version_group.attrs.get("config_hash"))
-            timestamp = _deserialize_from_hdf5(version_group.attrs.get("timestamp"))
-            config_params = _deserialize_from_hdf5(
-                version_group.attrs.get("config_params"), hint="dict"
-            )
-            revision_path_str = _deserialize_from_hdf5(
-                version_group.attrs.get("revision_path")
-            )
-
-            metadata = {
-                "config_hash": config_hash,
-                "timestamp": timestamp,
-                "config_params": config_params if config_params else {},
-            }
-
-            # Reconstruct PPKVersion
-            version = PPKVersion(
-                version_name=version_name,
-                pos_data=pos_data,
-                stat_data=stat_data,
-                metadata=metadata,
-                revision_path=(
-                    Path(revision_path_str)
-                    if revision_path_str
-                    else self.ppk_dir / version_name
-                ),
-            )
-
-            # Add to versions dict
-            self.versions[version_name] = version
-
-            return version
-
-    def _load_dataframe_from_hdf5(self, dataset_group: h5py.Group) -> pl.DataFrame:
-        """
-        Load a Polars DataFrame from HDF5 (see :func:`pils.utils.hdf5.read_table`).
-
-        Parameters
-        ----------
-        dataset_group : h5py.Group
-            HDF5 group containing column datasets
-
-        Returns
-        -------
-        pl.DataFrame
-            Reconstructed Polars DataFrame
-        """
-        if "columns" not in dataset_group.attrs:
-            return pl.DataFrame()
-        # Older PPK files stored datetimes as microseconds whatever their unit
-        return read_table(dataset_group, legacy_time_unit="us")
-
     @classmethod
     def load(cls, flight: Flight) -> PPKAnalysis:
         """
         PPKAnalysis with the saved versions of a flight.
 
-        Loads the versions in ``proc/ppk/rev_*/`` (see :mod:`pils.store`) and,
-        for results saved before, the ones in ``ppk_solution.h5``.
+        Loads the versions in ``proc/ppk/rev_*/`` (see :mod:`pils.store`).
+        Results saved in ``ppk_solution.h5`` are converted with ``pils migrate``.
 
         Parameters
         ----------
@@ -421,23 +309,8 @@ class PPKStorageMixin:
             except Exception as e:
                 # Broad: one unreadable revision does not hide the others
                 logger.warning(f"Failed to load version {version_name}: {e}")
-        if ppk.hdf5_path.exists():
-            import h5py
-
-            with h5py.File(ppk.hdf5_path, "r") as f:
-                legacy = [name for name in f.keys() if name not in ppk.versions]
-            for version_name in legacy:
-                try:
-                    ppk._load_version_from_hdf5(version_name)
-                except Exception as e:  # Broad: as above, for the legacy HDF5 revisions
-                    logger.warning(f"Failed to load version {version_name}: {e}")
         logger.info(f"Loaded {len(ppk.versions)} versions")
         return ppk
-
-    @classmethod
-    def from_hdf5(cls, flight: Flight) -> PPKAnalysis:
-        """Load the PPK results, as :meth:`load` (kept for older code)."""
-        return cls.load(flight)
 
     def list_versions(self) -> list[str]:
         """
@@ -453,7 +326,7 @@ class PPKStorageMixin:
 
         Examples
         --------
-        >>> ppk = PPKAnalysis.from_hdf5('/path/to/flight')
+        >>> ppk = PPKAnalysis.load('/path/to/flight')
         >>> versions = ppk.list_versions()
         >>> print(versions)
         ['rev_20260204_140000', 'rev_20260204_150000', 'rev_20260204_160000']
@@ -476,7 +349,7 @@ class PPKStorageMixin:
 
         Examples
         --------
-        >>> ppk = PPKAnalysis.from_hdf5('/path/to/flight')
+        >>> ppk = PPKAnalysis.load('/path/to/flight')
         >>> version = ppk.get_version('rev_20260204_143022')
         >>> if version:
         ...     print(version.pos_data)
@@ -485,12 +358,9 @@ class PPKStorageMixin:
 
     def delete_version(self, version_name: str) -> None:
         """
-        Delete a version from HDF5 and filesystem.
+        Delete a version.
 
-        Removes version from:
-        1. self.versions dict
-        2. HDF5 file (deletes group)
-        3. Filesystem (deletes revision folder)
+        Removes it from :attr:`versions` and deletes its revision folder.
 
         Parameters
         ----------
@@ -499,13 +369,11 @@ class PPKStorageMixin:
 
         Examples
         --------
-        >>> ppk = PPKAnalysis.from_hdf5('/path/to/flight')
+        >>> ppk = PPKAnalysis.load('/path/to/flight')
         >>> ppk.delete_version('rev_20260204_140000')
         >>> print(ppk.list_versions())  # Version gone
         """
         import shutil
-
-        import h5py
 
         # Remove from versions dict
         if version_name in self.versions:
@@ -515,12 +383,5 @@ class PPKStorageMixin:
             if version.revision_path.exists():
                 shutil.rmtree(version.revision_path)
                 logger.info(f"Deleted revision folder: {version.revision_path}")
-
-        # Delete from the legacy HDF5 file
-        if self.hdf5_path.exists():
-            with h5py.File(self.hdf5_path, "a") as f:
-                if version_name in f:
-                    del f[version_name]
-                    logger.info(f"Deleted version {version_name} from HDF5")
 
         logger.info(f"Version {version_name} deleted")

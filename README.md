@@ -33,7 +33,7 @@ pip install -e ".[dev,stout]"
 # Load, synchronize and save a flight, with AZEL for each telescope
 pils package flight_20251208_1927
 
-# Convert results saved in HDF5 by earlier versions
+# Convert results saved in HDF5 by earlier versions to parquet (once)
 pils migrate /path/to/flight/proc
 ```
 

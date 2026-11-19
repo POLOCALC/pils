@@ -13,7 +13,6 @@ from pils.drones.dji.dat import DJIDat
 from pils.drones.dji.litchi import Litchi
 from pils.drones.sources import load_extra_sources
 from pils.flight.containers import DroneData, RawData
-from pils.flight.hdf5 import FlightHDF5Mixin
 from pils.flight.sync import FlightSyncMixin
 from pils.sensors.camera import Camera
 from pils.sensors.sensors import sensor_config
@@ -71,7 +70,7 @@ def _attribute_alias(name: str) -> property:
     )
 
 
-class Flight(FlightSyncMixin, FlightHDF5Mixin):
+class Flight(FlightSyncMixin):
     """
     Data of one flight: drone, payload sensors and synchronized tables.
 
