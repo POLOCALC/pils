@@ -70,9 +70,9 @@ drone = tables["drone"]
 drone = pl.read_parquet("proc/flight/sync/rev_20261016_152030/drone.parquet")
 ```
 
-Results saved in HDF5 by earlier versions are converted with
-`pils migrate <flight>/proc` (the HDF5 files are kept); `Flight.from_hdf5`
-still reads HDF5 flight files and renames their columns to the schema.
+Results saved in HDF5 by earlier versions (`*_solution.h5`) are converted
+with `pils migrate <flight>/proc` (the HDF5 files are kept); PILS reads and
+writes no other HDF5.
 
 ## Reference
 

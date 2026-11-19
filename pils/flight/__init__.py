@@ -5,8 +5,6 @@ The package splits :class:`Flight` by responsibility:
 - :mod:`pils.flight.core`: :class:`Flight`, loading the raw data and the
   :mod:`pils.store` folder format (``save`` / ``load``)
 - :mod:`pils.flight.sync`: ``Flight.sync``
-- :mod:`pils.flight.hdf5`: the older single-HDF5 format (``to_hdf5`` /
-  ``from_hdf5``)
 - :mod:`pils.flight.containers`: :class:`RawData`, :class:`DroneData`,
   :class:`PayloadData`
 
@@ -23,16 +21,6 @@ from pils.flight.core import (  # noqa: F401
     _attribute_alias,
     _standardize,
     _standardize_records,
-)
-from pils.flight.hdf5 import (  # noqa: F401
-    _LEGACY_SYNC_COORDINATES,
-    _SYNC_KINDS,
-    _deserialize_from_hdf5,
-    _get_current_timestamp,
-    _get_package_version,
-    _legacy_sync_table,
-    _parse_temporal_dtype,
-    _serialize_for_hdf5,
 )
 from pils.flight.sync import (  # noqa: F401
     MAX_GPS_H_ACC_M,

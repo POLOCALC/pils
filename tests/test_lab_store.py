@@ -17,7 +17,8 @@ from pils.lab_analysis.notes import (
     load_notes,
 )
 from pils.lab_analysis.store import LabDataNotFound, LabStore, _stout_item, value_at
-from pils.utils.hdf5 import save_version
+
+from .legacy_hdf5_writer import save_version
 
 NOTES = """---
 config:
@@ -157,20 +158,6 @@ class TestStore:
         )
         assert LabStore(lab).transmission(COUPLER, "transmission", 93) == (-0.4, 0.02)
 
-    def test_legacy_hdf5_run_takes_precedence(self, lab):
-        folder = lab / "WR10" / "coupler" / "COU_001" / "transmission"
-        summary = pl.DataFrame(
-            {"frequency_ghz": [93.0], "s21_avg_db": [-0.5], "s21_std_db": [0.03]}
-        )
-        save_version(
-            folder / "proc" / "vna" / "vna_solution.h5",
-            "rev_20260101_120000",
-            {"summary": summary},
-            {},
-            parent="20260617_140000",
-        )
-        assert LabStore(lab).transmission(COUPLER, "transmission", 93) == (-0.5, 0.03)
-
     def test_legacy_antenna_files(self, lab):
         folder = lab / "WR10" / "antenna" / "ANT_001"
         (folder / "insertion_loss").mkdir(parents=True)
@@ -271,8 +258,8 @@ class TestStoutItem:
                 _stout_item("det-1")
 
 
-def test_legacy_and_saved_runs_listed_and_migrated(tmp_path):
-    """Runs in a legacy <analysis>_solution.h5 are listed, loaded and migrated."""
+def test_legacy_hdf5_runs_are_migrated_to_parquet(tmp_path):
+    """Runs in a legacy <analysis>_solution.h5 are not read any more: pils migrate converts them."""
     from pils import store
     from pils.lab_analysis.base import LabAnalysis
     from pils.migrate import migrate_lab
@@ -286,23 +273,15 @@ def test_legacy_and_saved_runs_listed_and_migrated(tmp_path):
 
     analysis = Fake(Measurement())  # type: ignore[arg-type]
     table = pl.DataFrame({"frequency_ghz": [93.0], "s21_avg_db": [-0.5]})
+    legacy = tmp_path / "proc" / "vna" / "vna_solution.h5"
     save_version(
-        analysis.results_path,
+        legacy,
         "rev_20260101_000000",
         {"summary": table},
         {"a": 1},
         parent="20260617_140000",
     )
-    store.save_version(
-        analysis.results_dir,
-        "rev_20260202_000000",
-        {"summary": table},
-        {"b": 2},
-        parent="20260617_140000",
-    )
-    assert analysis.list_versions() == ["rev_20260101_000000", "rev_20260202_000000"]
-    assert analysis.get_version("rev_20260101_000000").metadata == {"a": 1}
-    assert analysis.get_latest_version().metadata == {"b": 2}
+    assert analysis.list_versions() == []  # not read as HDF5
 
     proc = tmp_path / "proc"
     assert migrate_lab(proc, dry_run=True) == [
@@ -310,11 +289,21 @@ def test_legacy_and_saved_runs_listed_and_migrated(tmp_path):
     ]
     assert migrate_lab(proc) == ["vna 20260617_140000/rev_20260101_000000"]
     assert migrate_lab(proc) == []
+    assert analysis.list_versions() == ["rev_20260101_000000"]
     tables, metadata = store.load_version(
         proc / "vna", "rev_20260101_000000", parent="20260617_140000"
     )
     assert tables["summary"].equals(table) and metadata == {"a": 1}
-    assert analysis.results_path.is_file()  # kept
+    assert legacy.is_file()  # kept
+
+    store.save_version(
+        analysis.results_dir,
+        "rev_20260202_000000",
+        {"summary": table},
+        {"b": 2},
+        parent="20260617_140000",
+    )
+    assert analysis.get_latest_version().metadata == {"b": 2}
 
 
 class TestAsOf:

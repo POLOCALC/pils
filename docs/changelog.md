@@ -32,6 +32,14 @@ All notable changes to PILS are documented here.
   `Synchronizer.add_position_source` and `add_attached_table`.
 
 ### Changed (breaking)
+- No HDF5 in PILS: every product is parquet (`pils.store`). Removed
+  `Flight.to_hdf5` / `Flight.from_hdf5` (`pils.flight.hdf5`), the PPK
+  `ppk_solution.h5` (`PPKAnalysis.hdf5_path`, `from_hdf5`: use `load`), the
+  lab analyses' `<analysis>_solution.h5` runs and the HDF5 writers of
+  `pils.utils.hdf5` (now only reads the lab's `.h5py` inputs). Old
+  `*_solution.h5` results are converted once with `pils migrate` (its
+  read-only reader is `pils.legacy_hdf5`); `sync_data.h5` flight files are not
+  converted any more.
 - Drone code is organised by make and source: `pils.drones.dji.dat`
   (`DJIDat`, was `pils.drones.DJIDrone.DJIDrone`; the .DAT format is in
   `dji/dat_format.py`), `pils.drones.dji.litchi` (`Litchi`) and

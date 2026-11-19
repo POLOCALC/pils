@@ -1,7 +1,4 @@
-"""Tests for Flight.sync() method and sync_data HDF5 persistence."""
-
-import tempfile
-from pathlib import Path
+"""Tests for Flight.sync() method and sync_data persistence (parquet)."""
 
 import polars as pl
 import pytest
@@ -69,56 +66,33 @@ def test_sync_requires_gps_payload():
         flight.sync()
 
 
-def test_sync_data_persists_to_hdf5(sample_flight_with_gps):
-    """Test that sync_data is saved and loaded from HDF5."""
+def test_sync_data_persists_as_parquet(sample_flight_with_gps, tmp_path):
+    """sync_data is saved by Flight.save and loaded back by Flight.load."""
     flight = sample_flight_with_gps
-
-    # Perform synchronization
     flight.sync(target_rate={"drone": 1.0})
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        hdf5_path = Path(tmpdir) / "test_flight.h5"
+    revision = flight.save(tmp_path / "flight")
+    assert (tmp_path / "flight" / "sync" / revision / "manifest.json").is_file()
 
-        # Save to HDF5
-        flight.to_hdf5(hdf5_path)
-
-        # Load from HDF5
-        loaded_flight = Flight.from_hdf5(hdf5_path)
-
-        # Check sync_data was loaded as a dictionary
-        assert loaded_flight.sync_data is not None
-        assert isinstance(loaded_flight.sync_data, dict)
-
-        # Verify all keys are present
-        assert loaded_flight.sync_data.keys() == flight.sync_data.keys()
-
-        # Verify each DataFrame matches
-        for key in flight.sync_data.keys():
-            assert key in loaded_flight.sync_data
-            assert isinstance(loaded_flight.sync_data[key], pl.DataFrame)
-            assert loaded_flight.sync_data[key].shape == flight.sync_data[key].shape
-            assert loaded_flight.sync_data[key].columns == flight.sync_data[key].columns
+    loaded = Flight.load(tmp_path / "flight")
+    assert isinstance(loaded.sync_data, dict)
+    assert loaded.sync_data.keys() == flight.sync_data.keys()
+    for key, table in flight.sync_data.items():
+        assert isinstance(loaded.sync_data[key], pl.DataFrame)
+        assert loaded.sync_data[key].shape == table.shape
+        assert loaded.sync_data[key].columns == table.columns
 
 
-def test_sync_data_not_saved_if_none():
-    """Test that sync_data is not saved if it doesn't exist."""
-    flight_info = {
-        "drone_data_folder_path": "/tmp/test_flight/drone",
-        "aux_data_folder_path": "/tmp/test_flight/aux",
-    }
-    flight = Flight(flight_info)
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        hdf5_path = Path(tmpdir) / "test_flight.h5"
-
-        # Save to HDF5 without sync_data
-        flight.to_hdf5(hdf5_path)
-
-        # Load from HDF5
-        loaded_flight = Flight.from_hdf5(hdf5_path)
-
-        # sync_data should still be None
-        assert loaded_flight.sync_data is None
+def test_a_flight_without_sync_data_saves_no_sync_revision(tmp_path):
+    """Without sync_data only the raw data is saved."""
+    flight = Flight(
+        {
+            "drone_data_folder_path": "/tmp/test_flight/drone",
+            "aux_data_folder_path": "/tmp/test_flight/aux",
+        }
+    )
+    assert flight.save(tmp_path / "flight") is None
+    assert Flight.load(tmp_path / "flight").sync_data is None
 
 
 def test_sync_drone_records(tmp_path):
@@ -166,9 +140,8 @@ def test_sync_drone_records(tmp_path):
     synced = flight.sync(target_rate={"drone": 10.0}, drone_records="all")
     assert {"drone_imu_atti_0", "drone_motor"} <= set(synced)
 
-    path = tmp_path / "flight.h5"
-    flight.to_hdf5(path)
-    loaded = Flight.from_hdf5(path)
+    flight.save(tmp_path / "flight")
+    loaded = Flight.load(tmp_path / "flight")
     assert (
         loaded.sync_data["drone_imu_atti_0"].shape == synced["drone_imu_atti_0"].shape
     )

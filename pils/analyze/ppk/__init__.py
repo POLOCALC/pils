@@ -2,14 +2,14 @@
 PPK Analysis - Standalone Post-Processed Kinematic GPS Analysis.
 
 This module provides standalone PPK analysis using RTKLIB with smart
-execution logic, versioned storage, and HDF5 persistence.
+execution logic, versioned storage, and parquet persistence.
 
 Key Features
 ------------
 - Smart re-run: Only executes if config changed or forced
 - Auto-timestamp versioning (rev_YYYYMMDD_HHMMSS)
 - Per-revision folder organization
-- HDF5 storage for all versions
+- Parquet storage for all versions
 - Complete separation from Flight class
 
 Examples
@@ -26,7 +26,7 @@ Examples
 >>> ppk = PPKAnalysis(flight)
 >>> ppk.run_analysis('config.conf')  # Only runs if config changed
 >>> # Load existing
->>> ppk = PPKAnalysis.from_hdf5(flight)
+>>> ppk = PPKAnalysis.load(flight)
 >>> latest = ppk.get_latest_version()
 >>> print(latest.pos_data)  # Polars DataFrame
 

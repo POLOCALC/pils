@@ -30,10 +30,10 @@ pytest tests/ -v
 pytest tests/ -v --cov=pils/
 
 # Run specific test file
-pytest tests/test_flight_hdf5.py -v
+pytest tests/test_flight.py -v
 
 # Run specific test
-pytest tests/test_flight_hdf5.py::TestFlightHDF5::test_save_load -v
+pytest tests/test_flight_sync.py::test_sync_data_persists_as_parquet -v
 
 # Run tests matching pattern
 pytest -k "test_gps" -v
@@ -59,7 +59,7 @@ open htmlcov/index.html
 tests/
 ├── __init__.py
 ├── conftest.py              # Shared fixtures
-├── test_flight_hdf5.py      # Flight HDF5 tests
+├── test_flight_sync.py      # Flight sync, saved and loaded as parquet
 ├── test_correlation_sync.py # Synchronizer tests
 ├── test_ppk_analysis.py     # PPK tests
 └── fixtures/

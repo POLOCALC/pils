@@ -250,9 +250,8 @@ class TestPayloadFiles:
         synced = flight.sync(target_rate={"payload": 10.0})
         assert {"imu_barometer", "imu_accelerometer", "imu_magnetometer"} <= set(synced)
 
-        path = aux / "flight.h5"
-        flight.to_hdf5(path)
-        loaded = Flight.from_hdf5(path)
+        flight.save(aux / "flight")
+        loaded = Flight.load(aux / "flight")
         imu = loaded.raw_data.payload_data.imu
         assert imu["magnetometer"].equals(
             flight.raw_data.payload_data.imu["magnetometer"]

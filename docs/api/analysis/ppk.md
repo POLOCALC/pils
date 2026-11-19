@@ -12,9 +12,9 @@ with the names of the [schema](../../user-guide/data-schema.md).
 
 RTKLIB writes GPS time by default: the time system of the `.pos` header (GPST,
 UTC or JST) is converted to UTC with the leap seconds (18 s since 2017).
-Versions in `ppk_solution.h5` from earlier versions are still loaded, with
-their columns renamed (`pils.analyze.ppk.legacy_ppk_tables`); `pils migrate`
-converts them.
+Versions in `ppk_solution.h5` from earlier versions are not read: `pils
+migrate` converts them to parquet, with their columns renamed
+(`pils.analyze.ppk.legacy_ppk_tables`).
 
 ## Inputs
 
