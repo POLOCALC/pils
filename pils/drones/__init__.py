@@ -21,7 +21,9 @@ def drone_init(drone_model: str, drone_path: str):
     Parameters
     ----------
     drone_model : str
-        'dji_dat' (the .DAT file or a DatCon CSV), 'litchi' or 'blacksquare'
+        'dji_dat' (the .DAT file or a DatCon CSV), 'litchi', 'blacksquare',
+        'm600_telemetry' or 'm400_telemetry' (LAGER's uav_telemetry.bin) or
+        'm400_flightrecord' (the app's .txt)
     drone_path : str
         Path to drone data file or directory
 
@@ -38,6 +40,12 @@ def drone_init(drone_model: str, drone_path: str):
         return BlackSquare(drone_path)
     elif drone_model == "litchi":
         return Litchi(drone_path)
+    elif drone_model == "m600_telemetry":
+        return M600Telemetry(drone_path)
+    elif drone_model == "m400_telemetry":
+        return M400Telemetry(drone_path)
+    elif drone_model == "m400_flightrecord":
+        return M400FlightRecord(drone_path)
     else:
         raise ValueError(f"Unknown drone model '{drone_model}'")
 

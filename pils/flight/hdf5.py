@@ -543,6 +543,12 @@ class FlightHDF5Mixin:
             )
             or len(self.raw_data.drone_data.litchi) > 0
         )
+        if self.raw_data.drone_data.sources:
+            logger.warning(
+                "HDF5 does not hold the LAGER telemetry or the flight record "
+                f"({sorted(self.raw_data.drone_data.sources)}): use Flight.save "
+                "(parquet)"
+            )
         if drone_has_data:
             if "drone_data" not in raw_data_group:
                 drone_group = raw_data_group.create_group("drone_data")

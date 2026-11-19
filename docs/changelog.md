@@ -16,6 +16,15 @@ All notable changes to PILS are documented here.
   `$DJI_API_KEY`. Tests write the byte layouts independently and
   were checked against lager's own loaders.
 
+- `Flight.add_drone_data` loads every source of the flight it finds: the
+  .DAT/CSV and Litchi as before, and the LAGER telemetry, gimbal and the
+  Matrice 400 flight record (`dji_api_key` or `$DJI_API_KEY`) in the drone or
+  aux folder. They are in `raw_data.drone_data.sources` (`.telemetry`,
+  `.gimbal`, `.flight_record`), saved by `Flight.save` as parquet
+  (`drone/uav_telemetry.parquet`, `drone/gimbal/<message>.parquet`,
+  `drone/flight_record.parquet`) and loaded back by `Flight.load`. A Matrice
+  400 flight needs no `.DAT`. Not written to HDF5 (a warning says so).
+
 ### Changed (breaking)
 - Drone code is organised by make and source: `pils.drones.dji.dat`
   (`DJIDat`, was `pils.drones.DJIDrone.DJIDrone`; the .DAT format is in
