@@ -14,9 +14,9 @@ Every name of the former ``pils/flight.py`` module is re-exported here.
 """
 
 # Names the former module imported, which callers may still look up here
-from pils.drones.BlackSquareDrone import BlackSquareDrone  # noqa: F401
-from pils.drones.DJIDrone import DJIDrone  # noqa: F401
-from pils.drones.litchi import Litchi  # noqa: F401
+from pils.drones.blacksquare import BlackSquare  # noqa: F401
+from pils.drones.dji.dat import DJIDat  # noqa: F401
+from pils.drones.dji.litchi import Litchi  # noqa: F401
 from pils.flight.containers import DroneData, PayloadData, RawData
 from pils.flight.core import (  # noqa: F401
     Flight,

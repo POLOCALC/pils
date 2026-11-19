@@ -5,7 +5,7 @@ from typing import Any
 import numpy as np
 import polars as pl
 
-from ..utils.logging_config import get_logger
+from ...utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
@@ -535,7 +535,7 @@ def unwrap_ticks(ticks: np.ndarray, wrap_threshold: float = 1e8) -> np.ndarray:
     jumps count: a drop of more than 2^31 is a wrap (+2^32) and a rise of
     more than 2^31 is a record from before the wrap written after it (-2^32).
     A drop of more than ``wrap_threshold`` to below ``wrap_threshold`` that is
-    not a wrap is a clock reset, as in :meth:`DJIDrone._unwrap_tick`.
+    not a wrap is a clock reset, as in :meth:`DJIDat._unwrap_tick`.
     """
     ticks = ticks.astype(np.int64)
     if ticks.size < 2:

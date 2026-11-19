@@ -3,7 +3,7 @@
 import polars as pl
 import pytest
 
-from pils.drones.litchi import Litchi
+from pils.drones.dji.litchi import Litchi
 
 
 class TestLitchi:

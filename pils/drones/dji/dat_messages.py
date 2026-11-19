@@ -4,14 +4,14 @@ import datetime
 import struct
 from typing import Any
 
-from ..utils.logging_config import get_logger
-from .dji_dat import MESSAGE_DEFINITIONS, calc_checksum
+from ...utils.logging_config import get_logger
+from .dat_format import MESSAGE_DEFINITIONS, calc_checksum
 
 logger = get_logger(__name__)
 
 
 class DJIMessageMixin:
-    """Decoding of single .dat messages for :class:`~pils.drones.DJIDrone.DJIDrone`."""
+    """Decoding of single .dat messages for :class:`~pils.drones.dji.dat.DJIDat`."""
 
     def _parse_and_decode_message(self, msg_data: bytes) -> list[dict[str, Any]]:
         """Parse and decode a single message.

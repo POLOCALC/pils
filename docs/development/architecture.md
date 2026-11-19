@@ -140,7 +140,7 @@ classDiagram
         +load_data()
     }
     
-    class DJIDrone {
+    class DJIDat {
         +parse_srt()
         +parse_csv()
     }
@@ -149,13 +149,13 @@ classDiagram
         +parse_log()
     }
     
-    class BlackSquareDrone {
+    class BlackSquare {
         +parse_telemetry()
     }
     
-    BaseDrone <|-- DJIDrone
+    BaseDrone <|-- DJIDat
     BaseDrone <|-- Litchi
-    BaseDrone <|-- BlackSquareDrone
+    BaseDrone <|-- BlackSquare
 ```
 
 ---

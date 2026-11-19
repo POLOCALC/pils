@@ -5,6 +5,14 @@ All notable changes to PILS are documented here.
 ## [Unreleased]
 
 ### Changed (breaking)
+- Drone code is organised by make and source: `pils.drones.dji.dat`
+  (`DJIDat`, was `pils.drones.DJIDrone.DJIDrone`; the .DAT format is in
+  `dji/dat_format.py`), `pils.drones.dji.litchi` (`Litchi`) and
+  `pils.drones.blacksquare` (`BlackSquare`, was `BlackSquareDrone`).
+  `DRONE_MAP` and `drone_init` call the DJI .DAT source `dji_dat` (was
+  `dji`); `load_flight_data(drones=...)` too. No old names are kept.
+  This is the first step towards one folder per DJI model (M400, M600).
+
 - Column names follow one schema (`pils.schema`, version 1): `snake_case`,
   the unit as a suffix (`_deg`, `_m`, `_m_s`, `_rad_s`, `_g`, `_hpa`, `_c`,
   `_mv`, ...), heights with their reference (`h_ell_m`, `h_msl_m`,
@@ -202,9 +210,9 @@ All notable changes to PILS are documented here.
 - `Inclinometer` - KERNEL inclinometer binary decoder
 
 #### Drones
-- `DJIDrone` - DJI SRT and CSV telemetry
+- `DJIDat` - DJI SRT and CSV telemetry
 - `Litchi` - Litchi flight logs
-- `BlackSquareDrone` - BlackSquare platform data
+- `BlackSquare` - BlackSquare platform data
 
 #### Synchronization
 - `CorrelationSynchronizer` - Cross-correlation time alignment

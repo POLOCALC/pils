@@ -8,20 +8,20 @@ PILS supports three drone platforms:
 
 | Platform | Module | File Formats | Detection |
 |----------|--------|--------------|-----------|
-| [DJI](dji.md) | `pils.drones.DJIDrone` | `.csv`, `.DAT` | CSV headers |
-| [BlackSquare](blacksquare.md) | `pils.drones.BlackSquareDrone` | `.BIN`, `.log` | Binary header |
+| [DJI](dji.md) | `pils.drones.dji.dat` | `.csv`, `.DAT` | CSV headers |
+| [BlackSquare](blacksquare.md) | `pils.drones.blacksquare` | `.BIN`, `.log` | Binary header |
 | [Litchi](litchi.md) | `pils.drones.Litchi` | `.csv` | Column names |
 
 ## Import
 
 ```python
 # Individual
-from pils.drones import DJIDrone
-from pils.drones import BlackSquareDrone
+from pils.drones import DJIDat
+from pils.drones import BlackSquare
 from pils.drones import Litchi
 
 # All
-from pils.drones import DJIDrone, BlackSquareDrone, Litchi
+from pils.drones import DJIDat, BlackSquare, Litchi
 ```
 
 ## Auto-Detection
@@ -51,14 +51,14 @@ print(list(flight.drone_data.keys()))
 
 ```python
 # DJI
-from pils.drones import DJIDrone
-dji = DJIDrone(path="/data/drone_data/flight.csv")
+from pils.drones import DJIDat
+dji = DJIDat(path="/data/drone_data/flight.csv")
 dji.load_data()
 df = dji.data
 
 # BlackSquare
-from pils.drones import BlackSquareDrone
-bs = BlackSquareDrone(path="/data/drone_data/flight.BIN")
+from pils.drones import BlackSquare
+bs = BlackSquare(path="/data/drone_data/flight.BIN")
 bs.load_data()
 gps_df = bs.data['GPS']
 imu_df = bs.data['IMU']
