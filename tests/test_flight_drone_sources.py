@@ -214,3 +214,28 @@ def test_the_sources_are_saved_as_parquet_and_loaded_back(tmp_path):
     flight.raw_data.drone_data.info = {}
     flight.save(out)
     assert (raw / "uav_telemetry.parquet").is_file()
+
+
+def test_pils_package_reports_each_drone_source(tmp_path):
+    from pils.analyze.package import FlightPackager, PackageResult
+
+    lager_folder(tmp_path / "aux")
+    (tmp_path / "drone").mkdir()
+    (tmp_path / "drone" / "DJIFlightRecord_x.txt").write_bytes(b"x")
+    packager = FlightPackager(
+        {
+            "drone_data_folder_path": str(tmp_path / "drone"),
+            "aux_data_folder_path": str(tmp_path / "aux"),
+        }
+    )
+    result = PackageResult("x", "rev_20261119_000000", str(tmp_path), False)
+    flight = packager._load(result, sensors=())
+    steps = {s.name: s.status for s in result.steps}
+    assert (
+        steps["load drone uav_telemetry"] == "done"
+        and steps["load drone gimbal"] == "done"
+    )
+    assert steps["load drone flight_record"] == "skipped"  # no DJI_API_KEY
+    # no payload GPS: the telemetry is the drone GPS to sync to
+    assert flight is not None
+    assert "load" not in steps or steps["load"] == "done"
