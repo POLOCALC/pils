@@ -5,6 +5,11 @@ All notable changes to PILS are documented here.
 ## [Unreleased]
 
 ### Added
+- `--telescope-source campaign` (and `telescope_source="campaign"`): the
+  telescope position from the campaign's own survey, else the so3g site
+  (never another campaign's survey). `$PILS_TELESCOPE_SOURCE` sets the default
+  for `pils package`, `pils quicklook` and AZEL (e.g. for tripel's packaging);
+  without it the default stays `survey`.
 - LAGER telemetry decoders, ported from POLOCALC/lager (no import): the
   Matrice 600 OSDK frames (`pils.drones.M600Telemetry`), the Matrice 400
   `psdk_telemetry` stream (`M400Telemetry`) and the Gremsy T7 gimbal

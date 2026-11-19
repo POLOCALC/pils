@@ -114,7 +114,7 @@ class QuickLook(QuickLookGNSSMixin):
         telescopes: Iterable[str] = DEFAULT_TELESCOPES,
         rinex: bool = True,
         ppk_template: str | Path | None = None,
-        telescope_source: str = "survey",
+        telescope_source: str | None = None,
         rtk_reference: str = "survey",
     ) -> Path:
         """Load the flight, check its data and write the report.
@@ -130,8 +130,9 @@ class QuickLook(QuickLookGNSSMixin):
             RTKLIB configuration: also tune it to the data
             (:func:`pils.analyze.ppk_tuning.tune`, the most fixed epochs)
             and report the result. Takes a few minutes.
-        telescope_source : {"survey", "so3g"}, default="survey"
-            Telescope positions for AZEL (see
+        telescope_source : {"survey", "campaign", "so3g"}, optional
+            Telescope positions for AZEL: ``survey``, ``campaign`` or
+            ``so3g``; default ``$PILS_TELESCOPE_SOURCE``, else ``survey`` (see
             ``pils.sensors.emlid.reference_positions``).
         rtk_reference : {"survey", "broadcast"}, default="survey"
             The frame of the drone RTK positions for AZEL: the campaign
@@ -143,7 +144,9 @@ class QuickLook(QuickLookGNSSMixin):
         Path
             The report (``report.md``).
         """
-        self.telescope_source = telescope_source
+        from pils.sensors.emlid import default_telescope_source
+
+        self.telescope_source = telescope_source or default_telescope_source()
         self.rtk_reference = rtk_reference
         self.revision_dir = self.quicklook_dir / store.new_version_name()
         self.plots_dir = self.revision_dir / "plots"
