@@ -31,6 +31,10 @@ All notable changes to PILS are documented here.
   (`gimbal_<message>`) follows the telemetry's clock. New
   `Synchronizer.add_position_source` and `add_attached_table`.
 
+### Fixed
+- BlackSquare leap seconds with astropy 8, whose leap-second table has no
+  `day` column (a leap second always starts on the 1st of a month).
+
 ### Changed (breaking)
 - No HDF5 in PILS: every product is parquet (`pils.store`). Removed
   `Flight.to_hdf5` / `Flight.from_hdf5` (`pils.flight.hdf5`), the PPK
