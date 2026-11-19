@@ -215,9 +215,7 @@ class TestDroneLoaderChoice:
 
         monkeypatch.setattr(core, "DJIDat", type("DJIDat", (Fake,), {}))
         monkeypatch.setattr(core, "Litchi", type("Litchi", (Fake,), {}))
-        monkeypatch.setattr(
-            core, "BlackSquare", type("BlackSquare", (Fake,), {})
-        )
+        monkeypatch.setattr(core, "BlackSquare", type("BlackSquare", (Fake,), {}))
         return used
 
     def test_unknown_model_with_dji_log(self, tmp_path, monkeypatch):

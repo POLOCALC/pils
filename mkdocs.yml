@@ -70,6 +70,7 @@ nav:
       - DJI: api/drones/dji.md
       - BlackSquare: api/drones/blacksquare.md
       - Litchi: api/drones/litchi.md
+      - LAGER telemetry: api/drones/lager.md
     - Analysis:
       - api/analysis/index.md
       - Packaging: api/analysis/package.md
