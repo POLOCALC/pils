@@ -44,6 +44,7 @@ _LAZY = {
     "Synchronizer": ("pils.synchronizer", "Synchronizer"),
     "decoders": ("pils.decoders", None),
     "drones": ("pils.drones", None),
+    "gimbals": ("pils.gimbals", None),
     "sensors": ("pils.sensors", None),
     "utils": ("pils.utils", None),
 }
@@ -72,6 +73,7 @@ __all__ = [
     "Synchronizer",
     "sensors",
     "drones",
+    "gimbals",
     "decoders",
     "utils",
     "__version__",

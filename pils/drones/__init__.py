@@ -6,6 +6,9 @@ import os
 from pils.drones.blacksquare import BlackSquare  # noqa: F401
 from pils.drones.dji.dat import DJIDat  # noqa: F401
 from pils.drones.dji.litchi import Litchi
+from pils.drones.dji.m400.telemetry import M400Telemetry
+from pils.drones.dji.m600.telemetry import M600Telemetry
+from pils.drones.telemetry import Telemetry, load_telemetry
 
 logger = logging.getLogger(__name__)
 
@@ -67,4 +70,8 @@ __all__ = [
     "DJIDat",
     "BlackSquare",
     "Litchi",
+    "M400Telemetry",
+    "M600Telemetry",
+    "Telemetry",
+    "load_telemetry",
 ]

@@ -4,6 +4,15 @@ All notable changes to PILS are documented here.
 
 ## [Unreleased]
 
+### Added
+- LAGER telemetry decoders, ported from POLOCALC/lager (no import): the
+  Matrice 600 OSDK frames (`pils.drones.M600Telemetry`), the Matrice 400
+  `psdk_telemetry` stream (`M400Telemetry`) and the Gremsy T7 gimbal
+  (`pils.gimbals.GremsyT7Telemetry`), as polars tables. `load_telemetry(folder)`
+  picks them from the YAML in the data folder. The gimbal's pickle log is read
+  with a restricted unpickler. Tests write the byte layouts independently and
+  were checked against lager's own loaders.
+
 ### Changed (breaking)
 - Drone code is organised by make and source: `pils.drones.dji.dat`
   (`DJIDat`, was `pils.drones.DJIDrone.DJIDrone`; the .DAT format is in
