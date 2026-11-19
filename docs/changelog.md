@@ -24,6 +24,12 @@ All notable changes to PILS are documented here.
   (`drone/uav_telemetry.parquet`, `drone/gimbal/<message>.parquet`,
   `drone/flight_record.parquet`) and loaded back by `Flight.load`. A Matrice
   400 flight needs no `.DAT`. Not written to HDF5 (a warning says so).
+- `Flight.sync` synchronizes them with the payload GPS as the reference: a
+  Matrice 400's drone GPS is its telemetry (RTK or GNSS epochs); with a `.DAT`,
+  the telemetry and the flight record get their own offsets
+  (`telemetry_gps`, `flight_record_gps`) and tables, and the gimbal log
+  (`gimbal_<message>`) follows the telemetry's clock. New
+  `Synchronizer.add_position_source` and `add_attached_table`.
 
 ### Changed (breaking)
 - Drone code is organised by make and source: `pils.drones.dji.dat`
