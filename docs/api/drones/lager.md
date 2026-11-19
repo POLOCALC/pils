@@ -39,3 +39,26 @@ was left out (CRC failures, unknown topics, truncated frames).
   unless `fill=True`.
 - **Safety:** the gimbal log is a pickle stream, read with an unpickler that
   builds plain data only; a file with anything else is refused.
+
+# Matrice 400 flight record (`.txt`)
+
+The app of the Matrice 400's remote controller saves `DJIFlightRecord_*.txt`
+(about 10 Hz). It is decoded with `pydjirecord`, a required dependency of PILS.
+The records of a log of version 13 or later are encrypted: the keys come from
+DJI's keychain API with a DJI Open API app key, read from the `api_key`
+argument or the `DJI_API_KEY` environment variable (never stored by PILS).
+
+```python
+from pils.drones import M400FlightRecord
+
+r = M400FlightRecord("DJIFlightRecord_2026-11-19_[10-15-00].txt")
+r.load_data()            # uses $DJI_API_KEY
+r.data                   # one row per frame: timestamp, datetime, osd_*, gimbal_*, battery_*, ...
+r.details                # aircraft and serial numbers, app version, start time, totals
+```
+
+- Only the keychain request leaves the machine (the log's encrypted key
+  blocks and the app key); `pydjirecord` caches the answer for 30 days in
+  `$XDG_CACHE_HOME/pydjirecord`. Keep the decoded table, not the cache.
+- The street address the app writes in the header is not kept.
+- This is not the onboard high-rate `.DAT` log and not LAGER's telemetry.
