@@ -75,3 +75,69 @@ def test_so3g(campaigns, monkeypatch):
 def test_unknown_source(campaigns):
     with pytest.raises(ValueError, match="telescope_source"):
         emlid.reference_positions(campaigns / "202511", "SATP1", "sotodlib")
+
+
+@pytest.fixture
+def so3g_site(monkeypatch):
+    site = types.SimpleNamespace(lon=-67.78836, lat=-22.96011, elev=5188.0)
+    proj = types.ModuleType("so3g.proj")
+    proj.SITES = {"so_sat1": site}
+    monkeypatch.setitem(sys.modules, "so3g", types.ModuleType("so3g"))
+    monkeypatch.setitem(sys.modules, "so3g.proj", proj)
+    return site
+
+
+def test_campaign_takes_the_campaign_survey(campaigns, so3g_site):
+    found = emlid.reference_positions(campaigns / "202511", "SATP1", "campaign")
+    assert found.telescope_source == "campaign survey"
+    assert found.telescope["lat"] == pytest.approx(-22.960089, abs=1e-6)
+    assert found.dji_base is not None and found.notes == []
+
+
+def test_campaign_without_a_survey_falls_back_to_so3g_not_another_survey(
+    campaigns, so3g_site
+):
+    found = emlid.reference_positions(campaigns / "202412", "SATP1", "campaign")
+    assert found.telescope_source == "so3g so_sat1"  # not "survey 202511"
+    assert found.telescope["alt"] == 5188.0
+    assert any("No survey of SATP1 in this campaign" in n for n in found.notes)
+    assert found.dji_base is None and any("not corrected" in n for n in found.notes)
+
+
+def test_campaign_survey_without_that_telescope_falls_back_to_so3g(
+    campaigns, monkeypatch
+):
+    site = types.SimpleNamespace(lon=-67.78813, lat=-22.96009, elev=5188.0)
+    proj = types.ModuleType("so3g.proj")
+    proj.SITES = {"so_sat2": site}
+    monkeypatch.setitem(sys.modules, "so3g", types.ModuleType("so3g"))
+    monkeypatch.setitem(sys.modules, "so3g.proj", proj)
+    found = emlid.reference_positions(campaigns / "202511", "SATP2", "campaign")
+    assert found.telescope_source == "so3g so_sat2"
+    assert found.dji_base is not None  # the campaign's base is still used
+
+
+def test_the_default_source_comes_from_the_environment(monkeypatch):
+    monkeypatch.delenv("PILS_TELESCOPE_SOURCE", raising=False)
+    assert emlid.default_telescope_source() == "survey"
+    monkeypatch.setenv("PILS_TELESCOPE_SOURCE", " Campaign ")
+    assert emlid.default_telescope_source() == "campaign"
+    monkeypatch.setenv("PILS_TELESCOPE_SOURCE", "sotodlib")
+    with pytest.raises(ValueError, match="PILS_TELESCOPE_SOURCE"):
+        emlid.default_telescope_source()
+
+
+def test_the_package_uses_the_environment_default(monkeypatch, tmp_path):
+    from pils.analyze.package import FlightPackager
+
+    monkeypatch.setenv("PILS_TELESCOPE_SOURCE", "campaign")
+    packager = FlightPackager(
+        {
+            "drone_data_folder_path": str(tmp_path / "drone"),
+            "aux_data_folder_path": str(tmp_path / "aux"),
+        }
+    )
+    packager.run(telescopes=[], sensors=(), save=False)
+    assert packager.telescope_source == "campaign"
+    packager.run(telescopes=[], sensors=(), save=False, telescope_source="survey")
+    assert packager.telescope_source == "survey"

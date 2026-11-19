@@ -570,7 +570,7 @@ class FlightPackager:
         sensors: Sequence[str] = PAYLOAD_SENSORS,
         lab_root: str | Path | None = None,
         save: bool = True,
-        telescope_source: str = "survey",
+        telescope_source: str | None = None,
         rtk_reference: str = "survey",
     ) -> PackageResult:
         """Load, synchronize, save and analyse the flight.
@@ -590,10 +590,12 @@ class FlightPackager:
             Lab data root for the power analysis.
         save : bool
             Write the products; False computes everything without writing.
-        telescope_source : {"survey", "so3g"}, default="survey"
-            Telescope positions for AZEL: the campaign's survey, else the
-            newest survey of another campaign; or the ``so3g`` site (2-3 m
-            off). See ``pils.sensors.emlid.reference_positions``.
+        telescope_source : {"survey", "campaign", "so3g"}, optional
+            Telescope positions for AZEL: ``survey``, the campaign's survey,
+            else the newest survey of another campaign; ``campaign``, the
+            campaign's survey, else the ``so3g`` site; ``so3g``, the so3g site
+            (2-3 m off). Default ``$PILS_TELESCOPE_SOURCE``, else ``survey``.
+            See ``pils.sensors.emlid.reference_positions``.
         rtk_reference : {"survey", "broadcast"}, default="survey"
             The frame of the drone RTK positions for AZEL: the campaign
             survey's (the base correction added) or the broadcast base's (as
@@ -607,7 +609,9 @@ class FlightPackager:
         from pils.config.telescopes import TELESCOPES_CONFIG
 
         telescopes = list(telescopes)
-        self.telescope_source = telescope_source
+        from pils.sensors.emlid import default_telescope_source
+
+        self.telescope_source = telescope_source or default_telescope_source()
         self.rtk_reference = rtk_reference
         power_targets = list(power_targets)
         geod = dji_broadcast_geod or TELESCOPES_CONFIG["dji_broadcast_geod"]
