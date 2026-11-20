@@ -10,7 +10,9 @@ Results are stored per flight as versions, like the other analyses::
 
     flight_dir/proc/photogrammetry/
     ├── dictionary_p2.ecsv ... dictionary_p6.ecsv   (pipeline checkpoints)
+    ├── dictionary_p7.ecsv                          (LAGER: p6 + roll_beam, if LAGER is available)
     ├── attitude_reconstruction.parquet
+    ├── plots/lager_image_<tel>_frame<f>.png        (LAGER image-space map)
     ├── plots/
     └── photogrammetry_solution.h5                  (one group per version)
 
@@ -142,6 +144,8 @@ class PhotogrammetryConfig:
         self.drone_correlation = pipeline.get("drone_correlation", {})
         self.telescope = pipeline.get("telescope", {})
         self.polarization = pipeline.get("polarization", {})
+        # step p7, LAGER horn beam on the detector planes (missing block -> enabled with LAGER's defaults)
+        self.lager = pipeline.get("lager") or {}
 
     def _resolve_camera_model(self) -> str:
         model = normalize_camera_model(self.camera_model) or self._camera_in_yaml(self.raw)
@@ -174,6 +178,29 @@ class PhotogrammetryConfig:
             f"PhotogrammetryConfig(config={self.config_path}, camera={self.camera_model}, "
             f"camera_matrix={self.camera_matrix.shape})"
         )
+
+
+def _load_lager_step():
+    """lager.pipeline_step, or None if LAGER cannot be imported. LAGER sits next to IPA_flight
+    (ARS/LAGER): added to sys.path when it is not importable yet."""
+    import sys
+
+    try:
+        from lager import pipeline_step
+        return pipeline_step
+    except ImportError:
+        pass
+    try:
+        import IPA_flight.IPA_flight as ipa
+        # ARS/IPA_flight/IPA_flight -> ARS/LAGER (namespace package: no __file__, use __path__)
+        lager_root = Path(list(ipa.__path__)[0]).resolve().parents[1] / "LAGER"
+        if (lager_root / "lager").is_dir() and str(lager_root) not in sys.path:
+            sys.path.append(str(lager_root))
+        from lager import pipeline_step
+        return pipeline_step
+    except Exception as e:
+        logger.warning(f"LAGER not importable ({e}): step p7 (roll_beam) skipped")
+        return None
 
 
 def load_flight_camera(flight: Flight, camera_model: str | None = None):
@@ -897,6 +924,8 @@ class PhotogrammetryAnalysis:
                 params["geodetic_targets"][i]
                 for i in target_indices
             ]
+            if params.get("target_colors") is not None:
+                params["target_colors"] = [params["target_colors"][i] for i in target_indices]
 
             # if "image_tel_positions" in params:
             #     params["image_tel_positions"] = [
@@ -922,6 +951,8 @@ class PhotogrammetryAnalysis:
         # GPS/INS pose prior of finder.method = "constellation": RTK base correction and the
         # IMX5 clock offset (inclinometer -> Litchi -> payload GPS, as the camera shift above)
         target_finder.gps_offset = gps_offset
+        # per-target colour (CSV "Color" column; None = finder.constellation.target_color)
+        target_finder.target_colors = params.get("target_colors")
         if use_sync:
             offs = self.flight.sync_offsets or {}
             target_finder.inclinometer_time_offset = (
@@ -996,6 +1027,31 @@ class PhotogrammetryAnalysis:
                 **config.polarization,
             ),
         }
+
+        # ── Step p7: LAGER -- p6 + roll_beam (horn beam, Ludwig-3) and the image-space map ──
+        lager_step = _load_lager_step() if config.lager.get("enabled", True) else None
+        if lager_step is not None:
+            def _step_p7(prev):
+                try:
+                    return lager_step(
+                        prev,
+                        load_dictionary(output_dir / "dictionary_p5.ecsv"),
+                        params,
+                        tel_names,
+                        camera=config.camera_model,
+                        camera_matrix=config.camera_matrix,
+                        dist_coeffs=config.distortion_coeffs,
+                        Ec=float(config.polarization.get("Ec", 0.0)),
+                        camera_obj=dh_wrapper.camera,
+                        plot_dir=check_results or None,
+                        plot_frames=config.lager.get("plot_frames"),
+                        plot_telescopes=config.lager.get("plot_telescopes"),
+                        config_file=config.lager.get("config_file"),
+                    )
+                except Exception as e:  # the beam model must not kill the run: p6 goes on without roll_beam
+                    logger.warning(f"LAGER step failed, p6 kept without roll_beam: {type(e).__name__}: {e}")
+                    return prev
+            steps["dictionary_p7.ecsv"] = _step_p7
 
         step_order = list(steps.keys())
 
@@ -1138,11 +1194,13 @@ class PhotogrammetryAnalysis:
         # frame x tel_name, replacing the old p6+p7 pair below) -- joining it
         # on "frame" alone broadcasts each frame's p2-p5 columns across all
         # of that frame's telescopes, same as the old p6 join did.
+        # p7 (LAGER) = the p6 rows + roll_beam: merged in place of p6 when it ran.
+        last = 7 if "dictionary_p7.ecsv" in steps else 6
         p2, p3, p4, p5, p6 = [
             self._ensure_polars(
                 load_dictionary(str(output_dir / f"dictionary_p{i}.ecsv"))
             )
-            for i in range(2, 7)
+            for i in (2, 3, 4, 5, last)
         ]
 
         df_merged = (
