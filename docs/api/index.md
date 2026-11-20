@@ -25,8 +25,8 @@ graph TB
     end
     
     subgraph Drones
-        J[DJIDrone]
-        K[BlackSquareDrone]
+        J[DJIDat]
+        K[BlackSquare]
         L[Litchi]
     end
     
@@ -69,7 +69,7 @@ graph TB
 
     ---
 
-    `DJIDrone`, `BlackSquareDrone`, `Litchi` - Platform support
+    `DJIDat`, `BlackSquare`, `Litchi` - Platform support
 
 -   :material-chart-line:{ .lg .middle } __[Analysis](analysis/index.md)__
 
@@ -100,7 +100,7 @@ from pils.loader.stout import StoutLoader
 from pils.sensors import GPS, IMU, Camera, ADC, Inclinometer
 
 # Drones (direct)
-from pils.drones import DJIDrone, BlackSquareDrone, Litchi
+from pils.drones import DJIDat, BlackSquare, Litchi
 
 # Analysis
 from pils.analyze.ppk import PPKAnalyzer

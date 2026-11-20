@@ -39,6 +39,8 @@ Every step is ``done``, ``skipped`` or ``failed`` (:class:`StepResult`);
 |------|--------|---------|
 | ``load <sensor>`` | skipped | no file for the sensor, or a file without data (the reason is given) |
 | ``load drone`` | failed | no drone log (e.g. an empty ``drone/`` folder) |
+| ``load drone <source>`` | done | LAGER ``uav_telemetry`` and ``gimbal``, the Matrice 400 ``flight_record`` |
+| ``load drone <source>`` | skipped | could not be decoded (e.g. ``flight_record`` without ``DJI_API_KEY``) |
 | ``load`` | done | with "synchronized to the drone GPS": no payload GPS |
 | ``load`` | failed | no payload GPS and no drone GPS: nothing to synchronize on |
 | ``sync`` | failed | the synchronization raised (the error is given) |
@@ -282,6 +284,11 @@ class FlightPackager:
             records = getattr(flight.raw_data.drone_data, "records", None) or {}
             if records:
                 result.add("load drone records", "done", _describe(records))
+            drone_data = flight.raw_data.drone_data
+            for name, data in drone_data.sources.items():
+                result.add(f"load drone {name}", "done", _describe(data))
+            for name, error in (drone_data.info.get("errors") or {}).items():
+                result.add(f"load drone {name}", "skipped", error)
         except Exception as e:
             # Broad: recorded (and logged); the payload may still sync
             result.add("load drone", "failed", _error(e))
@@ -290,6 +297,16 @@ class FlightPackager:
         drone = getattr(flight.raw_data.drone_data, "drone", None)
         has_gps = isinstance(gps, pl.DataFrame) and not gps.is_empty()
         has_drone = isinstance(drone, pl.DataFrame | dict) and len(drone) > 0
+        if not has_drone and flight.raw_data.drone_data.telemetry is not None:
+            # A Matrice 400 has no .DAT: its telemetry is the drone GPS
+            from pils.drones.sources import telemetry_positions
+
+            has_drone = (
+                telemetry_positions(
+                    flight.raw_data.drone_data.telemetry, receivers_only=True
+                )
+                is not None
+            )
         if not has_gps and not has_drone:
             result.add("load", "failed", "no payload GPS and no drone GPS to sync to")
             return None
@@ -553,7 +570,7 @@ class FlightPackager:
         sensors: Sequence[str] = PAYLOAD_SENSORS,
         lab_root: str | Path | None = None,
         save: bool = True,
-        telescope_source: str = "survey",
+        telescope_source: str | None = None,
         rtk_reference: str = "survey",
     ) -> PackageResult:
         """Load, synchronize, save and analyse the flight.
@@ -573,10 +590,12 @@ class FlightPackager:
             Lab data root for the power analysis.
         save : bool
             Write the products; False computes everything without writing.
-        telescope_source : {"survey", "so3g"}, default="survey"
-            Telescope positions for AZEL: the campaign's survey, else the
-            newest survey of another campaign; or the ``so3g`` site (2-3 m
-            off). See ``pils.sensors.emlid.reference_positions``.
+        telescope_source : {"survey", "campaign", "so3g"}, optional
+            Telescope positions for AZEL: ``survey``, the campaign's survey,
+            else the newest survey of another campaign; ``campaign``, the
+            campaign's survey, else the ``so3g`` site; ``so3g``, the so3g site
+            (2-3 m off). Default ``$PILS_TELESCOPE_SOURCE``, else ``survey``.
+            See ``pils.sensors.emlid.reference_positions``.
         rtk_reference : {"survey", "broadcast"}, default="survey"
             The frame of the drone RTK positions for AZEL: the campaign
             survey's (the base correction added) or the broadcast base's (as
@@ -590,7 +609,9 @@ class FlightPackager:
         from pils.config.telescopes import TELESCOPES_CONFIG
 
         telescopes = list(telescopes)
-        self.telescope_source = telescope_source
+        from pils.sensors.emlid import default_telescope_source
+
+        self.telescope_source = telescope_source or default_telescope_source()
         self.rtk_reference = rtk_reference
         power_targets = list(power_targets)
         geod = dji_broadcast_geod or TELESCOPES_CONFIG["dji_broadcast_geod"]

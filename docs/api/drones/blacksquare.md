@@ -1,3 +1,3 @@
-# BlackSquareDrone
+# BlackSquare
 
-::: pils.drones.BlackSquareDrone
+::: pils.drones.blacksquare

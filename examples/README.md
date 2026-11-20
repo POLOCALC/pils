@@ -35,8 +35,9 @@ flight.add_sensor_data(['gps', 'imu'])
 gps_data = flight.raw_data.payload_data.gps
 print(gps_data.head())
 
-# Export
-flight.to_hdf5("output/flight.h5")
+# Save (parquet: raw/ and sync/rev_*/), and load back
+flight.save("output/flight")
+flight = Flight.load("output/flight")
 ```
 
 ## Documentation

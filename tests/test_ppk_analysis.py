@@ -30,7 +30,7 @@ def write_legacy_ppk_version(
 
     import h5py
 
-    from pils.utils.hdf5 import write_table
+    from .legacy_hdf5_writer import write_table
 
     path.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(path, "a") as f:
@@ -142,7 +142,6 @@ class TestPPKAnalysisInit:
         assert ppk.flight_path == mock_flight.flight_path
         assert ppk.ppk_dir.exists()
         assert ppk.ppk_dir == mock_flight.flight_path / "proc" / "ppk"
-        assert ppk.hdf5_path == ppk.ppk_dir / "ppk_solution.h5"
 
     def test_init_validates_flight_type(self, tmp_path):
         """Test that initialization raises TypeError for non-Flight objects."""
@@ -198,7 +197,7 @@ class TestPPKAnalysisInit:
 
 
 class TestPPKAnalysisLoad:
-    """Test PPKAnalysis.load (and its alias from_hdf5) with Flight objects."""
+    """Test PPKAnalysis.load with Flight objects."""
 
     def test_load_with_flight_object(self, mock_flight):
         """Test load accepts Flight object and extracts flight_path."""
@@ -583,8 +582,8 @@ class TestSave:
 
         folder = ppk.ppk_dir / "rev_20260204_143022"
         assert (folder / "manifest.json").is_file()
-        # Nothing is written to the legacy HDF5 file
-        assert not ppk.hdf5_path.exists()
+        # Nothing is written in HDF5
+        assert not list(ppk.ppk_dir.glob("*.h5"))
 
     def test_save_version_creates_tables(self, tmp_path):
         """The revision has a position and a statistics table."""
@@ -887,7 +886,7 @@ class TestLoad:
 
         # Load via classmethod (from_hdf5 is the same)
         ppk2 = PPKAnalysis.load(flight)
-        assert PPKAnalysis.from_hdf5(flight).list_versions() == ["rev_classmethod"]
+        assert PPKAnalysis.load(flight).list_versions() == ["rev_classmethod"]
 
         assert isinstance(ppk2, PPKAnalysis)
         assert ppk2.flight_path == flight_path
@@ -932,8 +931,8 @@ class TestLoad:
         assert len(ppk.versions) == 0
         assert ppk.flight_path == flight_path
 
-    def test_load_reads_legacy_hdf5_versions(self, tmp_path):
-        """Versions in a ppk_solution.h5 written before the store are loaded."""
+    def test_legacy_hdf5_versions_are_loaded_after_pils_migrate(self, tmp_path):
+        """Versions in a ppk_solution.h5 written before the store: read after pils migrate."""
         flight_path = tmp_path / "flight_legacy"
         flight_path.mkdir()
         flight = create_flight_from_path(flight_path)
@@ -951,7 +950,7 @@ class TestLoad:
         )
         # Old names: GPS-time "time", "lat", "Q"; statistics with "tow" only
         write_legacy_ppk_version(
-            ppk1.hdf5_path,
+            ppk1.ppk_dir / "ppk_solution.h5",
             "rev_20260201_120000",
             pl.DataFrame(
                 {
@@ -965,6 +964,10 @@ class TestLoad:
             config_hash="old",
             revision_path=ppk1.ppk_dir / "rev_20260201_120000",
         )
+        from pils.migrate import migrate_proc
+
+        assert PPKAnalysis.load(flight).list_versions() == ["rev_20260301_120000"]
+        assert migrate_proc(flight_path / "proc") == ["ppk rev_20260201_120000"]
 
         ppk2 = PPKAnalysis.load(flight)
 
@@ -1106,31 +1109,6 @@ class TestVersionManagement:
         ppk.delete_version("rev_delete_saved")
 
         assert store.list_versions(ppk.ppk_dir) == []
-        assert PPKAnalysis.load(flight).list_versions() == []
-
-    def test_delete_version_removes_legacy_hdf5_group(self, tmp_path):
-        """A legacy version is removed from ppk_solution.h5 too."""
-        import h5py
-
-        flight_path = tmp_path / "flight_delete_legacy"
-        flight_path.mkdir()
-        flight = create_flight_from_path(flight_path)
-        ppk = PPKAnalysis(flight)
-        write_legacy_ppk_version(
-            ppk.hdf5_path,
-            "rev_20260201_120000",
-            pl.DataFrame({"timestamp": [1.0]}),
-            pl.DataFrame({"timestamp": [1.0]}),
-            config_hash="old",
-            revision_path=ppk.ppk_dir / "rev_20260201_120000",
-        )
-        ppk = PPKAnalysis.load(flight)
-        assert ppk.list_versions() == ["rev_20260201_120000"]
-
-        ppk.delete_version("rev_20260201_120000")
-
-        with h5py.File(ppk.hdf5_path, "r") as f:
-            assert "rev_20260201_120000" not in f
         assert PPKAnalysis.load(flight).list_versions() == []
 
     def test_delete_version_removes_folder(self, tmp_path):

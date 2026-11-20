@@ -5,10 +5,10 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
-from ..utils.logging_config import get_logger
-from ..utils.tools import drop_nan_and_zero_cols
-from .dji_alignment import DJIAlignmentMixin
-from .dji_dat import (  # noqa: F401  (re-exported: the .dat format lived here)
+from ...utils.logging_config import get_logger
+from ...utils.tools import drop_nan_and_zero_cols
+from .dat_alignment import DJIAlignmentMixin
+from .dat_format import (  # noqa: F401  (re-exported: the .dat format lived here)
     _CRC_TABLE_NP,
     _GPS_FIELDS,
     _HEADER_SIZE,
@@ -24,12 +24,12 @@ from .dji_dat import (  # noqa: F401  (re-exported: the .dat format lived here)
     scan_records,
     unwrap_ticks,
 )
-from .dji_messages import DJIMessageMixin
+from .dat_messages import DJIMessageMixin
 
 logger = get_logger(__name__)
 
 
-class DJIDrone(DJIAlignmentMixin, DJIMessageMixin):
+class DJIDat(DJIAlignmentMixin, DJIMessageMixin):
     """DJI Drone data loader supporting CSV and DAT binary formats.
 
     Handles loading and processing of DJI drone flight logs from both
@@ -45,7 +45,7 @@ class DJIDrone(DJIAlignmentMixin, DJIMessageMixin):
     """
 
     def __init__(self, path: str | Path, source_format: str | None = None) -> None:
-        """Initialize DJIDrone loader.
+        """Initialize DJIDat loader.
 
         Parameters
         ----------

@@ -205,11 +205,17 @@ def get_leapseconds(year: int, month: int) -> int:
     """
     # Load and prepare DataFrame
     ls_table = LeapSeconds.auto_open()
+    # A leap second takes effect on the 1st of a month; astropy 8 dropped
+    # the table's "day" column
     ls_df = pl.DataFrame(
         {
             "year": list(ls_table["year"]),  # type: ignore
             "month": list(ls_table["month"]),  # type: ignore
-            "day": list(ls_table["day"]),  # type: ignore
+            "day": (
+                list(ls_table["day"])  # type: ignore
+                if "day" in ls_table.colnames
+                else [1] * len(ls_table)
+            ),
             "tai_utc": list(ls_table["tai_utc"]),  # type: ignore
         }
     )
@@ -227,18 +233,18 @@ def get_leapseconds(year: int, month: int) -> int:
     end_ls = ls_df.filter(pl.col("date") <= end_date).tail(1)["tai_utc"][0]
 
     # Compute leap seconds
-    leap_seconds = end_ls - start_ls
-    return leap_seconds
+    # Whole seconds since 1972 (astropy 8 gives them as floats)
+    return int(round(end_ls - start_ls))
 
 
-class BlackSquareDrone:
+class BlackSquare:
     """Loader for BlackSquare drone ArduPilot log files.
 
     Parses ArduPilot binary log format and provides access to sensor data.
     """
 
     def __init__(self, path: str | Path) -> None:
-        """Initialize BlackSquareDrone loader.
+        """Initialize BlackSquare loader.
 
         Parameters
         ----------

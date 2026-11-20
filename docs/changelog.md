@@ -4,7 +4,59 @@ All notable changes to PILS are documented here.
 
 ## [Unreleased]
 
+### Added
+- `--telescope-source campaign` (and `telescope_source="campaign"`): the
+  telescope position from the campaign's own survey, else the so3g site
+  (never another campaign's survey). `$PILS_TELESCOPE_SOURCE` sets the default
+  for `pils package`, `pils quicklook` and AZEL (e.g. for tripel's packaging);
+  without it the default stays `survey`.
+- LAGER telemetry decoders, ported from POLOCALC/lager (no import): the
+  Matrice 600 OSDK frames (`pils.drones.M600Telemetry`), the Matrice 400
+  `psdk_telemetry` stream (`M400Telemetry`) and the Gremsy T7 gimbal
+  (`pils.gimbals.GremsyT7Telemetry`), as polars tables. `load_telemetry(folder)`
+  picks them from the YAML in the data folder. The gimbal's pickle log is read
+  with a restricted unpickler. `M400FlightRecord` decodes the `.txt` flight
+  record of the Matrice 400's remote controller with `pydjirecord` (now a
+  required dependency, with `protobuf>=6.31.1`), the app key from
+  `$DJI_API_KEY`. Tests write the byte layouts independently and
+  were checked against lager's own loaders.
+
+- `Flight.add_drone_data` loads every source of the flight it finds: the
+  .DAT/CSV and Litchi as before, and the LAGER telemetry, gimbal and the
+  Matrice 400 flight record (`dji_api_key` or `$DJI_API_KEY`) in the drone or
+  aux folder. They are in `raw_data.drone_data.sources` (`.telemetry`,
+  `.gimbal`, `.flight_record`), saved by `Flight.save` as parquet
+  (`drone/uav_telemetry.parquet`, `drone/gimbal/<message>.parquet`,
+  `drone/flight_record.parquet`) and loaded back by `Flight.load`. A Matrice
+  400 flight needs no `.DAT`. Not written to HDF5 (a warning says so).
+- `Flight.sync` synchronizes them with the payload GPS as the reference: a
+  Matrice 400's drone GPS is its telemetry (RTK or GNSS epochs); with a `.DAT`,
+  the telemetry and the flight record get their own offsets
+  (`telemetry_gps`, `flight_record_gps`) and tables, and the gimbal log
+  (`gimbal_<message>`) follows the telemetry's clock. New
+  `Synchronizer.add_position_source` and `add_attached_table`.
+
+### Fixed
+- BlackSquare leap seconds with astropy 8, whose leap-second table has no
+  `day` column (a leap second always starts on the 1st of a month).
+
 ### Changed (breaking)
+- No HDF5 in PILS: every product is parquet (`pils.store`). Removed
+  `Flight.to_hdf5` / `Flight.from_hdf5` (`pils.flight.hdf5`), the PPK
+  `ppk_solution.h5` (`PPKAnalysis.hdf5_path`, `from_hdf5`: use `load`), the
+  lab analyses' `<analysis>_solution.h5` runs and the HDF5 writers of
+  `pils.utils.hdf5` (now only reads the lab's `.h5py` inputs). Old
+  `*_solution.h5` results are converted once with `pils migrate` (its
+  read-only reader is `pils.legacy_hdf5`); `sync_data.h5` flight files are not
+  converted any more.
+- Drone code is organised by make and source: `pils.drones.dji.dat`
+  (`DJIDat`, was `pils.drones.DJIDrone.DJIDrone`; the .DAT format is in
+  `dji/dat_format.py`), `pils.drones.dji.litchi` (`Litchi`) and
+  `pils.drones.blacksquare` (`BlackSquare`, was `BlackSquareDrone`).
+  `DRONE_MAP` and `drone_init` call the DJI .DAT source `dji_dat` (was
+  `dji`); `load_flight_data(drones=...)` too. No old names are kept.
+  This is the first step towards one folder per DJI model (M400, M600).
+
 - Column names follow one schema (`pils.schema`, version 1): `snake_case`,
   the unit as a suffix (`_deg`, `_m`, `_m_s`, `_rad_s`, `_g`, `_hpa`, `_c`,
   `_mv`, ...), heights with their reference (`h_ell_m`, `h_msl_m`,
@@ -202,9 +254,9 @@ All notable changes to PILS are documented here.
 - `Inclinometer` - KERNEL inclinometer binary decoder
 
 #### Drones
-- `DJIDrone` - DJI SRT and CSV telemetry
+- `DJIDat` - DJI SRT and CSV telemetry
 - `Litchi` - Litchi flight logs
-- `BlackSquareDrone` - BlackSquare platform data
+- `BlackSquare` - BlackSquare platform data
 
 #### Synchronization
 - `CorrelationSynchronizer` - Cross-correlation time alignment

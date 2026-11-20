@@ -277,8 +277,7 @@ class TestResampleTable:
 
 
 def test_raw_and_sync_provenance(tmp_path):
-    import h5py
-
+    from pils import store
     from pils.flight import Flight, PayloadData
 
     flight = Flight({"drone_data_folder_path": "", "aux_data_folder_path": ""})
@@ -294,12 +293,10 @@ def test_raw_and_sync_provenance(tmp_path):
     synced = flight.sync()
     assert synced["reference_gps"].height == 20 * 100 - 99  # resampled at 100 Hz
     assert flight.sync_rates["reference_gps"] == 100.0
-    path = tmp_path / "f.h5"
-    flight.to_hdf5(path)
-    with h5py.File(path) as f:
-        saved_at = f["raw_data"].attrs["saved_at"]
-        revision = f["sync_data"][sorted(f["sync_data"])[-1]]
-        assert revision.attrs["raw_data_saved_at"] == saved_at
+    revision = flight.save(tmp_path / "f")
+    saved_at = store.read_manifest(tmp_path / "f" / "raw")["saved_at"]
+    sync = store.read_manifest(tmp_path / "f" / "sync" / revision)
+    assert sync["metadata"]["raw_saved_at"] == saved_at
 
 
 class TestPayloadClock:

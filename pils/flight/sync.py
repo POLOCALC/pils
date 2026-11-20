@@ -8,6 +8,7 @@ import numpy as np
 import polars as pl
 
 from pils import schema
+from pils.drones.sources import telemetry_positions
 from pils.synchronizer import Synchronizer
 
 logger = logging.getLogger(__name__)
@@ -150,6 +151,14 @@ class FlightSyncMixin:
         drone_has_data = (isinstance(drone_data, dict) and len(drone_data) > 0) or (
             isinstance(drone_data, pl.DataFrame) and len(drone_data) > 0
         )
+        # A drone without a .DAT (the Matrice 400): the drone GPS is LAGER's
+        # telemetry, if it has the RTK or GNSS receiver's positions
+        telemetry = self.raw_data.drone_data.telemetry
+        telemetry_is_drone = False
+        if not drone_has_data and telemetry is not None:
+            usable = telemetry_positions(telemetry, receivers_only=True)
+            if usable is not None:
+                drone_data, drone_has_data, telemetry_is_drone = telemetry, True, True
         if gps_data is None and not drone_has_data:
             raise ValueError(
                 "No reference timebase: no payload GPS data and no drone GPS. "
@@ -167,7 +176,7 @@ class FlightSyncMixin:
             if isinstance(drone_df, dict):  # ArduPilot messages
                 drone_df = drone_df.get("gps", next(iter(drone_df.values())))
 
-            model = (self._drone_model or "").lower()
+            model = "dji" if telemetry_is_drone else (self._drone_model or "").lower()
             records_gps = (self.raw_data.drone_data.records or {}).get("gps")
             rtk_df = None
             if "dji" in model and use_rtk_data and "rtk_lat_deg" in drone_df.columns:
@@ -258,6 +267,24 @@ class FlightSyncMixin:
             if "drone" not in target_rate:
                 target_rate["drone"] = 10.0
             sync.add_litchi_gps(litchi_df)
+
+        # Other sources of the drone's position: each its own offset to the
+        # reference GPS (LAGER's telemetry when the .DAT is the drone GPS, the
+        # Matrice 400's flight record); the gimbal log is on the telemetry's clock
+        drone_sources = self.raw_data.drone_data.sources
+        for name, table in (
+            ("telemetry", None if telemetry_is_drone else telemetry),
+            ("flight_record", drone_sources.get("flight_record")),
+        ):
+            positions = telemetry_positions(table) if table is not None else None
+            if positions is None:
+                continue
+            frame, cols = positions
+            sync.add_position_source(name, frame, cols["lat"], cols["lon"], cols["alt"])
+        if telemetry is not None:
+            clock = "drone_gps" if telemetry_is_drone else "telemetry_gps"
+            for message, table in self.raw_data.drone_data.gimbal.items():
+                sync.add_attached_table(f"gimbal_{message}", table, to=clock)
 
         # Add other drone records (DJI .dat attitude, motors, ...)
         records = getattr(self.raw_data.drone_data, "records", None) or {}

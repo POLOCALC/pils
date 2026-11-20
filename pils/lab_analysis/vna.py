@@ -6,8 +6,8 @@ from typing import Any
 import numpy as np
 import polars as pl
 
+from pils import store as result_store
 from pils.lab_analysis.base import LabAnalysis, LabVersion
-from pils.utils.hdf5 import new_version_name
 from pils.utils.logging_config import get_logger
 from pils.utils.units import db_to_linear, linear_to_db
 
@@ -159,7 +159,7 @@ class VNAAnalysis(LabAnalysis):
         summary = frequency_summary(spectrum, frequencies_ghz, window_ghz, corrected)
 
         version = LabVersion(
-            version_name=new_version_name(),
+            version_name=result_store.new_version_name(),
             tables={"spectrum": spectrum, "summary": summary},
             metadata=self._base_metadata()
             | {

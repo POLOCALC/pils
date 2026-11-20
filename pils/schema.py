@@ -282,6 +282,63 @@ BLACKSQUARE = {
     "heightMSL": Field("h_msl_m"),
 }
 
+# LAGER telemetry of the Matrice 600 and 400 (``uav_telemetry.bin``); the names
+# of the two decoders differ only where a field is not in both
+UAV_TELEMETRY = {
+    "t_ticks": Field("tick"),  # M600: 400 Hz flight controller ticks
+    "roll": Field("roll_deg"),
+    "pitch": Field("pitch_deg"),
+    "yaw": Field("yaw_deg"),
+    "q0": Field("quat_w"),
+    "q1": Field("quat_x"),
+    "q2": Field("quat_y"),
+    "q3": Field("quat_z"),
+    **_xyz("a{axis}", "acc", "g"),  # M400: body frame, gravity included
+    **_xyz("g{axis}", "gyro", "rad_s"),
+    **_xyz("v{axis}", "vel", "m_s"),
+    **_xyz("m{axis}", "mag", ""),
+    # The fused position (M600 broadcast; M400 position_fused, WGS84 ellipsoid)
+    "lat_deg": Field("fused_lat_deg"),
+    "lon_deg": Field("fused_lon_deg"),
+    "alt_m": Field("fused_h_m"),
+    "gps_hfsl_m": Field("gps_h_msl_m"),
+    # As the DJI .dat RTK: referenced to the base, which POLOCALC's bases
+    # broadcast as an ellipsoidal height (to check with the first M400/M600
+    # flight against the payload GPS)
+    "rtk_hfsl_m": Field("rtk_h_ell_m"),
+    "gim_roll": Field("gimbal_roll_deg"),
+    "gim_pitch": Field("gimbal_pitch_deg"),
+    "gim_yaw": Field("gimbal_yaw_deg"),
+}
+
+# MAVLink messages of the Gremsy T7 gimbal (MOUNT_ORIENTATION, in degrees)
+GIMBAL = {
+    "roll": Field("roll_deg"),
+    "pitch": Field("pitch_deg"),
+    "yaw": Field("yaw_deg"),
+    "yaw_absolute": Field("yaw_absolute_deg"),
+}
+
+# The app's flight record of the Matrice 400 (``DJIFlightRecord_*.txt``)
+DJI_RECORD = {
+    "osd_latitude": Field("lat_deg"),
+    "osd_longitude": Field("lon_deg"),
+    "osd_height": Field("h_rel_m"),  # above the take-off point
+    "osd_altitude": Field("h_m"),  # height + home altitude; reference not known
+    "osd_fly_time": Field("fly_time_s"),
+    "osd_pitch": Field("pitch_deg"),
+    "osd_roll": Field("roll_deg"),
+    "osd_yaw": Field("yaw_deg"),
+    **_xyz("osd_{axis}_speed", "vel", "m_s"),
+    "osd_h_speed": Field("speed_h_m_s"),
+    "gimbal_pitch": Field("gimbal_pitch_deg"),
+    "gimbal_roll": Field("gimbal_roll_deg"),
+    "gimbal_yaw": Field("gimbal_yaw_deg"),
+    "home_latitude": Field("home_lat_deg"),
+    "home_longitude": Field("home_lon_deg"),
+    "home_altitude": Field("home_h_m"),
+}
+
 CAMERA = {
     "pitch": Field("pitch_deg"),
     "roll": Field("roll_deg"),
@@ -301,6 +358,9 @@ TABLES: dict[str, dict[str, Field]] = {
     "litchi": LITCHI,
     "dji": DJI,
     "blacksquare": BLACKSQUARE,
+    "uav_telemetry": UAV_TELEMETRY,
+    "gimbal": GIMBAL,
+    "dji_record": DJI_RECORD,
     "camera": CAMERA,
 }
 DROP: dict[str, tuple[str, ...]] = {"litchi": LITCHI_DROP}
@@ -451,6 +511,9 @@ _TABLE_TITLES = {
     "litchi": "Litchi (`drone_data.litchi`)",
     "dji": "DJI drone table (`drone_data.drone`)",
     "blacksquare": "BlackSquare / ArduPilot (`drone_data.drone[...]`)",
+    "uav_telemetry": "LAGER telemetry, Matrice 400 and 600 (`drone_data.telemetry`)",
+    "gimbal": "LAGER gimbal telemetry (`drone_data.gimbal[...]`)",
+    "dji_record": "Matrice 400 flight record, .txt (`drone_data.flight_record`)",
     "camera": "Camera (`payload_data.camera`)",
 }
 

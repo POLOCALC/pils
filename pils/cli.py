@@ -332,10 +332,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     package.add_argument(
         "--telescope-source",
-        choices=["survey", "so3g"],
-        default="survey",
-        help="Telescope positions for AZEL: the campaign survey, else another "
-        "campaign's (default); or the so3g site (sotodlib; 2-3 m off)",
+        choices=["survey", "campaign", "so3g"],
+        default=None,
+        help="Telescope positions for AZEL: survey = the campaign survey, else "
+        "another campaign's; campaign = the campaign survey, else the so3g site; "
+        "so3g = the so3g site (sotodlib; 2-3 m off). Default: "
+        "$PILS_TELESCOPE_SOURCE, else survey",
     )
     package.add_argument(
         "--rtk-reference",
@@ -395,10 +397,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     quicklook.add_argument(
         "--telescope-source",
-        choices=["survey", "so3g"],
-        default="survey",
-        help="Telescope positions for AZEL: the campaign survey, else another "
-        "campaign's (default); or the so3g site (sotodlib; 2-3 m off)",
+        choices=["survey", "campaign", "so3g"],
+        default=None,
+        help="Telescope positions for AZEL: survey = the campaign survey, else "
+        "another campaign's; campaign = the campaign survey, else the so3g site; "
+        "so3g = the so3g site (sotodlib; 2-3 m off). Default: "
+        "$PILS_TELESCOPE_SOURCE, else survey",
     )
     quicklook.add_argument(
         "--rtk-reference",
@@ -413,7 +417,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write <output-dir>/<flight>/proc/quicklook/ instead of in the flight folder",
     )
     migrate = sub.add_parser(
-        "migrate", help="Convert HDF5 results in proc/ to the Parquet layout"
+        "migrate", help="Convert old HDF5 results in proc/ to parquet (once)"
     )
     migrate.add_argument(
         "proc_dirs", nargs="+", help="proc/ folders of flights or lab items"

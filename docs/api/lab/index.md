@@ -25,9 +25,9 @@ the lab results of inventory items (used by the [power analysis](../analysis/pow
 Each run is a write-once revision (see [Storage](../utilities/storage.md));
 table columns follow the [data schema](../../user-guide/data-schema.md)
 (`frequency_ghz`, `s21_avg_db`, `gain_dbi`, `fwhm_deg`, `diode_output_mv`...).
-Runs saved before in `proc/<analysis>/<analysis>_solution.h5` are still
-listed and read; `pils.migrate.migrate_lab(<test folder>/proc)` converts them
-(the HDF5 file is kept).
+Runs saved before in `proc/<analysis>/<analysis>_solution.h5` are not read:
+`pils migrate <test folder>/proc` converts them to parquet (the HDF5 file is
+kept). The raw `.h5py` measurements are inputs and are read as they are.
 
 The lab root is `PILS_LAB_DATA_PATH`, else STOUT's data path + `lab`, else
 `/mnt/data/POLOCALC/lab`. The notes front matter names the STOUT items used:

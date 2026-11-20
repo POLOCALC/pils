@@ -213,11 +213,9 @@ class TestDroneLoaderChoice:
             def load_data(self, **kwargs):
                 used.append((type(self).__name__, str(self.path)))
 
-        monkeypatch.setattr(core, "DJIDrone", type("DJIDrone", (Fake,), {}))
+        monkeypatch.setattr(core, "DJIDat", type("DJIDat", (Fake,), {}))
         monkeypatch.setattr(core, "Litchi", type("Litchi", (Fake,), {}))
-        monkeypatch.setattr(
-            core, "BlackSquareDrone", type("BlackSquareDrone", (Fake,), {})
-        )
+        monkeypatch.setattr(core, "BlackSquare", type("BlackSquare", (Fake,), {}))
         return used
 
     def test_unknown_model_with_dji_log(self, tmp_path, monkeypatch):
@@ -226,11 +224,11 @@ class TestDroneLoaderChoice:
         (tmp_path / "x_litchi.csv").write_text("")
         flight = Flight({"drone_data_folder_path": str(tmp_path)})
         flight.add_drone_data(drone_model="m300")
-        assert [name for name, _ in used] == ["DJIDrone", "Litchi"]
+        assert [name for name, _ in used] == ["DJIDat", "Litchi"]
 
     def test_unknown_model_without_dji_log(self, tmp_path, monkeypatch):
         used = self.loaders(monkeypatch)
         (tmp_path / "x.bin").write_text("")
         flight = Flight({"drone_data_folder_path": str(tmp_path)})
         flight.add_drone_data(drone_model="m300")
-        assert [name for name, _ in used] == ["BlackSquareDrone"]
+        assert [name for name, _ in used] == ["BlackSquare"]

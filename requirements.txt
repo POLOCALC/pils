@@ -14,6 +14,8 @@ pyubx2==1.2.59
 AHRS==0.4.0
 telemetry-parser==0.3.0
 numdifftools==0.9.41
+pydjirecord==1.3.0
+protobuf==6.31.1  # pydjirecord's compiled protobuf needs 6.31+
 # stout (POLOCALC/stout, private): the data folder's layout and the flight records
 stout @ git+https://github.com/POLOCALC/stout.git@main
 # Optional, not installed by this file:

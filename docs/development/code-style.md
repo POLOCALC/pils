@@ -370,8 +370,8 @@ except:
 with open(file_path) as f:
     data = f.read()
 
-with h5py.File(path, 'r') as f:
-    df = load_from_hdf5(f)
+with h5py.File(path, 'r') as f:  # a lab .h5py input
+    data = h5_to_dict(f)
 ```
 
 ---

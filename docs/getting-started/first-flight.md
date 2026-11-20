@@ -280,8 +280,8 @@ reloaded = Flight.load(output_dir / "flight")
 print(list(reloaded.sync_data))
 ```
 
-Flights saved in HDF5 by earlier versions still load with
-`Flight.from_hdf5(path)`; their columns are renamed to the schema.
+PILS saves flights as parquet only; HDF5 flight files of earlier versions
+are not read any more.
 
 ---
 

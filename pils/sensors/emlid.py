@@ -1,5 +1,8 @@
 """Surveyed positions of the telescopes and the RTK bases (EMLID survey).
 
+The default source is ``$PILS_TELESCOPE_SOURCE`` (``survey``, ``campaign`` or
+``so3g``), else ``survey``.
+
 Notes
 -----
 Each campaign can have its survey in ``<campaign>/metadata/*_coordinates.csv``
@@ -8,7 +11,7 @@ Each campaign can have its survey in ``<campaign>/metadata/*_coordinates.csv``
 
 | Position | Source, in order |
 |----------|------------------|
-| Telescope | the campaign's survey; the newest survey of another campaign that has it (the telescopes do not move); with ``telescope_source="so3g"``, the ``so3g`` site (``so3g.proj.SITES``, used by sotodlib) |
+| Telescope | ``telescope_source="survey"`` (default): the campaign's survey, else the newest survey of another campaign that has it (the telescopes do not move); ``"campaign"``: the campaign's survey, else the ``so3g`` site; ``"so3g"``: the ``so3g`` site (``so3g.proj.SITES``, used by sotodlib) |
 | DJI RTK base | the campaign's survey only (the base is set up again each campaign); without it the drone RTK track is not corrected |
 
 The ``so3g`` sites are given to the arcsecond with one elevation for the
@@ -319,8 +322,34 @@ class Emlid:
         return {"telescope": telescope_barycenter, "base": base}
 
 
-TELESCOPE_SOURCES = ("survey", "so3g")
-"""Where :func:`reference_positions` takes the telescope position from."""
+TELESCOPE_SOURCES = ("survey", "campaign", "so3g")
+"""Where :func:`reference_positions` takes the telescope position from.
+
+- ``"survey"``: the campaign's survey, else the newest survey of another campaign;
+- ``"campaign"``: the campaign's survey, else the ``so3g`` site;
+- ``"so3g"``: the ``so3g`` site.
+"""
+
+TELESCOPE_SOURCE_VARIABLE = "PILS_TELESCOPE_SOURCE"
+
+
+def default_telescope_source() -> str:
+    """Return the telescope source to use when none is given: ``$PILS_TELESCOPE_SOURCE``, else ``"survey"``.
+
+    Raises
+    ------
+    ValueError
+        If the variable is set to something else than :data:`TELESCOPE_SOURCES`.
+    """
+    import os
+
+    value = os.environ.get(TELESCOPE_SOURCE_VARIABLE, "").strip().lower() or "survey"
+    if value not in TELESCOPE_SOURCES:
+        raise ValueError(
+            f"${TELESCOPE_SOURCE_VARIABLE}={value!r}: one of {TELESCOPE_SOURCES}"
+        )
+    return value
+
 
 SO3G_SITES = {
     "satp1": "so_sat1",
@@ -456,9 +485,10 @@ def reference_positions(
         ``.../campaigns/<YYYYMM>``.
     telescope_name : str
         E.g. ``"SATP1"``: survey rows whose name starts with it.
-    telescope_source : {"survey", "so3g"}, default="survey"
+    telescope_source : {"survey", "campaign", "so3g"}, default="survey"
         ``"survey"``: the campaign's survey, else the newest survey of another
-        campaign. ``"so3g"``: the so3g site (2-3 m, see the module notes).
+        campaign. ``"campaign"``: the campaign's survey, else the so3g site.
+        ``"so3g"``: the so3g site (2-3 m, see the module notes).
     dji_base_name : str, default="dji rtk base (antenna base)"
         Survey name of the DJI RTK base.
 
@@ -487,6 +517,25 @@ def reference_positions(
             break
 
     notes: list[str] = []
+    if telescope_source == "campaign":
+        for f in own:
+            position = _barycenter(_read_survey(f), telescope_name, exact=False)
+            if position is not None:
+                found_own = ReferencePositions(
+                    position, "campaign survey", telescope_file=str(f), notes=notes
+                )
+                found_own.dji_base, found_own.base_file = dji_base, base_file
+                if dji_base is None:
+                    found_own.notes.append(
+                        "No surveyed DJI RTK base in this campaign: the drone RTK "
+                        "track is not corrected for the base position"
+                    )
+                return found_own
+        notes.append(
+            f"No survey of {telescope_name} in this campaign "
+            f"({campaign_dir.name}/metadata/*_coordinates.csv): the so3g site is used"
+        )
+        telescope_source = "so3g"
     if telescope_source == "so3g":
         so3g_geod, key = so3g_position(telescope_name)
         notes.append(

@@ -1,19 +1,11 @@
-"""Tests for the shared analysis helpers: units, HDF5 versions, uncertainty, geometry."""
+"""Tests for the shared analysis helpers: units, HDF5 input, uncertainty, geometry."""
 
 import h5py
 import numpy as np
-import polars as pl
 import pytest
 
 from pils.utils import geometry
-from pils.utils.hdf5 import (
-    h5_to_dict,
-    list_versions,
-    load_h5,
-    load_version,
-    new_version_name,
-    save_version,
-)
+from pils.utils.hdf5 import h5_to_dict, load_h5
 from pils.utils.uncertainty import (
     interpolate_with_errors,
     interpolate_with_errors_jacobian,
@@ -33,44 +25,7 @@ class TestUnits:
         assert float(mw_to_dbm(0.001)) == pytest.approx(-30.0)
 
 
-class TestVersionedHDF5:
-    def test_save_and_load(self, tmp_path):
-        path = tmp_path / "proc" / "x" / "x_solution.h5"
-        frame = pl.DataFrame(
-            {"freq": [84.0, 87.0], "count": [1, 2], "plane": ["H", "E"]}
-        )
-        save_version(path, "rev_20260101_120000", {"gain": frame}, {"n": np.int64(3)})
-        tables, metadata = load_version(path, "rev_20260101_120000")
-        assert tables["gain"].equals(frame)
-        assert metadata == {"n": 3}
-
-    def test_versions_with_parent(self, tmp_path):
-        path = tmp_path / "a.h5"
-        frame = pl.DataFrame({"x": [1.0]})
-        save_version(path, "rev_20260101_120000", {"t": frame}, {}, parent="SATP1")
-        save_version(path, "rev_20260102_120000", {"t": frame}, {}, parent="SATP1")
-        save_version(path, "rev_20260103_120000", {"t": frame}, {}, parent="SATP3")
-        assert list_versions(path, parent="SATP1") == [
-            "rev_20260101_120000",
-            "rev_20260102_120000",
-        ]
-        assert list_versions(path, parent="NOPE") == []
-        assert list_versions(tmp_path / "missing.h5") == []
-        with h5py.File(path) as f:
-            assert f.attrs["latest_version"] == "rev_20260103_120000"
-
-    def test_missing_version(self, tmp_path):
-        path = tmp_path / "a.h5"
-        save_version(path, "rev_20260101_120000", {}, {})
-        with pytest.raises(KeyError):
-            load_version(path, "rev_20990101_000000")
-        with pytest.raises(FileNotFoundError):
-            load_version(tmp_path / "missing.h5", "rev_20260101_120000")
-
-    def test_version_name_format(self):
-        assert new_version_name().startswith("rev_")
-        assert len(new_version_name()) == len("rev_20260101_120000")
-
+class TestHDF5Input:
     def test_h5_to_dict(self, tmp_path):
         path = tmp_path / "nested.h5"
         with h5py.File(path, "w") as f:
@@ -176,9 +131,6 @@ def test_new_version_name_is_utc():
     assert (
         store.new_version_name(dt.datetime(2025, 12, 8, 19, 27, 5))
         == "rev_20251208_192705"
-    )
-    assert (
-        new_version_name(dt.datetime(2025, 12, 8, 19, 27, 5)) == "rev_20251208_192705"
     )
 
 

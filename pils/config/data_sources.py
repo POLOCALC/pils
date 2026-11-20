@@ -86,19 +86,19 @@ SENSOR_MAP = {
 #
 # All drones are loaded from flight_info['drone_data_folder_path']
 DRONE_MAP = {
-    "dji": {
-        "module": ".drones.DJIDrone",
-        "class": "DJIDrone",
+    "dji_dat": {
+        "module": ".drones.dji.dat",
+        "class": "DJIDat",
         "patterns": ["*.dat", "*_drone.dat", "*.csv", "*_drone.csv", "*.DAT"],
     },
     "litchi": {
-        "module": ".drones.litchi",
+        "module": ".drones.dji.litchi",
         "class": "Litchi",
         "patterns": ["*litchi*.csv", "*Litchi*.csv"],
     },
     "blacksquare": {
-        "module": ".drones.BlackSquareDrone",
-        "class": "BlackSquareDrone",
+        "module": ".drones.blacksquare",
+        "class": "BlackSquare",
         "patterns": ["*.log"],
     },
 }

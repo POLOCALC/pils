@@ -12,11 +12,11 @@ import h5py
 import numpy as np
 import polars as pl
 
+from pils import store as result_store
 from pils.integrations.stout import layout
 from pils.lab_analysis.base import LabAnalysis, LabVersion
 from pils.lab_analysis.notes import component_ids
 from pils.lab_analysis.store import Item, LabStore
-from pils.utils.hdf5 import new_version_name
 from pils.utils.logging_config import get_logger
 from pils.utils.units import dbm_to_mw, mw_to_dbm
 
@@ -189,7 +189,7 @@ class MultiplierDiodeAnalysis(LabAnalysis):
         )
 
         version = LabVersion(
-            version_name=new_version_name(),
+            version_name=result_store.new_version_name(),
             tables={"responsivity": table, "corrections": corrections_table},
             metadata=self._base_metadata()
             | {

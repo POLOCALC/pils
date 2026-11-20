@@ -29,19 +29,18 @@ class PPKAnalysis(PPKInputsMixin, PPKStorageMixin):
     Standalone PPK analysis manager with smart execution and versioning.
 
     Manages RTKLIB-based post-processing of GPS data with intelligent
-    re-run logic, automatic versioning, and HDF5 persistence. Completely
+    re-run logic, automatic versioning, and parquet persistence. Completely
     separate from Flight class.
 
     The analysis system:
     - Only runs RTKLIB when config changes (SHA256 hash comparison)
     - Stores each revision in its own folder with .pos, .stat, .conf files
-    - Saves all versions to a single ppk_solution.h5 HDF5 file
+    - Saves each version as parquet tables with a manifest (:mod:`pils.store`)
     - Generates auto-timestamp version names
 
     File Structure
     --------------
     flight_dir/proc/ppk/
-    ├── ppk_solution.h5              # HDF5 with all versions
     └── rev_20260204_143022/         # Per-revision folder
         ├── solution.pos              # RTKLIB position output
         ├── solution.pos.stat         # RTKLIB statistics output
@@ -53,8 +52,6 @@ class PPKAnalysis(PPKInputsMixin, PPKStorageMixin):
         Root flight directory
     ppk_dir : Path
         PPK directory ({flight_path}/proc/ppk/)
-    hdf5_path : Path
-        Path to ppk_solution.h5 file
     versions : Dict[str, PPKVersion]
         Dictionary of loaded PPK versions
 
@@ -133,7 +130,6 @@ class PPKAnalysis(PPKInputsMixin, PPKStorageMixin):
         self.flight = flight
         self.flight_path = flight_path
         self.ppk_dir = self.flight_path / layout.PROC_FOLDER / "ppk"
-        self.hdf5_path = self.ppk_dir / "ppk_solution.h5"
         self.versions: dict[str, PPKVersion] = {}
 
         # Create PPK directory structure
@@ -164,7 +160,7 @@ class PPKAnalysis(PPKInputsMixin, PPKStorageMixin):
         - Creates revision folder with .pos, .stat, .conf files
         - Executes RTKLIB rnx2rtkp subprocess
         - Parses results using POSAnalyzer and STATAnalyzer
-        - Saves to HDF5
+        - Saves the version (parquet)
 
         Parameters
         ----------

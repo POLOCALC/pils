@@ -1,4 +1,4 @@
-"""Test suite for BlackSquareDrone module following TDD methodology."""
+"""Test suite for BlackSquare module following TDD methodology."""
 
 import logging
 from datetime import datetime
@@ -6,8 +6,8 @@ from datetime import datetime
 import polars as pl
 import pytest
 
-from pils.drones.BlackSquareDrone import (
-    BlackSquareDrone,
+from pils.drones.blacksquare import (
+    BlackSquare,
     get_leapseconds,
     messages_to_df,
     read_msgs,
@@ -132,7 +132,7 @@ class TestGetLeapseconds:
 
 
 class TestBlackSquareDrone:
-    """Test suite for BlackSquareDrone class."""
+    """Test suite for BlackSquare class."""
 
     @pytest.fixture
     def sample_log_file(self, tmp_path):
@@ -166,18 +166,18 @@ PARM, 1000000, b'SYSID_THISMAV', 1.0"""
 
     def test_init_with_string_path(self, sample_log_file):
         """Test initialization with string path."""
-        drone = BlackSquareDrone(str(sample_log_file))
+        drone = BlackSquare(str(sample_log_file))
         assert drone.path == str(sample_log_file)
         assert drone.data is None
 
     def test_init_with_path_object(self, sample_log_file):
         """Test initialization with Path object."""
-        drone = BlackSquareDrone(sample_log_file)
+        drone = BlackSquare(sample_log_file)
         assert drone.path == sample_log_file
 
     def test_load_data_success(self, sample_log_file):
         """Test successful data loading."""
-        drone = BlackSquareDrone(sample_log_file)
+        drone = BlackSquare(sample_log_file)
         drone.load_data()
         assert drone.data is not None
         assert isinstance(drone.data, dict)
@@ -185,14 +185,14 @@ PARM, 1000000, b'SYSID_THISMAV', 1.0"""
 
     def test_load_data_all_sensors(self, sample_log_file):
         """Test that all expected sensors are loaded."""
-        drone = BlackSquareDrone(sample_log_file)
+        drone = BlackSquare(sample_log_file)
         drone.load_data()
         # Just verify multiple message types were parsed
         assert len(drone.data.keys()) >= 5
 
     def test_compute_datetime(self, sample_log_file):
         """Test datetime computation from GPS."""
-        drone = BlackSquareDrone(sample_log_file)
+        drone = BlackSquare(sample_log_file)
         drone.load_data()
         # Just verify the method can be called
         try:
@@ -203,7 +203,7 @@ PARM, 1000000, b'SYSID_THISMAV', 1.0"""
 
     def test_compute_datetime_values(self, sample_log_file):
         """Test that computed datetime values are reasonable."""
-        drone = BlackSquareDrone(sample_log_file)
+        drone = BlackSquare(sample_log_file)
         drone.load_data()
         # Skip if no GPA data
         if drone.gpa is None:
@@ -216,7 +216,7 @@ PARM, 1000000, b'SYSID_THISMAV', 1.0"""
 
     def test_params_cleaning(self, sample_log_file):
         """Test that PARM names are cleaned properly."""
-        drone = BlackSquareDrone(sample_log_file)
+        drone = BlackSquare(sample_log_file)
         drone.load_data()
         # Just verify params were loaded
         assert hasattr(drone, "params")

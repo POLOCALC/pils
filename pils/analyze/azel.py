@@ -243,7 +243,7 @@ class AZELAnalysis:
         drone_timezone_hours: float = 0.0,
         save_data: bool = False,
         additional_metadata: dict[str, Any] | None = None,
-        telescope_source: str = "survey",
+        telescope_source: str | None = None,
         rtk_reference: str = "survey",
     ) -> AZELVersion | None:
         """Run AZEL analysis for drone telescope tracking.
@@ -262,7 +262,7 @@ class AZELAnalysis:
         ----------
         telescope_name : str
             Telescope identifier (e.g., 'SATP1') for filtering EMLID data.
-            This will be used as the HDF5 group name when saving.
+            It names the folder of the saved revisions (``azel/<TELESCOPE>/``).
         dji_broadcast_geod : dict[str, float]
             Broadcast DJI base position dict with keys 'lat', 'lon', 'alt'.
             Values in WGS84 degrees (lat, lon) and meters (alt).
@@ -276,11 +276,13 @@ class AZELAnalysis:
             Additional metadata to include in the version metadata.
             This can include experiment details, weather conditions, etc.
             Default is None.
-        telescope_source : {"survey", "so3g"}, default="survey"
-            Where the telescope position comes from: the campaign's survey or,
-            without it, the newest survey of another campaign; or the ``so3g``
-            site (2-3 m off, see ``pils.sensors.emlid``). The source is in the
-            metadata (``telescope_position_source``).
+        telescope_source : {"survey", "campaign", "so3g"}, optional
+            Where the telescope position comes from: ``survey``, the
+            campaign's survey or, without it, the newest survey of another
+            campaign; ``campaign``, the campaign's survey or, without it, the
+            ``so3g`` site; ``so3g``, the so3g site (2-3 m off, see
+            ``pils.sensors.emlid``). Default ``$PILS_TELESCOPE_SOURCE``, else
+            ``survey``. The source is in the metadata (``telescope_position_source``).
         rtk_reference : {"survey", "broadcast"}, default="survey"
             The frame of the drone RTK positions. ``"survey"``: the campaign
             survey's, where the telescopes are (the Emlid's): the base
@@ -453,10 +455,12 @@ class AZELAnalysis:
 
         # 4. Telescope and DJI base positions (campaign survey, another
         # campaign's survey, or so3g; see pils.sensors.emlid)
+        from pils.sensors.emlid import default_telescope_source
+
         positions = reference_positions(
             Path(self.flight.flight_path).parents[1],
             telescope_name,
-            telescope_source=telescope_source,
+            telescope_source=telescope_source or default_telescope_source(),
         )
         telescope_geod = positions.telescope
         base_geod = positions.dji_base
@@ -610,7 +614,7 @@ class AZELAnalysis:
             version_name=version_name, azel_data=azel_data, metadata=metadata
         )
 
-        # Save to HDF5 if requested
+        # Save the revision (parquet) if requested
         if save_data:
             self._save_version(version, telescope_name=telescope_name)
 

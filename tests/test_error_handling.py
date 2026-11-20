@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from pils.analyze.ppkdata.RINEX.analyzer import RINEXAnalyzer
-from pils.flight import Flight, _deserialize_from_hdf5
+from pils.flight import Flight
 from pils.sensors.adc import ADC
 from pils.sensors.LM76 import LM76
 
@@ -36,11 +36,6 @@ def test_drone_model_lookup_failure_is_logged(tmp_path, monkeypatch, caplog):
         model = flight._detect_drone_model(str(tmp_path / "drone"))
     assert model == "blacksquare"  # the file names are still the fallback
     assert "database down" in caplog.text
-
-
-def test_deserialize_keeps_plain_strings():
-    assert _deserialize_from_hdf5("not json", hint="dict") == "not json"
-    assert _deserialize_from_hdf5('{"a": 1}', hint="dict") == {"a": 1}
 
 
 def test_unreadable_adc_config_logs_the_default_gain(tmp_path, caplog):

@@ -269,8 +269,23 @@ at its rate, by the same rules:
 | `inclinometer` | inclinometer `ins` table | `inclinometer` (100 Hz) |
 | `adc`, `lm76`, `imu_<sensor>` | payload sensors | `payload` (100 Hz) |
 | `drone_<record>` | DJI `.dat` records | `drone_records` (the drone rate) |
+| `telemetry` | LAGER telemetry (Matrice 400/600), when the `.DAT` is the drone table | `telemetry` (the drone rate) |
+| `flight_record` | the Matrice 400's app record (`.txt`) | `flight_record` (the drone rate) |
+| `gimbal_<message>` | LAGER gimbal log (`mount_orientation`, `raw_imu`, ...) | `gimbal_<message>` (the `drone_records` rate) |
 | `reference_gps` | payload GPS, the reference (absent when the drone GPS is) | `reference_gps` (100 Hz) |
 | `camera` | camera | its own frame rate |
+
+**Drone sources.** The reference is the payload (on-board) GPS, as before. The
+drone table is the `.DAT`; a Matrice 400 has none, so its drone table is LAGER's
+telemetry, from the RTK receiver (`rtk_h_ell_m`) or the GNSS receiver
+(`gps_h_msl_m`, with the geoid separation as for the `.DAT`), only at the
+epochs the receiver reported. When the `.DAT` is the drone table, the telemetry
+and the flight record are sources of their own: each has its own offset, found
+by correlating its track with the reference GPS (`offsets["telemetry_gps"]`,
+`offsets["flight_record_gps"]`), and is saved with its own column names (the
+fused and the app's heights have an unknown reference and are not turned into
+`h_ell_m`). The gimbal log is stamped by LAGER with the telemetry's clock and
+takes its offset.
 
 The position columns of `drone`, `litchi` and `reference_gps` are
 `lat_deg`, `lon_deg` and `h_ell_m` (height above the ellipsoid). `litchi`

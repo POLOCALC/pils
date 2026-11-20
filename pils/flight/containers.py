@@ -87,6 +87,17 @@ class DroneData:
         Drone telemetry data
     litchi : Optional[pl.DataFrame]
         Litchi flight log data (DJI only)
+    records : dict[str, pl.DataFrame]
+        Other DJI .dat records (attitude, motors, battery, ...)
+    sources : dict
+        The other sources of the same flight (see :mod:`pils.drones.sources`):
+        ``uav_telemetry`` (LAGER, Matrice 400 or 600), ``gimbal`` (a table per
+        MAVLink message) and ``flight_record`` (the app's .txt, Matrice 400);
+        also reachable as :attr:`telemetry`, :attr:`gimbal` and
+        :attr:`flight_record`
+    info : dict
+        Where the sources came from: models, files, decoder statistics and
+        errors
 
     Examples
     --------
@@ -109,6 +120,8 @@ class DroneData:
         drone_df: Union[dict[str, "pl.DataFrame"], "pl.DataFrame", None] = None,
         litchi_df: Optional["pl.DataFrame"] = None,
         records: dict[str, "pl.DataFrame"] | None = None,
+        sources: dict[str, Any] | None = None,
+        info: dict[str, Any] | None = None,
     ) -> None:
         """
         Initialize DroneData container.
@@ -132,6 +145,33 @@ class DroneData:
             litchi_df if litchi_df is not None else pl.DataFrame()
         )
         self.records: dict[str, pl.DataFrame] = records or {}
+        self.sources: dict[str, Any] = sources or {}
+        self.info: dict[str, Any] = info or {}
+
+    @property
+    def telemetry(self) -> "pl.DataFrame | None":
+        """LAGER's telemetry of the Matrice 400 or 600, or None."""
+        return self.sources.get("uav_telemetry")
+
+    @property
+    def gimbal(self) -> dict[str, "pl.DataFrame"]:
+        """LAGER's gimbal telemetry, a table per MAVLink message (``mount_orientation``, ...)."""
+        return self.sources.get("gimbal") or {}
+
+    @property
+    def flight_record(self) -> "pl.DataFrame | None":
+        """The app's flight record (.txt) of the Matrice 400, or None."""
+        return self.sources.get("flight_record")
+
+    def has_data(self) -> bool:
+        """Whether any drone source is loaded."""
+        return bool(
+            (isinstance(self.drone, dict) and self.drone)
+            or (isinstance(self.drone, pl.DataFrame) and self.drone.height)
+            or self.litchi.height
+            or self.records
+            or self.sources
+        )
 
     def __getitem__(self, key: str) -> Union["pl.DataFrame", dict[str, "pl.DataFrame"]]:
         """

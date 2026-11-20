@@ -103,6 +103,12 @@ class Synchronizer(SourcesMixin, OffsetEstimationMixin):
         self.camera: pl.DataFrame | None = None
         self.other_payload: dict[str, pl.DataFrame] = {}
         self.drone_records: dict[str, pl.DataFrame] = {}
+        # Other sources of the drone's position (LAGER telemetry, the app's
+        # flight record), each with its own offset, and tables on the clock
+        # of one of the sources
+        self.position_sources: dict[str, pl.DataFrame] = {}
+        self._position_names: dict[str, dict[str, str]] = {}
+        self.attached_tables: dict[str, tuple[pl.DataFrame, str]] = {}
         self.inclinometer_clock = "payload"
         # The reference timebase: the payload GPS, or the drone GPS for
         # flights without a payload GPS (then the drone offset is zero)
@@ -126,8 +132,10 @@ class Synchronizer(SourcesMixin, OffsetEstimationMixin):
         ----------
         target_rate : dict
             Target sample rates in Hz for each source
-            Keys: "drone", "litchi", "inclinometer", "payload" and
-            "drone_records" (defaults to the "drone" rate)
+            Keys: "drone", "litchi", "inclinometer", "payload",
+            "drone_records" (defaults to the "drone" rate), and the name of
+            each other position source (``add_position_source``, default the
+            "drone" rate) or attached table (default the "drone_records" rate)
             Values: float sample rate in Hz
         common_time: bool
             Interpolate all the data at a common time, with a sampliing frequency
@@ -139,7 +147,9 @@ class Synchronizer(SourcesMixin, OffsetEstimationMixin):
         dict
             Synchronized data dictionary with interpolated values for each source.
             Keys: "drone", "litchi", "reference_gps", "inclinometer", "camera",
-            one key per payload sensor and ``drone_<name>`` per drone record.
+            one key per payload sensor and ``drone_<name>`` per drone record,
+            and the other position sources and attached tables (e.g.
+            ``telemetry``, ``flight_record``, ``gimbal_<message>``).
 
             Angle columns (yaw, roll, pitch, heading; see :func:`angle_period`)
             are interpolated the short way across the wrap; state, flag and
@@ -218,6 +228,28 @@ class Synchronizer(SourcesMixin, OffsetEstimationMixin):
                 )
             else:
                 logger.warning("Failed to detect litchi GPS offset")
+
+        # Other position sources: offset to the reference GPS, as the drone GPS
+        for name, df in self.position_sources.items():
+            names = self._position_names[name]
+            logger.info(f"Detecting {name} offset via NED correlation...")
+            result = self._find_gps_offset(
+                time1=self.gps_payload[self._ref_names["timestamp"]].to_numpy(),
+                lat1=self.gps_payload[self._ref_names["lat_col"]].to_numpy(),
+                lon1=self.gps_payload[self._ref_names["lon_col"]].to_numpy(),
+                alt1=self.gps_payload[self._ref_names["alt_col"]].to_numpy(),
+                time2=df[names["timestamp"]].to_numpy(),
+                lat2=df[names["lat_col"]].to_numpy(),
+                lon2=df[names["lon_col"]].to_numpy(),
+                alt2=df[names["alt_col"]].to_numpy(),
+            )
+            if result:
+                self.offsets[f"{name}_gps"] = result
+                logger.info(
+                    f"{name} offset: {result['time_offset']:.3f}s (corr={result['correlation']:.3f})"
+                )
+            else:
+                logger.warning(f"Failed to detect {name} offset")
 
         # Inclinometer offset detection (using litchi gimbal pitch if available)
         if self.inclinometer is not None and self.litchi_gps is not None:
@@ -318,6 +350,10 @@ class Synchronizer(SourcesMixin, OffsetEstimationMixin):
         }
         rates["litchi"] = float(target_rate.get("litchi", rates["drone"]))
         rates["drone_records"] = float(target_rate.get("drone_records", rates["drone"]))
+        for name in self.position_sources:
+            rates[name] = float(target_rate.get(name, rates["drone"]))
+        for name in self.attached_tables:
+            rates[name] = float(target_rate.get(name, rates["drone_records"]))
         rates["reference_gps"] = float(
             target_rate.get("reference_gps", rates["payload"])
         )
@@ -358,6 +394,22 @@ class Synchronizer(SourcesMixin, OffsetEstimationMixin):
                 litchi_offset,
                 rates["litchi"],
             )
+
+        for name, df in self.position_sources.items():
+            if f"{name}_gps" in self.offsets:
+                synced[name] = align(
+                    df,
+                    self._position_names[name]["timestamp"],
+                    self.offsets[f"{name}_gps"]["time_offset"],
+                    rates[name],
+                )
+        for name, (df, to) in self.attached_tables.items():
+            if to in self.offsets:
+                synced[name] = align(
+                    df, "timestamp", self.offsets[to]["time_offset"], rates[name]
+                )
+            else:
+                logger.warning(f"No {to} offset: '{name}' not synchronized")
 
         if self.inclinometer is not None and "inclinometer" in self.offsets:
             # The inclinometer offset is relative to Litchi

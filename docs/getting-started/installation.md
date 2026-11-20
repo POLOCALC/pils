@@ -9,7 +9,7 @@ Complete guide to installing PILS and its dependencies.
 | Python | ≥3.11 | `datetime.UTC`, modern type hints |
 | Polars | ≥0.20.0 | High-performance DataFrames |
 | NumPy | ≥1.24.0 | Numerical operations |
-| h5py | ≥3.8.0 | HDF5 file I/O |
+| h5py | ≥3.8.0 | Reading the lab's `.h5py` measurements (and `pils migrate`) |
 | PyYAML | ≥6.0 | Configuration files |
 | stout | ≥ 1.0 | To access database |
 
@@ -77,7 +77,7 @@ print("All modules imported successfully")
 |---------|---------|
 | `polars` | Primary DataFrame library, faster than pandas |
 | `numpy` | Array operations and numerical computing |
-| `h5py` | HDF5 file reading and writing |
+| `h5py` | Reading the lab's `.h5py` measurements |
 | `pyyaml` | YAML configuration file parsing |
 | `pathlib` | Modern file path handling (stdlib) |
 
@@ -118,9 +118,6 @@ export PILS_CAMPAIGNS_PATH="/path/to/campaigns"
 # Set logging level
 export PILS_LOG_LEVEL="INFO"  # DEBUG, INFO, WARNING, ERROR
 
-# Set HDF5 compression
-export PILS_HDF5_COMPRESSION="gzip"
-export PILS_HDF5_COMPRESSION_LEVEL="4"
 ```
 
 ## Next Steps

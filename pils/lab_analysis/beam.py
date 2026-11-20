@@ -7,9 +7,10 @@ import numpy as np
 import polars as pl
 from scipy.optimize import curve_fit
 
+from pils import store as result_store
 from pils.lab_analysis.base import LabAnalysis, LabVersion
 from pils.lab_analysis.store import LabStore
-from pils.utils.hdf5 import load_h5, new_version_name
+from pils.utils.hdf5 import load_h5
 from pils.utils.logging_config import get_logger
 from pils.utils.units import db_to_linear
 
@@ -188,7 +189,7 @@ class BeamAnalysis(LabAnalysis):
         gain = gain_from_fwhm(fwhm_table)
 
         version = LabVersion(
-            version_name=new_version_name(),
+            version_name=result_store.new_version_name(),
             tables={"fwhm": fwhm_table, "gain": gain},
             metadata=self._base_metadata()
             | {

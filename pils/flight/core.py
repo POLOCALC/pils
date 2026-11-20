@@ -8,11 +8,11 @@ from typing import Any
 import polars as pl
 
 from pils import schema
-from pils.drones.BlackSquareDrone import BlackSquareDrone
-from pils.drones.DJIDrone import DJIDrone
-from pils.drones.litchi import Litchi
+from pils.drones.blacksquare import BlackSquare
+from pils.drones.dji.dat import DJIDat
+from pils.drones.dji.litchi import Litchi
+from pils.drones.sources import load_extra_sources
 from pils.flight.containers import DroneData, RawData
-from pils.flight.hdf5 import FlightHDF5Mixin
 from pils.flight.sync import FlightSyncMixin
 from pils.sensors.camera import Camera
 from pils.sensors.sensors import sensor_config
@@ -37,6 +37,21 @@ def _standardize(data: Any, kind: str | None = None) -> Any:
     return data
 
 
+def _standardize_sources(sources: dict[str, Any]) -> dict[str, Any]:
+    """LAGER telemetry, gimbal and flight-record tables in the schema."""
+    out: dict[str, Any] = {}
+    for name, data in sources.items():
+        kind = (
+            "uav_telemetry"
+            if name == "uav_telemetry"
+            else "gimbal"
+            if name == "gimbal"
+            else "dji_record"
+        )
+        out[name] = _standardize(data, kind)
+    return out
+
+
 def _standardize_records(records: dict[str, pl.DataFrame]) -> dict[str, pl.DataFrame]:
     """DJI .dat record tables in the schema, e.g. ``imu_atti_0``."""
     return {
@@ -55,7 +70,7 @@ def _attribute_alias(name: str) -> property:
     )
 
 
-class Flight(FlightSyncMixin, FlightHDF5Mixin):
+class Flight(FlightSyncMixin):
     """
     Data of one flight: drone, payload sensors and synchronized tables.
 
@@ -282,13 +297,19 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
         self,
         dji_dat_loader: bool = True,
         drone_model: str | None = None,
+        dji_api_key: str | None = None,
     ):
         """
         Load drone telemetry data based on auto-detected drone model.
 
         Automatically detects whether the drone is DJI or BlackSquare and loads
         the appropriate data format. For DJI drones, also loads Litchi flight logs
-        if available.
+        if available, and every other source of the flight found in the drone and
+        aux folders (see :mod:`pils.drones.sources`): LAGER's telemetry and
+        gimbal logs, decoded as the run's YAML says (Matrice 400 and 600), and
+        the Matrice 400's flight record (``DJIFlightRecord_*.txt``). They are
+        in ``raw_data.drone_data.sources``; a flight with only those (a Matrice
+        400) has no ``.DAT``.
 
         Parameters
         ----------
@@ -297,6 +318,10 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
             If False, uses .CSV format.
         drone_model : Optional[str], default=None
             Drone model to load. If None, will auto-detect.
+        dji_api_key : Optional[str], default=None
+            DJI Open API app key, to decrypt the Matrice 400's flight record
+            (default: the ``DJI_API_KEY`` environment variable). Without a key
+            the record is left out, with a warning.
 
         Returns
         -------
@@ -339,7 +364,12 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
 
         # Find candidate files
         available_files = glob.glob(str(drone_folder) + "/*")
-        if not available_files:
+        # LAGER's telemetry and the app's flight record: in the drone or aux folder
+        extra, extra_info = load_extra_sources(
+            [drone_folder, self.flight_info.get("aux_data_folder_path")],
+            api_key=dji_api_key,
+        )
+        if not available_files and not extra:
             raise FileNotFoundError(f"No drone log in {drone_folder} (empty folder)")
         records: dict[str, pl.DataFrame] = {}  # other .dat records (DJI)
 
@@ -358,23 +388,29 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
 
         model = self._drone_model.lower() if isinstance(self._drone_model, str) else ""
         is_dji = "dji" in model
-        if not is_dji and "black" not in model and drone_data_path is not None:
-            # Unknown model, but a DJI flight log in the folder
+        if (
+            not is_dji
+            and "black" not in model
+            and (drone_data_path is not None or extra)
+        ):
+            # Unknown model, but a DJI flight log or telemetry in the folder
             logger.info(
                 f"Drone model {self._drone_model!r}: DJI log found, read as DJI"
             )
             is_dji = True
 
         if is_dji:
-            if drone_data_path is None:
+            if drone_data_path is None and not extra:
                 raise FileNotFoundError(
                     f"No DJI drone log (*drone.dat, *drone.csv) in {drone_folder}"
                 )
-            logger.info(f"Drone : {drone_data_path}")
-            drone = DJIDrone(drone_data_path)
-            drone.load_data(use_dat=dji_dat_loader)
-            drone_data = drone.data
-            records = drone.records
+            drone_data = None
+            if drone_data_path is not None:
+                logger.info(f"Drone : {drone_data_path}")
+                drone = DJIDat(drone_data_path)
+                drone.load_data(use_dat=dji_dat_loader)
+                drone_data = drone.data
+                records = drone.records
 
             litchi_data = None
 
@@ -389,7 +425,7 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
                 logger.info(
                     f"Drone model {self._drone_model!r}: no DJI log, read as BlackSquare"
                 )
-            drone = BlackSquareDrone(str(drone_folder))
+            drone = BlackSquare(str(drone_folder))
             drone.load_data()
             drone_data = drone.data
             litchi_data = None
@@ -399,6 +435,8 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
             _standardize(drone_data, drone_kind),
             _standardize(litchi_data, "litchi"),
             _standardize_records(records),
+            _standardize_sources(extra),
+            extra_info,
         )
 
     def _read_sensor_data(self, sensor_name: str, sensor_folder: Path) -> Any | None:
@@ -561,6 +599,7 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
                 tables["drone"]["litchi"] = drone.litchi
             if drone.records:
                 tables["drone"]["records"] = drone.records
+            tables["drone"].update(drone.sources)
         for name in self.raw_data.payload_data.list_loaded_sensors():
             data = self.raw_data.payload_data[name]
             data = data.data if hasattr(data, "data") else data
@@ -572,7 +611,8 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
     def _carry_over_raw(raw_dir: Path, tables: dict[str, Any]) -> dict[str, Any]:
         """Add to ``tables`` the saved raw tables of sources not in them.
 
-        A source is ``drone/<table>`` (``drone``, ``litchi``, ``records``) or
+        A source is ``drone/<table>`` (``drone``, ``litchi``, ``records``,
+        ``uav_telemetry``, ``gimbal``, ``flight_record``) or
         ``payload/<sensor>``. A save with fewer sources (a re-package without
         some sensor) keeps the ones already saved rather than dropping them.
 
@@ -627,7 +667,10 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
             │   │                         # not reloaded are kept)
             │   ├── manifest.json         # flight info, loaders, code version
             │   ├── drone/drone.parquet, drone/litchi.parquet,
-            │   │   drone/records/<record>.parquet
+            │   │   drone/records/<record>.parquet,
+            │   │   drone/uav_telemetry.parquet (LAGER),
+            │   │   drone/gimbal/<message>.parquet (LAGER),
+            │   │   drone/flight_record.parquet (Matrice 400 .txt)
             │   └── payload/<sensor>.parquet, payload/<sensor>/<table>.parquet
             └── sync/
                 └── rev_YYYYMMDD_hhmmss/  # one per save with sync_data
@@ -660,6 +703,9 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
                 "flight_info": self.flight_info,
                 "flight_metadata": self.metadata,
                 "drone_model": self._drone_model,
+                "drone_sources": (
+                    self.raw_data.drone_data.info if self.raw_data.drone_data else {}
+                ),
                 "inclinometer": self._inclinometer,
                 "camera_model": self._camera_model,
                 "use_photogrammetry": self._use_photogrammetry,
@@ -727,10 +773,13 @@ class Flight(FlightSyncMixin, FlightHDF5Mixin):
 
         drone: dict[str, Any] = tables.get("drone", {})  # type: ignore[assignment]
         if drone:
+            own = {"drone", "litchi", "records"}
             flight.raw_data.drone_data = DroneData(
                 drone.get("drone", pl.DataFrame()),
                 drone.get("litchi"),
                 drone.get("records"),
+                {k: v for k, v in drone.items() if k not in own},
+                meta.get("drone_sources"),
             )
         payload: dict[str, Any] = tables.get("payload", {})  # type: ignore[assignment]
         for name, data in payload.items():
