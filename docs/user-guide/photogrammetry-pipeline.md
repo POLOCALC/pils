@@ -83,11 +83,24 @@ OUTPUT_DIR/
     ├── dictionary_p3.ecsv        # PnP/MCMC camera attitude (p3)
     ├── dictionary_p4.ecsv        # drone GPS correlated to frames (p4)
     ├── dictionary_p5.ecsv        # GPS-corrected attitude (p5)
-    ├── dictionary_p6.ecsv        # telescope-frame az/el/attitude (p6)
-    ├── dictionary_p7.ecsv        # line-of-sight-frame attitude (p7)
+    ├── dictionary_p6.ecsv        # attitude relative to each telescope-drone line of sight (p6)
+    ├── dictionary_p7.ecsv        # p6 + Gaussian horn beam projected with the p6 solution (p7)
+    ├── dictionary_p5_bock.ecsv   # use_bock: BOCK EKF attitude in the p5 format (IMU rate)
+    ├── dictionary_p6_bock.ecsv   # use_bock: p6 on the EKF attitude
+    ├── dictionary_p7_bock.ecsv   # use_bock: p7 on the EKF attitude (= version.beam_bock)
     ├── attitude_reconstruction.parquet   # final merged result (§4)
-    └── plots/                    # diagnostic PNGs (one per step, if check_results is set)
+    └── plots/                    # diagnostic PNGs (one per step, if check_results is set), plus
+                                  #   bock_ekf_attitude.jpg (BOCK EKF vs p5, if the flight has a BOCK version),
+                                  #   beam_image_<tel>_frame<f>.jpg (beam in image space, p5 pose),
+                                  #   beam_projection_bock.jpg (use_bock)
 ```
+
+`run_analysis(..., use_bock=True)` (or `beam.use_bock: true` in the config) also runs p6 + p7 on the
+BOCK EKF attitude of the flight (`beam.bock_version`, null = latest), converted to the p5 format by
+`pils.utils.bock_beam.bock_ekf_to_p5`: rotation from the EKF camera angles, position = p5 drone
+position interpolated at the EKF time + the EKF camera-centre correction `dp`, `frame` = camera frame
+interpolated at the EKF time. Skipped with a warning when the flight has no BOCK version. The image
+maps use `beam.plot_frames` (null = middle p5 frame) and `beam.plot_telescopes` (null = all `tel_names`).
 
 `<flight_name>` matches `flight.metadata["flight_name"]` (falls back to the
 raw drone-data folder's parent directory name). Every `dictionary_pN.ecsv`
@@ -187,10 +200,12 @@ column name -- a step that only carries an earlier column through unchanged
 | `drone_E/N/U` | Drone GPS position in ENU (after `gps_offset` correction, §3) | p4 |
 | `time` | Frame timestamp, aligned to the drone GPS clock | p4 |
 | `*_corr` (`rvec_*_corr`, `quat_*_corr`) | Rotation re-solved with `tvec` fixed to the GPS position (`drone_E/N/U`) instead of the raw PnP translation | p5 |
+| `yaw[deg]`, `pitch[deg]`, `roll[deg]` | Camera attitude in NED (degrees) | p5 |
 | `tel_name` | Telescope identifier (`SATp1`, `SATp2`, `SATp3`, `CLASS1`, `CLASS2`, ...) -- one row per telescope per frame from here on | p6 |
-| `az`, `el` | Drone azimuth/elevation as seen from that telescope | p6 |
-| `yaw`, `pitch`, `roll` | Drone attitude expressed in the telescope frame | p6 |
-| `*_LOS` (`yaw_LOS`, `pitch_LOS`, `roll_LOS`) | Drone attitude re-expressed in the telescope's line-of-sight frame -- the polarization-angle-ready output | p7 |
+| `yaw`, `pitch`, `roll`, `droll` | Attitude relative to the telescope-drone line of sight: boresight deviation from the LOS (`yaw`, `pitch`) and polarization angle `Ec` projected on the detector plane (`roll`) | p6 |
+| `theta_beam`, `phi_beam` | Telescope direction in the horn frame: angle off the horn boresight, azimuth from the E-plane | p7 |
+| `gain_beam_db` | Gaussian horn power towards the telescope, relative to boresight | p7 |
+| `roll_beam` | Polarization angle the telescope receives with the full horn beam; `roll_beam - roll` = beam-induced rotation | p7 |
 
 Two cardinality notes when working with the merged table:
 

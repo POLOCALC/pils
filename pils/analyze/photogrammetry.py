@@ -2,17 +2,17 @@
 Photogrammetry analysis: drone attitude from the payload camera images.
 
 Runs the IPA_flight pipeline (target tracking, PnP, drone GPS correlation,
-polarization angles) on a pils ``Flight``, with every sensor on one time base:
-before IPA_flight sees them, the drone and camera timestamps are shifted by
-the offsets ``flight.sync()`` finds against the payload GPS.
+NED yaw/pitch/roll, line-of-sight projection, Gaussian horn beam) on a pils
+``Flight``, with every sensor on one time base: before IPA_flight sees them,
+the drone and camera timestamps are shifted by the offsets ``flight.sync()``
+finds against the payload GPS.
 
 Results are stored per flight as versions, like the other analyses::
 
     flight_dir/proc/photogrammetry/
     ├── dictionary_p2.ecsv ... dictionary_p6.ecsv   (pipeline checkpoints)
-    ├── dictionary_p7.ecsv                          (LAGER: p6 + roll_beam, if LAGER is available)
+    ├── dictionary_p7.ecsv                          (p6 + Gaussian beam: roll_beam, gain_beam_db, ...)
     ├── attitude_reconstruction.parquet
-    ├── plots/lager_image_<tel>_frame<f>.png        (LAGER image-space map)
     ├── plots/
     └── photogrammetry_solution.h5                  (one group per version)
 
@@ -85,10 +85,43 @@ class PhotogrammetryConfig:
 
         self.camera_model = camera_model
 
-        with open(self.config_path, "r") as f:
-            self.raw = yaml.safe_load(f)
+        # text kept as read: stored verbatim in the version metadata (config_yaml)
+        self.raw_text = self.config_path.read_text()
+        self.raw = yaml.safe_load(self.raw_text)
 
         self._parse()
+
+    def settings(self) -> dict[str, Any]:
+        """Settings as used by the run (JSON-ready), including changes made after loading
+        (e.g. finder.method forced to "constellation" by examples/photogrammetry.py)."""
+        def plain(v):
+            if isinstance(v, np.ndarray):
+                return v.tolist()
+            if isinstance(v, np.generic):
+                return v.item()
+            if isinstance(v, dict):
+                return {k: plain(x) for k, x in v.items()}
+            if isinstance(v, (list, tuple)):
+                return [plain(x) for x in v]
+            return v
+
+        return plain({
+            "camera_model": self.camera_model,
+            "camera_matrix": self.camera_matrix,
+            "distortion_coeffs": self.distortion_coeffs,
+            "mount_rotation_zyx_deg": self.mount_rotation_zyx_deg,
+            "reference_point": self.reference_point,
+            "dji_base_logged": self.dji_base_logged,
+            "lever_arm_enu": self.lever_arm_enu,
+            "finder": self.finder,
+            "target_filter": self.target_filter,
+            "pnp": self.pnp,
+            "mcmc": self.mcmc,
+            "drone_correlation": self.drone_correlation,
+            "telescope": self.telescope,
+            "polarization": self.polarization,
+            "beam": self.beam,
+        })
 
     # def _parse(self) -> None:
     #     model_key = self._resolve_camera_model()
@@ -144,8 +177,8 @@ class PhotogrammetryConfig:
         self.drone_correlation = pipeline.get("drone_correlation", {})
         self.telescope = pipeline.get("telescope", {})
         self.polarization = pipeline.get("polarization", {})
-        # step p7, LAGER horn beam on the detector planes (missing block -> enabled with LAGER's defaults)
-        self.lager = pipeline.get("lager") or {}
+        # step p7, Gaussian horn beam projected with the p6 solution (missing block -> p7 skipped)
+        self.beam = pipeline.get("beam") or {}
 
     def _resolve_camera_model(self) -> str:
         model = normalize_camera_model(self.camera_model) or self._camera_in_yaml(self.raw)
@@ -180,29 +213,6 @@ class PhotogrammetryConfig:
         )
 
 
-def _load_lager_step():
-    """lager.pipeline_step, or None if LAGER cannot be imported. LAGER sits next to IPA_flight
-    (ARS/LAGER): added to sys.path when it is not importable yet."""
-    import sys
-
-    try:
-        from lager import pipeline_step
-        return pipeline_step
-    except ImportError:
-        pass
-    try:
-        import IPA_flight.IPA_flight as ipa
-        # ARS/IPA_flight/IPA_flight -> ARS/LAGER (namespace package: no __file__, use __path__)
-        lager_root = Path(list(ipa.__path__)[0]).resolve().parents[1] / "LAGER"
-        if (lager_root / "lager").is_dir() and str(lager_root) not in sys.path:
-            sys.path.append(str(lager_root))
-        from lager import pipeline_step
-        return pipeline_step
-    except Exception as e:
-        logger.warning(f"LAGER not importable ({e}): step p7 (roll_beam) skipped")
-        return None
-
-
 def load_flight_camera(flight: Flight, camera_model: str | None = None):
     """Load the flight's camera for the pipeline and return its ``Camera`` object.
 
@@ -231,14 +241,18 @@ class PhotogrammetryVersion:
     version_name : str
         Name identifier for this version (``rev_YYYYMMDD_HHMMSS``).
     photogrammetry_data : pl.DataFrame
-        Merged pipeline result (steps p2-p6), one row per frame x telescope.
+        Merged pipeline result (steps p2-p7), one row per frame x telescope.
     metadata : dict[str, Any]
         Config, targets CSV, sync offsets and run options.
+    beam_bock : pl.DataFrame | None
+        Steps p6 + p7 run on the BOCK EKF attitude (IMU rate, one row per EKF state x telescope),
+        when the run had ``use_bock`` and the flight a BOCK version; None otherwise.
     """
 
     version_name: str
     photogrammetry_data: pl.DataFrame
     metadata: dict[str, Any]
+    beam_bock: pl.DataFrame | None = None
 
 
 class PhotogrammetryAnalysis:
@@ -820,6 +834,7 @@ class PhotogrammetryAnalysis:
         remove_by_eye: bool = True,
         use_sync: bool = True,
         save_data: bool = True,
+        use_bock: bool | None = None,
     ) -> PhotogrammetryVersion:
         """Run the full IPA_flight photogrammetry pipeline for a single flight.
 
@@ -864,6 +879,11 @@ class PhotogrammetryAnalysis:
             before running. False keeps each sensor's own timestamps.
         save_data : bool
             Store the result as a new version in ``photogrammetry_solution.h5``.
+        use_bock : bool | None
+            Also run p6 + p7 on the BOCK EKF attitude of the flight (``beam.bock_version``, null = latest),
+            converted to the p5 format by ``pils.utils.bock_beam.bock_ekf_to_p5``: an IMU-rate beam projection
+            (``dictionary_p5_bock/p6_bock/p7_bock.ecsv``, ``version.beam_bock``). Skipped with a warning when
+            the flight has no BOCK version. None -> config ``beam.use_bock`` (default False).
 
         Returns
         -------
@@ -879,11 +899,13 @@ class PhotogrammetryAnalysis:
             plot_telescope_attitude,
             plot_targets_coordinates,
             plot_telescope_pointing,
+            plot_beam_projection,
         )
         from IPA_flight.IPA_flight.finder import TargetFinder
         from IPA_flight.IPA_flight.attitude import AttitudeReconstruction
         from IPA_flight.IPA_flight.drone import DroneData as IPADroneData
         from IPA_flight.IPA_flight.polAng import PolarizationAngle
+        from IPA_flight.IPA_flight.beam import GaussianBeam
         # from IPA_flight.IPA_flight.telescope import ConcerningTelescope
         from IPA_flight.IPA_flight.genParamFile import GenParamFile
 
@@ -1018,40 +1040,25 @@ class PhotogrammetryAnalysis:
                 dataDict=prev,
                 targetDict=load_dictionary(output_dir / "dictionary_p2.ecsv"),
             ),
-            # "dictionary_p6.ecsv": lambda prev: telescope.drone_in_telescope_frame(prev),
-            # "dictionary_p7.ecsv": lambda prev: polarization_angle.drone_attitude_in_LOS_frame(prev),
+            # p6: LOS projection -- p5 attitude relative to each telescope-drone line of sight
+            # (positions picked by name: params has all six, Lat included, for the click finder)
             "dictionary_p6.ecsv": lambda prev: polarization_angle.gen_yaw_pitch_roll_all_telescopes(
                 prev,
-                params["geodetic_tel_positions"],
+                GenParamFile.tel_positions_by_name(params, tel_names),
                 tel_names,
                 **config.polarization,
             ),
         }
 
-        # ── Step p7: LAGER -- p6 + roll_beam (horn beam, Ludwig-3) and the image-space map ──
-        lager_step = _load_lager_step() if config.lager.get("enabled", True) else None
-        if lager_step is not None:
-            def _step_p7(prev):
-                try:
-                    return lager_step(
-                        prev,
-                        load_dictionary(output_dir / "dictionary_p5.ecsv"),
-                        params,
-                        tel_names,
-                        camera=config.camera_model,
-                        camera_matrix=config.camera_matrix,
-                        dist_coeffs=config.distortion_coeffs,
-                        Ec=float(config.polarization.get("Ec", 0.0)),
-                        camera_obj=dh_wrapper.camera,
-                        plot_dir=check_results or None,
-                        plot_frames=config.lager.get("plot_frames"),
-                        plot_telescopes=config.lager.get("plot_telescopes"),
-                        config_file=config.lager.get("config_file"),
-                    )
-                except Exception as e:  # the beam model must not kill the run: p6 goes on without roll_beam
-                    logger.warning(f"LAGER step failed, p6 kept without roll_beam: {type(e).__name__}: {e}")
-                    return prev
-            steps["dictionary_p7.ecsv"] = _step_p7
+        # ── Step p7: Gaussian horn beam projected with the p6 solution (config `beam`) ──
+        beam = None
+        Ec = float(config.polarization.get("Ec", 0.0))
+        if config.beam:
+            beam = GaussianBeam.from_config(config.beam)
+            logger.info(f"Step p7 beam: {beam}")
+            steps["dictionary_p7.ecsv"] = lambda prev: beam.project_p6(prev, Ec=Ec)
+        else:
+            logger.warning(f"No `pipeline.beam` block in {config.config_path}: step p7 (Gaussian beam) skipped")
 
         step_order = list(steps.keys())
 
@@ -1178,6 +1185,7 @@ class PhotogrammetryAnalysis:
                         plot_drone_gps_alignment,
                         plot_telescope_pointing,
                         plot_telescope_attitude,
+                        plot_beam_projection,
                     )
                 except Exception as e:  # a diagnostic plot must not kill the run
                     logger.warning(f"Diagnostic plots of {step_name} failed: {e}")
@@ -1194,7 +1202,7 @@ class PhotogrammetryAnalysis:
         # frame x tel_name, replacing the old p6+p7 pair below) -- joining it
         # on "frame" alone broadcasts each frame's p2-p5 columns across all
         # of that frame's telescopes, same as the old p6 join did.
-        # p7 (LAGER) = the p6 rows + roll_beam: merged in place of p6 when it ran.
+        # p7 (Gaussian beam) = the p6 rows + beam columns: merged in place of p6 when it ran.
         last = 7 if "dictionary_p7.ecsv" in steps else 6
         p2, p3, p4, p5, p6 = [
             self._ensure_polars(
@@ -1221,12 +1229,32 @@ class PhotogrammetryAnalysis:
         df_merged.write_parquet(str(out_parquet))
         logger.info(f"Photogrammetry result saved: {out_parquet}")
 
+        # ── BOCK EKF: plot, and (use_bock) p6 + p7 on the EKF attitude at the IMU rate ──
+        if use_bock is None:
+            use_bock = bool(config.beam.get("use_bock", False))
+        bock_version = self._bock_version(config.beam.get("bock_version"))
+        tel_enu = self._telescopes_enu(params, tel_names)
+        if check_results:
+            self._beam_plots(Path(check_results), config, beam, Ec, p5, bock_version, camera, tel_enu,
+                             tel_names)
+        beam_bock = None
+        if use_bock:
+            if beam is None:
+                logger.warning("use_bock: no `pipeline.beam` block -- BOCK beam projection skipped")
+            elif bock_version is None:
+                logger.warning(f"use_bock: no BOCK version in {self.flight_path / 'proc' / 'bock'} "
+                               "-- BOCK beam projection skipped")
+            else:
+                beam_bock = self._bock_beam(bock_version, p5, config, beam, Ec, params, tel_names, polarization_angle,
+                                            output_dir, save_intermediate_results, check_results,
+                                            plot_beam_projection)
+
         version = PhotogrammetryVersion(
             version_name=datetime.datetime.now().strftime("rev_%Y%m%d_%H%M%S"),
             photogrammetry_data=df_merged,
             metadata={
                 "flight_name": flight_name,
-                "config_file": str(config.config_path),
+                "config_file": str(config.config_path.resolve()),  # absolute: BOCK re-opens it from elsewhere
                 "camera_model": camera.data[1] if camera.data else None,
                 "mount_rotation_zyx_deg": getattr(config, "mount_rotation_zyx_deg", np.zeros(3)).tolist(),
                 "csv_file": str(csv_file),
@@ -1236,7 +1264,13 @@ class PhotogrammetryAnalysis:
                 "target_indices": target_indices,
                 "mcmc_solution": mcmc_solution,
                 "num_rows": df_merged.height,
+                "use_bock": bool(use_bock),
+                "bock_version": bock_version.version_name if beam_bock is not None else None,
+                "bock_photo_version": bock_version.metadata.get("photo_version") if beam_bock is not None else None,
+                "config": config.settings(),          # settings as used (incl. changes made after loading)
+                "config_yaml": config.raw_text,       # the YAML file as it was at run time
             },
+            beam_bock=beam_bock,
         )
         if save_data:
             self._save_to_hdf5(version)
@@ -1252,6 +1286,103 @@ class PhotogrammetryAnalysis:
             return pl.from_pandas(d)
         return d
 
+    def _bock_version(self, version_name: str | None = None):
+        """BOCK version of this flight (name, None = latest), None if there is none."""
+        from pils.analyze.bock import BOCKAnalysis
+
+        bock = BOCKAnalysis(self.flight)
+        try:
+            return bock.load_version(version_name) if version_name else bock.get_latest_version()
+        except KeyError as e:
+            logger.warning(f"BOCK version: {e}")
+            return None
+
+    @staticmethod
+    def _telescopes_enu(params: dict, tel_names) -> dict:
+        """{name: ENU (3,)} about params['reference_point'] for tel_names (positions picked by name, as p6)."""
+        import pymap3d as pm
+        from IPA_flight.IPA_flight.genParamFile import GenParamFile
+
+        ref = np.asarray(params["reference_point"], dtype=float)
+        pos = GenParamFile.tel_positions_by_name(params, tel_names)
+        return {n: np.array(pm.geodetic2enu(*p, *ref), dtype=float) for n, p in zip(tel_names, pos)}
+
+    def _beam_plots(self, plot_dir, config, beam, Ec, p5, bock_version, camera, tel_enu, tel_names) -> None:
+        """plots/bock_ekf_attitude.jpg (BOCK EKF vs p5) and plots/beam_image_<tel>_frame<f>.jpg (beam in image
+        space, p5 pose of the frame). A failing plot is logged, never raised."""
+        from pils.utils.bock_beam import beam_image_map, plot_beam_image_map, plot_bock_ekf
+
+        plot_dir.mkdir(parents=True, exist_ok=True)
+        if bock_version is not None:
+            try:
+                path = plot_bock_ekf(bock_version, p5, plot_dir / "bock_ekf_attitude.jpg")
+                logger.info(f"BOCK EKF plot ({bock_version.version_name}): {path}")
+            except Exception as e:
+                logger.warning(f"BOCK EKF plot failed: {type(e).__name__}: {e}")
+        if beam is None:
+            return
+
+        from scipy.spatial.transform import Rotation
+        from IPA_flight.IPA_flight.finder import _read_frame
+
+        poses = p5.drop_nulls(["rvec_x_corr", "drone_E"]).sort("frame")
+        frames = config.beam.get("plot_frames") or [int(poses["frame"][poses.height // 2])]
+        names = [n for n in (config.beam.get("plot_telescopes") or tel_names) if n in tel_enu]
+        for frame in frames:
+            row = poses.filter(pl.col("frame") == int(frame))
+            if row.height == 0:
+                logger.warning(f"Beam image map: frame {frame} has no p5 pose -- skipped")
+                continue
+            R_CW = Rotation.from_rotvec(row.select(["rvec_x_corr", "rvec_y_corr", "rvec_z_corr"]).to_numpy()[0]).as_matrix()
+            C = row.select(["drone_E", "drone_N", "drone_U"]).to_numpy()[0]
+            try:
+                image = _read_frame(camera, int(frame))
+                size = image.shape[1::-1]
+            except Exception as e:
+                logger.warning(f"Beam image map: frame {frame} not readable ({e}) -- drawn without the image")
+                image, size = None, (int(round(2 * config.camera_matrix[0, 2])), int(round(2 * config.camera_matrix[1, 2])))
+            for name in names:
+                try:
+                    im = beam_image_map(beam, R_CW, C, tel_enu, name, config.camera_matrix,
+                                        config.distortion_coeffs, size, Ec=Ec)
+                    path = plot_dir / f"beam_image_{name}_frame{int(frame)}.jpg"
+                    plot_beam_image_map(im, image, outpath=path,
+                                        title=f"Beam on the {name} detector plane in image space, frame {int(frame)} (p5 pose)")
+                    logger.info(f"Beam image map: {path}")
+                except Exception as e:
+                    logger.warning(f"Beam image map {name} frame {frame} failed: {type(e).__name__}: {e}")
+
+    def _bock_beam(self, bock_version, p5, config, beam, Ec, params, tel_names, polarization_angle, output_dir,
+                   save_intermediate_results, check_results, plot_beam_projection) -> pl.DataFrame:
+        """p6 + p7 on the BOCK EKF attitude: dictionary_p5_bock (EKF in the p5 format), dictionary_p6_bock,
+        dictionary_p7_bock.ecsv. Returns p7_bock."""
+        from pils.utils.bock_beam import bock_ekf_to_p5
+        from IPA_flight.IPA_flight.genParamFile import GenParamFile
+
+        logger.info(f"use_bock: p6 + p7 on the BOCK EKF attitude {bock_version.version_name} "
+                    f"(BOCK ran on photogrammetry {bock_version.metadata.get('photo_version')})")
+        p5b = bock_ekf_to_p5(bock_version, p5, config.mount_rotation_zyx_deg)
+        p6b = self._ensure_polars(polarization_angle.gen_yaw_pitch_roll_all_telescopes(
+            p5b, GenParamFile.tel_positions_by_name(params, tel_names), tel_names, **config.polarization,
+        ))
+        # p6 rows = p5b rows per telescope, in order: carry the EKF frame and kind by position
+        n_tel = len(tel_names)
+        p6b = p6b.with_columns(
+            pl.Series("frame", np.tile(p5b["frame"].to_numpy(), n_tel)),
+            pl.Series("kind", np.tile(p5b["kind"].to_numpy(), n_tel)),
+        )
+        p7b = self._ensure_polars(beam.project_p6(p6b, Ec=Ec))
+        for name, df in (("p5", p5b), ("p6", p6b), ("p7", p7b)):
+            save_intermediate_results(df, str(output_dir / f"dictionary_{name}_bock.ecsv"),
+                                      params["video_code"], params["date"], params["video_name"])
+        logger.info(f"use_bock: {p5b.height} EKF states x {n_tel} telescopes -> dictionary_p7_bock.ecsv")
+        if check_results:
+            try:
+                plot_beam_projection(p7b, outpath=str(Path(check_results) / "beam_projection_bock.jpg"))
+            except Exception as e:
+                logger.warning(f"BOCK beam projection plot failed: {type(e).__name__}: {e}")
+        return p7b
+
     @staticmethod
     def _run_check_results(
         camera,
@@ -1264,6 +1395,7 @@ class PhotogrammetryAnalysis:
         plot_drone_gps_alignment,
         plot_telescope_pointing,
         plot_telescope_attitude,
+        plot_beam_projection,
     ) -> None:
         plot_dir.mkdir(parents=True, exist_ok=True)
         cols = current_dict.columns
@@ -1306,6 +1438,12 @@ class PhotogrammetryAnalysis:
                 outpath=str(plot_dir / f"telescope_attitude_{step_name}.jpg"),
             )
 
+        if all(c in cols for c in ["tel_name", "time", "roll", "roll_beam", "theta_beam", "gain_beam_db"]):
+            plot_beam_projection(
+                current_dict,
+                outpath=str(plot_dir / f"beam_projection_{step_name}.jpg"),
+            )
+
     # ------------------------------------------------------------------
     # Versions (HDF5)
     # ------------------------------------------------------------------
@@ -1324,6 +1462,10 @@ class PhotogrammetryAnalysis:
                 del f[version.version_name]
             group = f.create_group(version.version_name)
             group.create_dataset("photogrammetry_data", data=np.frombuffer(buf.getvalue(), dtype=np.uint8))
+            if version.beam_bock is not None:
+                buf = io.BytesIO()
+                version.beam_bock.write_parquet(buf)
+                group.create_dataset("beam_bock", data=np.frombuffer(buf.getvalue(), dtype=np.uint8))
             group.attrs["metadata"] = json.dumps(version.metadata, default=str)
         logger.info(f"Saved photogrammetry version '{version.version_name}' to {self._hdf5_path}")
 
@@ -1335,8 +1477,10 @@ class PhotogrammetryAnalysis:
                 raise KeyError(f"Version '{version_name}' not found in {self._hdf5_path}")
             group = f[version_name]
             data = pl.read_parquet(io.BytesIO(group["photogrammetry_data"][()].tobytes()))
+            beam_bock = (pl.read_parquet(io.BytesIO(group["beam_bock"][()].tobytes()))
+                         if "beam_bock" in group else None)
             metadata = json.loads(group.attrs["metadata"])
-        return PhotogrammetryVersion(version_name, data, metadata)
+        return PhotogrammetryVersion(version_name, data, metadata, beam_bock)
 
     def list_versions(self) -> list[str]:
         if not self._hdf5_path.exists():
