@@ -81,7 +81,7 @@ def _power(args: argparse.Namespace) -> int:
     flight = Flight(meta)
     sensors_dir = Path(meta["aux_data_folder_path"]) / "sensors"
     sensors = ["adc", "inclinometer", "gps"]
-    if any(sensors_dir.glob("*TMP*.csv")):  # LM76 (SENSOR_MAP pattern)
+    if any(sensors_dir.glob("*TMP*.csv")):  # LM76
         sensors.insert(0, "lm76")
     flight.add_sensor_data(sensors)
     flight.add_drone_data()
