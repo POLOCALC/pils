@@ -95,7 +95,7 @@ it used (`sync_revision`). `package_manifest.json` records the code that ran
 
 ::: pils.analyze.package.SYNC_RATES
 
-::: pils.flight.MIN_REFERENCE_COVERAGE
+::: pils.flight.sync.MIN_REFERENCE_COVERAGE
 
 ## Inputs
 
