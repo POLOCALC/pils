@@ -116,7 +116,7 @@ def decode_inclino(inclino_path: str | Path) -> dict[str, list[Any]]:
     for msg in msgs:
         try:
             msg = sequence + msg
-            tmp = kernel.KernelMsg().decode_single(msg, return_dict=True)
+            tmp = kernel.KernelMsg().decode_single(msg)
 
             if not decoded_msg.keys():
                 decoded_msg = {k: [] for k in tmp.keys()}
