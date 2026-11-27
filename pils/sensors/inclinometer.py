@@ -112,9 +112,9 @@ def decode_inclino(inclino_path: str | Path) -> dict[str, list[Any]]:
             tmp = kernel.KernelMsg().decode_single(msg)
 
             if not decoded_msg.keys():
-                decoded_msg = {k: [] for k in tmp.keys()}
+                decoded_msg = {k: [] for k in tmp}
 
-            for j in tmp.keys():
+            for j in tmp:
                 decoded_msg[j].append(tmp[j])
         except Exception as e:  # Broad: one corrupted message does not lose the rest
             logger.warning(f"Failed to decode inclinometer message: {e}")
@@ -171,7 +171,7 @@ def detect_inclinometer_type_from_config(dirpath: Path) -> str | None:
                     return "kernel"
 
         # Secondary check: look for specific sensor names
-        for sensor_name in sensors.keys():
+        for sensor_name in sensors:
             if "IMX5" in sensor_name.upper() or "IMX-5" in sensor_name.upper():
                 return "imx5"
             if "KERNEL" in sensor_name.upper() or "INERTIAL" in sensor_name.upper():
@@ -302,7 +302,7 @@ class IMX5Inclinometer:
         timestamp and datetime columns from timestamp_ns.
         """
         if self.ins_path is None:
-            return None
+            return
 
         df = read_csv_tolerant(self.ins_path)
 
@@ -335,7 +335,7 @@ class IMX5Inclinometer:
         Creates timestamp and datetime columns from timestamp_ns.
         """
         if self.imu_path is None:
-            return None
+            return
 
         df = read_csv_tolerant(self.imu_path)
 
@@ -369,7 +369,7 @@ class IMX5Inclinometer:
             INL2 data with quaternions, ECEF position, and bias estimates.
         """
         if self.inl2_path is None:
-            return None
+            return
 
         df = read_csv_tolerant(self.inl2_path)
 
@@ -453,9 +453,8 @@ class KernelInclinometer:
                 tstart, _ = read_log_time(keyphrase=keyphrase, logfile=logfile)
                 if tstart is None:
                     continue
-                else:
-                    self.tstart = tstart
-                    break
+                self.tstart = tstart
+                break
             except (OSError, ValueError) as e:
                 logger.warning(
                     f"Couldn't find start time from logfile. Skipping datetime conversion. Error: {e}"

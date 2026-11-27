@@ -144,7 +144,7 @@ class PathLoader:
             takeoff_date = layout.takeoff_from_name(flight_name).replace(tzinfo=UTC)
             drone, aux = layout.RAW_FOLDERS
 
-            flight_dict = {
+            return {
                 "campaign_name": campaign_name,
                 "flight_name": flight_name,
                 "flight_date": date_folder,
@@ -154,7 +154,6 @@ class PathLoader:
                 "aux_data_folder_path": str(flight_path / aux),
                 "processed_data_folder_path": str(flight_path / layout.PROC_FOLDER),
             }
-            return flight_dict
         except ValueError as e:  # not a flight folder's name
             logger.warning(
                 f"Could not build flight dict for {flight_name} {flight_path}: {e}"

@@ -40,7 +40,7 @@ def extract_USW(USW):
     def check_byte(byte):
         if isinstance(byte, int):
             return format(byte, "08b")  # Ensure 8-bit representation
-        elif isinstance(byte, str):
+        if isinstance(byte, str):
             return format(int(byte, base=16), "08b")  # Convert hex to binary
 
     def check_values(bits, table):

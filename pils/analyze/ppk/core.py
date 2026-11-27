@@ -387,12 +387,11 @@ class PPKAnalysis(PPKInputsMixin, PPKStorageMixin):
 
                 if report_md.exists():
                     continue
-                else:
-                    report = RINEXReport(obs, nav_files[i])
+                report = RINEXReport(obs, nav_files[i])
 
-                    plot_folder = self.ppk_dir / f"rinex_plots_{names[i]}"
+                plot_folder = self.ppk_dir / f"rinex_plots_{names[i]}"
 
-                    report.generate(str(report_md), str(plot_folder.name))
+                report.generate(str(report_md), str(plot_folder.name))
 
         logger.info(f"Running PPK analysis: {version_name}")
         tuning = None

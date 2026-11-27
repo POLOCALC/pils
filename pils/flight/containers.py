@@ -58,10 +58,9 @@ class RawData:
         """
         if key == "drone_data":
             return self.drone_data
-        elif key == "payload_data" or key == "payload":
+        if key == "payload_data" or key == "payload":
             return self.payload_data
-        else:
-            raise KeyError(f"Key '{key}' not found")
+        raise KeyError(f"Key '{key}' not found")
 
     def __repr__(self):
         """Return string representation of loaded data."""
@@ -184,8 +183,7 @@ class DroneData:
         """
         if hasattr(self, key):
             return getattr(self, key)
-        else:
-            raise KeyError(f"Key '{key}' not found")
+        raise KeyError(f"Key '{key}' not found")
 
     def __repr__(self):
         """Return string representation of drone data."""
@@ -258,10 +256,9 @@ class PayloadData:
             raise AttributeError(
                 f"Sensor '{name}' not loaded. Available sensors: {available}"
             )
-        else:
-            raise AttributeError(
-                f"Sensor '{name}' not loaded. No sensors currently loaded."
-            )
+        raise AttributeError(
+            f"Sensor '{name}' not loaded. No sensors currently loaded."
+        )
 
     def __getitem__(self, key: str) -> Any:
         """
@@ -289,8 +286,7 @@ class PayloadData:
         """
         if hasattr(self, key):
             return getattr(self, key)
-        else:
-            raise KeyError(f"Sensor '{key}' not found")
+        raise KeyError(f"Sensor '{key}' not found")
 
     def __contains__(self, key: str) -> bool:
         """

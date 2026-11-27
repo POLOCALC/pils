@@ -331,7 +331,7 @@ class PPKStorageMixin:
         >>> print(versions)
         ['rev_20260204_140000', 'rev_20260204_150000', 'rev_20260204_160000']
         """
-        return sorted(list(self.versions.keys()))
+        return sorted(self.versions.keys())
 
     def get_version(self, version_name: str) -> PPKVersion | None:
         """

@@ -179,7 +179,7 @@ class RINEXPlotter:
                 sat,
                 fontsize=9,
                 fontweight="bold",
-                bbox=dict(facecolor="white", alpha=0.5, boxstyle="round"),
+                bbox={"facecolor": "white", "alpha": 0.5, "boxstyle": "round"},
             )
 
         ax.set_title(

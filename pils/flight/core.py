@@ -800,7 +800,6 @@ class Flight(FlightSyncMixin):
         """
         if key == "raw_data":
             return self.raw_data
-        elif key == "metadata":
+        if key == "metadata":
             return self.metadata
-        else:
-            raise KeyError(f"Key '{key}' not found")
+        raise KeyError(f"Key '{key}' not found")

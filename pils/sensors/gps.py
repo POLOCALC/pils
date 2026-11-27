@@ -403,7 +403,7 @@ class GPS:
 
         # Merge each dataframe onto the time grid with interpolation
         merged_df = time_grid
-        for _msg_type, df in nav_dataframes.items():
+        for df in nav_dataframes.values():
             if "unix_time_ms" not in df.columns or len(df) == 0:
                 continue
 

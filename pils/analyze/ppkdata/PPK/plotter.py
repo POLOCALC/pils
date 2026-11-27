@@ -100,7 +100,11 @@ class PPKPlotter:
                     fontsize=8,
                     fontweight="bold",
                     ha="center",
-                    bbox=dict(facecolor="white", alpha=0.5, boxstyle="round,pad=0.2"),
+                    bbox={
+                        "facecolor": "white",
+                        "alpha": 0.5,
+                        "boxstyle": "round,pad=0.2",
+                    },
                 )
 
         ax.set_title(

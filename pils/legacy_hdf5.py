@@ -134,7 +134,7 @@ def read_table(group: h5py.Group, legacy_time_unit: str | None = None) -> pl.Dat
 def _container(f: h5py.File, parent: str | None) -> h5py.Group | None:
     if parent is None:
         return f
-    return f[parent] if parent in f else None
+    return f.get(parent)
 
 
 def list_versions(path: str | Path, parent: str | None = None) -> list[str]:
@@ -146,7 +146,7 @@ def list_versions(path: str | Path, parent: str | None = None) -> list[str]:
         container = _container(f, parent)
         if container is None:
             return []
-        return sorted(k for k in container.keys() if k.startswith(VERSION_PREFIX))
+        return sorted(k for k in container if k.startswith(VERSION_PREFIX))
 
 
 def load_version(

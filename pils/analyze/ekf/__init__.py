@@ -599,10 +599,7 @@ class EKFAnalysis:
         )
 
         # 2. Resolve config file path
-        if config_file is None:
-            config_file = _EKF_DEFAULT_CONFIG
-        else:
-            config_file = Path(config_file)
+        config_file = _EKF_DEFAULT_CONFIG if config_file is None else Path(config_file)
 
         if not config_file.exists():
             raise FileNotFoundError(
