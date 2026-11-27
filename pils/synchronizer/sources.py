@@ -231,7 +231,6 @@ class SourcesMixin:
     def add_inclinometer(
         self,
         inclinometer_data: pl.DataFrame,
-        inclinometer_type: str | None,
         timestamp_col: str = "timestamp",
         pitch_col: str = "pitch_deg",
         clock: str = "payload",
@@ -243,8 +242,6 @@ class SourcesMixin:
         ----------
         inclinometer_data : pl.DataFrame
             Polars DataFrame with inclinometer data
-        inclinometer_type : str
-            Type of inclinometer sensor (e.g., 'imx5')
         timestamp_col : str, default='timestamp'
             Name of timestamp column
         pitch_col : str, default='pitch_deg'

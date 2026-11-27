@@ -620,34 +620,6 @@ class Inclinometer:
         elif self.sensor_type == "legacy":
             self._decoder = LegacyInclinometer(self._lookout_path, self.logpath)
 
-    @property
-    def tstart(self):
-        """Get start time (Kernel only)."""
-        if isinstance(self._decoder, KernelInclinometer):
-            return self._decoder.tstart
-        return None
-
-    @property
-    def ins_data(self) -> pl.DataFrame | None:
-        """Get INS data (IMX-5 only)."""
-        if isinstance(self._decoder, IMX5Inclinometer):
-            return self._decoder.data["INS"]
-        return None
-
-    @property
-    def imu_data(self) -> pl.DataFrame | None:
-        """Get IMU data (IMX-5 only)."""
-        if isinstance(self._decoder, IMX5Inclinometer):
-            return self._decoder.data["IMU"]
-        return None
-
-    @property
-    def inl2_data(self) -> pl.DataFrame | None:
-        """Get INL2 data (IMX-5 only)."""
-        if isinstance(self._decoder, IMX5Inclinometer):
-            return self._decoder.data["INL2"]
-        return None
-
     def load_data(self) -> None:
         """Load inclinometer data using the detected decoder.
 

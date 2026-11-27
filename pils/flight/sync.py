@@ -314,7 +314,6 @@ class FlightSyncMixin:
             if isinstance(incl_data, pl.DataFrame) and not incl_data.is_empty():
                 sync.add_inclinometer(
                     incl_data,
-                    self._inclinometer,
                     clock="own" if self._inclinometer == "kernel" else "payload",
                 )
             else:

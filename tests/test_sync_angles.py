@@ -190,7 +190,6 @@ class TestGrids:
         t = np.arange(0, 10, 0.01)
         sync.add_inclinometer(
             pl.DataFrame({"timestamp": t, "pitch_deg": np.sin(t)}),
-            "kernel",
             clock="own",
         )
         with caplog.at_level("WARNING"):
@@ -334,7 +333,6 @@ class TestPayloadClock:
             pl.DataFrame(
                 {"timestamp": t + 1.3, "pitch_deg": pitch, "gyro_y_deg_s": rate}
             ),
-            "kernel",
             clock=clock,
         )
         if with_imu:

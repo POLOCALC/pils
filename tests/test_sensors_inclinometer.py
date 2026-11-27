@@ -359,32 +359,6 @@ sensors:
         with pytest.raises(ValueError, match="No inclinometer data found"):
             inclinometer.load_data()
 
-    def test_tstart_property_kernel(self, tmp_path):
-        """Test tstart property for Kernel inclinometer."""
-        from datetime import datetime
-
-        inc_file = tmp_path / "test_INC.bin"
-        inc_file.write_bytes(b"\xaa\x55")
-
-        inclinometer = Inclinometer(tmp_path, logpath=None, sensor_type="kernel")
-        inclinometer._decoder.tstart = datetime(2024, 1, 1, 10, 0, 0)
-
-        assert inclinometer.tstart == datetime(2024, 1, 1, 10, 0, 0)
-
-    def test_ins_data_property_imx5(self, tmp_path):
-        """Test ins_data property for IMX5."""
-        ins_content = """timestamp_ns,roll_rad
-1000000000,0.1
-"""
-        ins_file = tmp_path / "test_INC_ins.csv"
-        ins_file.write_text(ins_content)
-
-        inclinometer = Inclinometer(tmp_path, logpath=None, sensor_type="imx5")
-        inclinometer._decoder.load_ins()
-
-        assert inclinometer.ins_data is not None
-        assert isinstance(inclinometer.ins_data, pl.DataFrame)
-
     @patch("matplotlib.pyplot.show")
     def test_plot_with_data(self, mock_show, tmp_path):
         """Test plotting inclinometer data."""
