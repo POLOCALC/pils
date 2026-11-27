@@ -3,7 +3,6 @@
 import logging
 from typing import Any
 
-import numpy as np
 import polars as pl
 
 logger = logging.getLogger(__name__)
@@ -11,167 +10,6 @@ logger = logging.getLogger(__name__)
 
 class RINEXQualityMixin:
     """Quality metrics and score for :class:`~pils.analyze.ppkdata.RINEX.analyzer.RINEXAnalyzer`."""
-
-    def get_completeness_metrics(self):
-        """Calculate observation completeness percentage.
-
-        Computes ratio of actual observations to expected observations
-        assuming dual-frequency tracking for all satellites.
-
-        Returns
-        -------
-            Completeness percentage (0-100)
-
-        Examples
-        --------
-            >>> analyzer = RINEXAnalyzer('file.obs')
-            >>> analyzer.parse_obs_file()
-            >>> completeness = analyzer.get_completeness_metrics()
-            >>> print(f"Data completeness: {completeness:.1f}%")
-        """
-        """Calculates observation rate vs expected capacity (Obs / (Sats * Epochs * 2))."""
-        if not self.epochs or self.df_obs.is_empty():
-            return 0.0
-        n_epochs = len(self.epochs)
-        n_sats = self.df_obs["satellite"].n_unique()
-        # Expecting at least 2 bands (L1/L2) per satellite per epoch for RTK
-        expected = n_epochs * n_sats * 2
-        actual = self.df_obs.filter(pl.col("obs_type").is_in(["L", "C", "P"])).shape[0]
-        return min(100.0, (actual / expected) * 100.0) if expected > 0 else 0.0
-
-    def get_gap_metrics(self):
-        """Detect data gaps in observation epochs.
-
-        Identifies periods where expected observations are missing
-        based on median epoch interval.
-
-        Returns
-        -------
-            Dictionary with max_gap, n_gaps, and expected_interval
-
-        Examples
-        --------
-            >>> analyzer = RINEXAnalyzer('file.obs')
-            >>> analyzer.parse_obs_file()
-            >>> gaps = analyzer.get_gap_metrics()
-            >>> print(f"Maximum gap: {gaps['max_gap']:.1f} seconds")
-            >>> print(f"Number of gaps: {gaps['n_gaps']}")
-        """
-        """Detects periods with no observations."""
-        if len(self.epochs) < 2:
-            return {"max_gap": 0, "n_gaps": 0}
-        diffs = [
-            (self.epochs[i + 1] - self.epochs[i]).total_seconds()
-            for i in range(len(self.epochs) - 1)
-        ]
-        # Assume expected interval is the most common difference
-        expected_interval = np.median(diffs)
-        gaps = [d for d in diffs if d > expected_interval + 0.1]
-        return {
-            "max_gap": max(diffs) if diffs else 0,
-            "n_gaps": len(gaps),
-            "expected_interval": expected_interval,
-        }
-
-    def get_integrity_metrics(self):
-        """Calculate cycle slip rates for data integrity assessment.
-
-        Returns
-        -------
-            Dictionary with slip_rate (per satellite per hour) and total_slips
-
-        Examples
-        --------
-            >>> analyzer = RINEXAnalyzer('file.obs')
-            >>> analyzer.parse_obs_file()
-            >>> integrity = analyzer.get_integrity_metrics()
-            >>> print(f"Slip rate: {integrity['slip_rate']:.2f} per sat/hour")
-        """
-        """Calculates LLI/Slip rates."""
-        slips = self.detect_cycle_slips()
-        if self.df_obs.is_empty():
-            return {"slip_rate": 0, "total_slips": 0}
-
-        n_sats = self.df_obs["satellite"].n_unique()
-        duration_hours = (
-            (max(self.epochs) - min(self.epochs)).total_seconds() / 3600.0
-            if len(self.epochs) > 1
-            else 1.0
-        )
-
-        total_slips = len(slips)
-        slip_rate_per_sat_hour = (
-            (total_slips / n_sats / duration_hours) if n_sats > 0 else 0
-        )
-
-        return {"slip_rate": slip_rate_per_sat_hour, "total_slips": total_slips}
-
-    def get_geometric_metrics(self):
-        """Assess satellite geometric distribution.
-
-        Evaluates azimuth quadrant coverage and elevation spread
-        for current satellite constellation.
-
-        Returns
-        -------
-            Dictionary with quadrants, el_spread, and diversity_score
-
-        Examples
-        --------
-            >>> analyzer = RINEXAnalyzer('file.obs')
-            >>> analyzer.parse_obs_file()
-            >>> analyzer.compute_satellite_azel()
-            >>> geom = analyzer.get_geometric_metrics()
-            >>> print(f"Quadrant coverage: {geom['quadrants']}/4")
-            >>> print(f"Diversity score: {geom['diversity_score']:.1f}/100")
-        """
-        """Assesses geometric distribution (quadrants and elevation spread)."""
-        if self.azel_df.is_empty():
-            return {"quadrants": 0, "el_spread": 0, "diversity_score": 0}
-
-        # Quadrant coverage (0-90, 90-180, 180-270, 270-360)
-        # We take the latest epoch for geometry assessment
-        latest_time = self.azel_df["time"].max()
-        current_sky = self.azel_df.filter(pl.col("time") == latest_time)
-
-        quads = (
-            current_sky.with_columns(
-                (pl.col("azimuth") // 90).cast(pl.Int32).alias("quad")
-            )["quad"]
-            .unique()
-            .to_list()
-        )
-
-        n_quads = len(quads)
-        el_min = current_sky["elevation"].min()
-        el_max = current_sky["elevation"].max()
-
-        # Ensure both are numbers and not None
-        if el_min is None or el_max is None:
-            el_spread = 0.0
-        else:
-            # Cast to float to ensure proper numeric operations
-            el_min_val = float(el_min) if el_min is not None else 0.0  # type: ignore
-            el_max_val = float(el_max) if el_max is not None else 0.0  # type: ignore
-            el_spread = abs(el_max_val - el_min_val)
-
-        # Diversity score: 0-100 based on quadrants (60%) and el spread (40%)
-        quad_p = (n_quads / 4.0) * 100
-        el_p = min(100, (float(el_spread) / 60.0) * 100)  # 60 deg spread is good
-
-        diversity = float(quad_p * 0.6 + el_p * 0.4)
-
-        return {
-            "quadrants": n_quads,
-            "el_spread": el_spread,
-            "diversity_score": diversity,
-        }
-
-    def get_per_sat_quality_scores(self):
-        """Calculate quality scores for each satellite from the % of 'Good' epochs."""
-        # This is now handled within assess_data_quality for efficiency and consistency
-        res = self.assess_data_quality()
-        return res["sat_scores"]
 
     def assess_data_quality(self) -> dict[str, Any]:
         """Comprehensive GNSS data quality assessment.
@@ -198,10 +36,6 @@ class RINEXQualityMixin:
             >>> print(f"Score: {quality['score']:.1f}/100")
             >>> for flag in quality['red_flags']:
             ...     print(f"Warning: {flag}")
-        """
-        """
-        Calculates session quality based on the 4-Step Algorithm in quality.md.
-        Strictly epoch-based per-satellite and session evaluation.
         """
         if self.df_obs.is_empty():
             return {
@@ -345,32 +179,19 @@ class RINEXQualityMixin:
                 # Step 3: Geometry
                 el_min = good_sats["elevation"].min()
                 el_max = good_sats["elevation"].max()
+                el_span = (
+                    0.0
+                    if el_min is None or el_max is None
+                    else abs(float(el_max) - float(el_min))  # type: ignore[arg-type]
+                )
 
-                if el_min is None or el_max is None:
-                    el_span = 0.0
-                else:
-                    # Cast to float to ensure proper numeric operations
-                    el_min_val = float(el_min) if el_min is not None else 0.0  # type: ignore
-                    el_max_val = float(el_max) if el_max is not None else 0.0  # type: ignore
-                    el_span = abs(el_max_val - el_min_val)
-
-                q_counts = bins.group_by("quad").count()
-                if q_counts.shape[0] > 0:
-                    min_count = q_counts["count"].min()
-                    max_count = q_counts["count"].max()
-                    if (
-                        min_count is not None
-                        and max_count is not None
-                        and max_count > 0  # type: ignore
-                    ):
-                        # Cast to float to ensure proper numeric operations
-                        min_val = float(min_count) if min_count is not None else 0.0  # type: ignore
-                        max_val = float(max_count) if max_count is not None else 1.0  # type: ignore
-                        balance = min_val / max_val if max_val > 0 else 0.0
-                    else:
-                        balance = 0.0
-                else:
-                    balance = 0.0
+                q_counts = bins.group_by("quad").count()["count"]
+                min_count, max_count = q_counts.min(), q_counts.max()
+                balance = (
+                    float(min_count) / float(max_count)  # type: ignore[arg-type]
+                    if min_count is not None and max_count
+                    else 0.0
+                )
             else:
                 cells_covered = 0
                 el_span = 0

@@ -427,7 +427,6 @@ class RINEXParsingMixin:
             >>> analyzer._mock_azel()
             >>> print(f"Mock tracks for {analyzer.azel_df['satellite'].n_unique()} satellites")
         """
-        """Unified mock logic if NAV is missing."""
         azel_list = []
         for sat in self.df_obs["satellite"].unique():
             seed = sum(ord(c) for c in sat)

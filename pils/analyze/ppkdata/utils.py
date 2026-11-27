@@ -4,8 +4,6 @@ import datetime
 
 import polars as pl
 
-# GPS time constants, re-exported for the PPK readers
-from pils.utils.gnss_time import GPS_EPOCH_UNIX as GPS_EPOCH_UNIX
 from pils.utils.gnss_time import GPS_UTC_LEAP_SECONDS
 
 # =============================================================================
@@ -153,9 +151,6 @@ class GNSSColors:
         "S": SBAS,
     }
 
-    # Backwards compatibility alias
-    CONSTELLATION_COLORS = CONSTELLATION_MAP
-
     @classmethod
     def get_constellation_color(cls, constellation: str) -> str:
         """Get color for a constellation code (first character of satellite ID).
@@ -197,24 +192,6 @@ class GNSSColors:
         """
         ax.grid(True, alpha=0.3, linestyle="--")
         ax.set_facecolor("#f5f5f5")
-
-
-# =============================================================================
-# EXPORTS
-# =============================================================================
-
-__all__ = [
-    # Constants
-    "C",
-    "GNSS_FREQUENCIES",
-    "CONSTELLATION_NAMES",
-    "RTKLIB_BANDS",
-    # Functions
-    "get_frequency_band",
-    "get_dual_freq_bands",
-    # Classes
-    "GNSSColors",
-]
 
 
 # =============================================================================

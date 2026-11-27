@@ -1,35 +1,15 @@
-"""RINEX Quality Analyzer v5 - Polars Core (Feature Complete).
-
-High-performance GNSS analysis with 100% geodetic logic fidelity.
-"""
+"""RINEXAnalyzer: a RINEX observation file (and its navigation file), parsed and assessed."""
 
 import logging
 from pathlib import Path
 
 import polars as pl
 
-from ..utils import (  # noqa: F401  (re-exported, as before the split)
-    GNSS_FREQUENCIES,
-    RTKLIB_BANDS,
-    C,
-    GNSSColors,
-    get_dual_freq_bands,
-    get_frequency_band,
-)
 from .parsing import RINEXParsingMixin
 from .quality import RINEXQualityMixin
 from .signals import RINEXSignalMixin
 
 logger = logging.getLogger(__name__)
-
-# Backwards compatibility aliases
-CONSTELLATION_COLORS = GNSSColors.CONSTELLATION_COLORS
-RTKLIB_bands = RTKLIB_BANDS
-
-
-# =============================================================================
-# RINEX ANALYZER CLASS
-# =============================================================================
 
 
 class RINEXAnalyzer(RINEXParsingMixin, RINEXSignalMixin, RINEXQualityMixin):
@@ -77,7 +57,6 @@ class RINEXAnalyzer(RINEXParsingMixin, RINEXSignalMixin, RINEXQualityMixin):
 
         if navpath is not None:
             self.navpath = navpath
-            self.navname = Path(navpath).name
 
         self.df_obs = pl.DataFrame()
         self.header_info = {}

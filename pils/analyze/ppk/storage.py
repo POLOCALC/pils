@@ -355,33 +355,3 @@ class PPKStorageMixin:
         ...     print(version.pos_data)
         """
         return self.versions.get(version_name)
-
-    def delete_version(self, version_name: str) -> None:
-        """
-        Delete a version.
-
-        Removes it from :attr:`versions` and deletes its revision folder.
-
-        Parameters
-        ----------
-        version_name : str
-            Version identifier to delete
-
-        Examples
-        --------
-        >>> ppk = PPKAnalysis.load('/path/to/flight')
-        >>> ppk.delete_version('rev_20260204_140000')
-        >>> print(ppk.list_versions())  # Version gone
-        """
-        import shutil
-
-        # Remove from versions dict
-        if version_name in self.versions:
-            version = self.versions.pop(version_name)
-
-            # Delete revision folder from filesystem
-            if version.revision_path.exists():
-                shutil.rmtree(version.revision_path)
-                logger.info(f"Deleted revision folder: {version.revision_path}")
-
-        logger.info(f"Version {version_name} deleted")
