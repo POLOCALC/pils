@@ -33,9 +33,6 @@ The package:
 - :mod:`~pils.analyze.quicklook.rinex`: reading RINEX observations
 - :mod:`~pils.analyze.quicklook.common`: thresholds, :class:`Section`,
   formatting helpers and data checks
-
-Every name of the former ``pils/analyze/quicklook.py`` module is re-exported
-here.
 """
 
 from pils.analyze.quicklook.common import (  # noqa: F401
@@ -51,10 +48,6 @@ from pils.analyze.quicklook.common import (  # noqa: F401
     REPORT_FILE,
     SNR_LEVELS,
     Section,
-    _fmt,
-    _seconds,
-    _size,
-    _utc,
     airborne_interval,
     local_en,
     md_table,
@@ -64,14 +57,8 @@ from pils.analyze.quicklook.common import (  # noqa: F401
     rtk_flag_summary,
     table_summary,
 )
-from pils.analyze.quicklook.gnss import QuickLookGNSSMixin  # noqa: F401
-from pils.analyze.quicklook.report import (  # noqa: F401
-    QuickLook,
-    _collect_warnings,
-    _WarningCollector,
-)
+from pils.analyze.quicklook.report import QuickLook  # noqa: F401
 from pils.analyze.quicklook.rinex import (  # noqa: F401
-    _rinex_time,
     band_table,
     common_satellites,
     read_rinex,
