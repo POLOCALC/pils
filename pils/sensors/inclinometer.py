@@ -27,6 +27,7 @@ from typing import Any, Literal
 import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
+import yaml
 
 from ..decoders import KERNEL_utils as kernel
 from ..utils.logging_config import get_logger
@@ -37,14 +38,6 @@ from ..utils.tools import (
 )
 
 logger = get_logger(__name__)
-
-# Check if yaml is available for config file reading
-try:
-    import yaml  # noqa: F401
-
-    YAML_AVAILABLE = True
-except ImportError:
-    YAML_AVAILABLE = False
 
 
 def read_csv_tolerant(path: str | Path) -> pl.DataFrame:
@@ -146,11 +139,6 @@ def detect_inclinometer_type_from_config(dirpath: Path) -> str | None:
     str or None
         'imx5', 'kernel', or None if not found.
     """
-    if not YAML_AVAILABLE:
-        return None
-
-    import yaml as yaml_module
-
     # Find config file - could be in dirpath or parent (aux folder)
     config_files = list(dirpath.glob("*_config.yml"))
 
@@ -159,7 +147,7 @@ def detect_inclinometer_type_from_config(dirpath: Path) -> str | None:
 
     try:
         with open(config_files[0]) as f:
-            config = yaml_module.safe_load(f)
+            config = yaml.safe_load(f)
 
         sensors = config.get("sensors", {})
 
@@ -190,7 +178,7 @@ def detect_inclinometer_type_from_config(dirpath: Path) -> str | None:
                 # Check if there are INC files to determine type
                 return None  # Let file detection handle it
 
-    except (OSError, yaml_module.YAMLError, AttributeError) as e:
+    except (OSError, yaml.YAMLError, AttributeError) as e:
         # AttributeError: a section that is not a mapping (empty file)
         logger.warning(f"Failed to detect inclinometer type from config: {e}")
 
@@ -210,12 +198,10 @@ def detect_inclinometer_type_from_files(dirpath: Path) -> str:
 
     Returns
     -------
-    tuple[str, Optional[str]]
-        Tuple of (inclinometer_type, path_to_file).
-        inclinometer_type is 'imx5', 'kernel', 'legacy' (2022-2023 pickles) or 'unknown'.
+    str
+        'imx5', 'kernel', 'legacy' (2022-2023 pickles) or 'unknown'.
     """
     # Check for IMX-5 files (CSV format with INC_ prefix)
-
     imx5_ins_files = list(dirpath.glob("*_INC_ins.csv"))
     if imx5_ins_files:
         return "imx5"
