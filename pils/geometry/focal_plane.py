@@ -85,20 +85,6 @@ def _wrap_deg(x: float) -> float:
     return (x + 180.0) % 360.0 - 180.0
 
 
-def wafer_quat(wafer: Wafer, boresight_deg: float, dxi: float = 0.0):
-    """Return the focal-plane quaternion of a wafer centre rotated by the boresight angle.
-
-    Optionally shifted by ``dxi`` along xi (a scan's edges). Rotate, decompose
-    to (xi, eta, gamma), force gamma = 0, rebuild: the gamma reset is
-    deliberate, as in SO's pointing notebook.
-    """
-    import so3g.proj.quat as quat
-
-    q = quat.euler(2, -boresight_deg * DEG) * quat.rotation_xieta(wafer.xi, wafer.eta)
-    xi, eta, _ = quat.decompose_xieta(q)
-    return quat.rotation_xieta(xi + dxi, eta, 0.0)
-
-
 def rotated_xieta(xi: float, eta: float, boresight_deg: float) -> tuple[float, float]:
     """Return a focal-plane point after the boresight rotation (sky-aligned frame)."""
     import so3g.proj.quat as quat

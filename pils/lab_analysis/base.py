@@ -92,7 +92,7 @@ class LabAnalysis:
     def get_version(self, version_name: str) -> LabVersion:
         """Load one run (KeyError if missing)."""
         tables, metadata = load_run(
-            self.results_dir, self.analysis_name, self.measurement.stem, version_name
+            self.results_dir, self.measurement.stem, version_name
         )
         return LabVersion(version_name, tables, metadata)
 
@@ -127,7 +127,7 @@ class LabAnalysis:
 
 
 def load_run(
-    results_dir: Path, analysis: str, stem: str, version_name: str
+    results_dir: Path, stem: str, version_name: str
 ) -> tuple[dict[str, pl.DataFrame], dict[str, Any]]:
     """Return the tables and metadata of a saved run (see :mod:`pils.store`).
 
@@ -142,7 +142,7 @@ def load_run(
     return tables, metadata  # type: ignore[return-value]
 
 
-def measurement_runs(results_dir: Path, analysis: str) -> dict[str, str]:
+def measurement_runs(results_dir: Path) -> dict[str, str]:
     """List the measurements (stems) with runs, oldest first, and their latest run."""
     stems: set[str] = set()
     if results_dir.is_dir():
@@ -153,14 +153,3 @@ def measurement_runs(results_dir: Path, analysis: str) -> dict[str, str]:
         if versions:
             runs[stem] = versions[-1]
     return runs
-
-
-def latest_run(
-    results_dir: Path, analysis: str
-) -> tuple[dict[str, pl.DataFrame], dict[str, Any]] | None:
-    """Return the latest run of the latest measurement with runs, or None."""
-    runs = measurement_runs(results_dir, analysis)
-    if not runs:
-        return None
-    stem = list(runs)[-1]  # latest measurement
-    return load_run(results_dir, analysis, stem, runs[stem])

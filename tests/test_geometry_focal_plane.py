@@ -10,7 +10,6 @@ from pils.geometry.focal_plane import (
     rotated_xieta,
     sky_of,
     wafer_polygon,
-    wafer_quat,
 )
 
 pytest.importorskip("so3g")
@@ -41,7 +40,6 @@ def test_a_wafer_is_a_hexagon_unless_it_has_an_outline():
 def test_the_boresight_s_own_point_is_where_it_points():
     az, el = sky_of(185.0, 45.0, 0.0, 0.0)
     assert (az, el) == (pytest.approx(185.0), pytest.approx(45.0))
-    assert wafer_quat(DEFAULT_WAFERS[0], 30.0) is not None
 
 
 def test_an_offset_point_is_off_the_boresight_by_its_distance():

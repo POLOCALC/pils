@@ -6,11 +6,7 @@ import pytest
 
 from pils.utils import geometry
 from pils.utils.hdf5 import h5_to_dict, load_h5
-from pils.utils.uncertainty import (
-    interpolate_with_errors,
-    interpolate_with_errors_jacobian,
-    mc_interp_sigma,
-)
+from pils.utils.uncertainty import linear_interpolate_rows
 from pils.utils.units import db_to_linear, dbm_to_mw, linear_to_db, mw_to_dbm
 
 
@@ -39,46 +35,25 @@ class TestHDF5Input:
 
 
 class TestUncertainty:
-    X = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
-    Y = np.array([2.1, 4.3, 6.2, 8.1, 10.0])
-    DX = np.full(5, 0.1)
-    DY = np.full(5, 0.2)
-
     def test_linear_analytic(self):
-        # Between two points, y = y0 + s (x - x0): var from x_new, y0, y1, x0, x1
-        y, dy = interpolate_with_errors(
-            [0.0, 1.0], [0.0, 2.0], [0.0, 0.0], [0.1, 0.1], 0.5, 0.05
+        # Between two points, y = y0 + s (x - x0): var from x_new, y0, y1
+        y, dy = linear_interpolate_rows(
+            [[0.0, 1.0]], [[0.0, 2.0]], [[0.0, 0.0]], [[0.1, 0.1]], [0.5], [0.05]
         )
-        assert y == pytest.approx(1.0)
+        assert y[0] == pytest.approx(1.0)
         expected = np.sqrt((2 * 0.05) ** 2 + 2 * (0.5 * 0.1) ** 2)
-        assert dy == pytest.approx(expected, rel=1e-6)
+        assert dy[0] == pytest.approx(expected, rel=1e-6)
 
-    def test_vectorised_matches_single(self):
-        x_new = np.array([1.5, 2.5, 3.5])
-        dx_new = np.array([0.1, 0.15, 0.12])
-        y, dy = interpolate_with_errors_jacobian(
-            self.X, self.Y, self.DX, self.DY, x_new, dx_new
+    def test_rows_are_independent_and_extrapolate(self):
+        y, _ = linear_interpolate_rows(
+            [[2.0, 1.0], [0.0, 1.0]],  # unsorted row
+            [[4.0, 2.0], [0.0, -1.0]],
+            np.zeros((2, 2)),
+            np.zeros((2, 2)),
+            [1.5, 2.0],
+            [0.0, 0.0],
         )
-        for i in range(3):
-            yi, dyi = interpolate_with_errors(
-                self.X, self.Y, self.DX, self.DY, x_new[i], dx_new[i]
-            )
-            assert y[i] == pytest.approx(yi)
-            assert dy[i] == pytest.approx(dyi, rel=1e-6)
-
-    def test_monte_carlo_agrees(self):
-        _, dy = interpolate_with_errors(self.X, self.Y, self.DX, self.DY, 2.5, 0.15)
-        _, dy_mc = mc_interp_sigma(
-            self.X,
-            self.Y,
-            self.DX,
-            self.DY,
-            2.5,
-            0.15,
-            n=4000,
-            rng=np.random.default_rng(1),
-        )
-        assert dy_mc == pytest.approx(dy, rel=0.1)
+        np.testing.assert_allclose(y, [3.0, -2.0])
 
 
 class TestGeometry:
