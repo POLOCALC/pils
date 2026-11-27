@@ -1,14 +1,12 @@
 """Test suite for BlackSquare module following TDD methodology."""
 
 import logging
-from datetime import datetime
 
 import polars as pl
 import pytest
 
 from pils.drones.blacksquare import (
     BlackSquare,
-    get_leapseconds,
     messages_to_df,
     read_msgs,
 )
@@ -108,29 +106,6 @@ class TestMessagesToDF:
         assert df.shape[0] == 0
 
 
-class TestGetLeapseconds:
-    """Test suite for leap second calculation."""
-
-    def test_get_leapseconds_2020(self):
-        """Test leap seconds for year 2020."""
-        result = get_leapseconds(2020, 1)
-        assert isinstance(result, int)
-        assert result >= 18  # At least 18 leap seconds by 2020
-
-    def test_get_leapseconds_2024(self):
-        """Test leap seconds for year 2024."""
-        result = get_leapseconds(2024, 6)
-        assert isinstance(result, int)
-        assert result >= 18
-
-    def test_get_leapseconds_different_months(self):
-        """Test leap seconds for different months in same year."""
-        jan = get_leapseconds(2020, 1)
-        dec = get_leapseconds(2020, 12)
-        # Should be the same year
-        assert jan == dec
-
-
 class TestBlackSquareDrone:
     """Test suite for BlackSquare class."""
 
@@ -189,30 +164,6 @@ PARM, 1000000, b'SYSID_THISMAV', 1.0"""
         drone.load_data()
         # Just verify multiple message types were parsed
         assert len(drone.data.keys()) >= 5
-
-    def test_compute_datetime(self, sample_log_file):
-        """Test datetime computation from GPS."""
-        drone = BlackSquare(sample_log_file)
-        drone.load_data()
-        # Just verify the method can be called
-        try:
-            drone.compute_datetime()
-        except (KeyError, AttributeError):
-            # GPA data may not be available, that's OK
-            pass
-
-    def test_compute_datetime_values(self, sample_log_file):
-        """Test that computed datetime values are reasonable."""
-        drone = BlackSquare(sample_log_file)
-        drone.load_data()
-        # Skip if no GPA data
-        if drone.gpa is None:
-            pytest.skip("GPA data not available in test fixture")
-        drone.compute_datetime()
-        # Check that datetime is after GPS epoch
-        gps_epoch = datetime(1980, 1, 6)
-        first_dt = drone.datetime[0]
-        assert first_dt > gps_epoch
 
     def test_params_cleaning(self, sample_log_file):
         """Test that PARM names are cleaned properly."""

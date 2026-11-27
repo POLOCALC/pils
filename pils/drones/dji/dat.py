@@ -8,28 +8,19 @@ import polars as pl
 from ...utils.logging_config import get_logger
 from ...utils.tools import drop_nan_and_zero_cols
 from .dat_alignment import DJIAlignmentMixin
-from .dat_format import (  # noqa: F401  (re-exported: the .dat format lived here)
-    _CRC_TABLE_NP,
-    _GPS_FIELDS,
-    _HEADER_SIZE,
-    _IMU_FIELDS,
-    _MOTORS,
-    _NUMPY_FORMATS,
-    CRC_TABLE,
+from .dat_format import (
     DAT_RECORDS,
     MESSAGE_DEFINITIONS,
     add_euler_angles,
-    calc_checksum,
     decode_records,
     scan_records,
     unwrap_ticks,
 )
-from .dat_messages import DJIMessageMixin
 
 logger = get_logger(__name__)
 
 
-class DJIDat(DJIAlignmentMixin, DJIMessageMixin):
+class DJIDat(DJIAlignmentMixin):
     """DJI Drone data loader supporting CSV and DAT binary formats.
 
     Handles loading and processing of DJI drone flight logs from both
@@ -39,28 +30,22 @@ class DJIDat(DJIAlignmentMixin, DJIMessageMixin):
     ----------
         path: Path to drone data file
         data: Loaded drone data (DataFrame or dict of DataFrames)
-        sync_params: Synchronization parameters (slope, intercept)
         source_format: Format of source data ('csv' or 'dat')
         aligned_df: Aligned DataFrame after GPS synchronization
     """
 
-    def __init__(self, path: str | Path, source_format: str | None = None) -> None:
+    def __init__(self, path: str | Path) -> None:
         """Initialize DJIDat loader.
 
         Parameters
         ----------
         path : Union[str, Path]
             Path to DJI drone data file (CSV or DAT).
-        source_format : Optional[str], optional
-            Optional format specification ('csv' or 'dat').
         """
         self.path = path
         self.data: (
             dict[str, pl.DataFrame] | pl.DataFrame
         ) = {}  # Dictionary or DataFrame
-        self.sync_params: tuple[float, float] | None = (
-            None  # Store (slope, intercept) from Gaussian sync
-        )
         self.source_format: str | None = None  # Track if data came from CSV or DAT
         self.aligned_df: pl.DataFrame | None = None  # Store aligned DataFrame
         # Other .dat records (IMU attitude, motors, battery, ...), one table each
@@ -74,7 +59,6 @@ class DJIDat(DJIAlignmentMixin, DJIMessageMixin):
         use_dat: bool = True,
         remove_duplicate: bool = False,
         correct_timestamp: bool = True,
-        polars_interpolation: bool = True,
         align: bool = True,
     ) -> None:
         """Load and filter drone data from a CSV or DAT file.
@@ -96,16 +80,9 @@ class DJIDat(DJIAlignmentMixin, DJIMessageMixin):
             If True, remove consecutive duplicate position samples.
         correct_timestamp : bool, optional
             If True, correct timestamps.
-        polars_interpolation : bool, optional
-            Not used for DAT files (see :meth:`align_datfile`).
         align : bool, optional
             If True, align DAT file data with GPS.
         """
-        # Auto-detect file format if not specified
-        # if use_dat is None:
-        #     file_extension = Path(self.path).suffix.lower()
-        #     use_dat = file_extension in [".dat", ".bin"]
-
         if use_dat:
             self._load_from_dat()
             self.source_format = "dat"

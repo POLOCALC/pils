@@ -50,7 +50,6 @@ class DJIAlignmentMixin:
                     )
                 else:
                     offset += 2**32  # Add uint32 max value
-                    logger.info(f"{2**32 - 1e4 < tick_values[i - 1]}")
                     logger.info(
                         f"Tick unwrap at index {i}: {tick_values[i - 1]:,} -> {tick_values[i]:,} (adding offset 2^32, total offset: {offset:,})"
                     )
@@ -94,20 +93,12 @@ class DJIAlignmentMixin:
         )
 
         residuals = c + m * tick_arr[idx + 1] - timestamp_arr[idx + 1]
-        off = 0
 
-        (idx_fast,) = np.where(residuals[off:] > np.quantile(residuals[off:], 0.95))
+        (idx_fast,) = np.where(residuals > np.quantile(residuals, 0.95))
         if idx_fast.size == 0:  # equal residuals: no record is late
-            (idx_fast,) = np.where(
-                residuals[off:] >= np.quantile(residuals[off:], 0.95)
-            )
+            (idx_fast,) = np.where(residuals >= np.quantile(residuals, 0.95))
 
-        time_offset = float(
-            np.average(
-                +(c + m * tick_arr[idx + 1][idx_fast + off])
-                - timestamp_arr[idx + 1][idx_fast + off]
-            )
-        )
+        time_offset = float(np.average(residuals[idx_fast]))
         self.data["GPS"] = self.data["GPS"].with_columns(
             pl.Series(
                 "timestamp",
@@ -115,7 +106,6 @@ class DJIAlignmentMixin:
             )
         )
 
-        self.sync_params = (float(m), time_offset)
         self.tick_to_time = (float(m), float(c - time_offset))
         return time_offset
 

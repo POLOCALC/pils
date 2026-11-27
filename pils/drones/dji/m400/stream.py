@@ -1,7 +1,8 @@
 """The psdk_telemetry stream: records with a sync word, a header, a payload and a CRC-16.
 
 Ported (copied and adapted, not imported) from LAGER, POLOCALC/lager at 825164a:
-``lager/UAVs/DJI_M400/stream.py``, unchanged but for the import.
+``lager/UAVs/DJI_M400/stream.py``, unchanged but for the import and
+without ``parse_stats`` (pils reads no STATS record).
 """
 
 import binascii
@@ -96,13 +97,3 @@ def parse_topic_table(payload: bytes) -> dict:
             "subscribed": bool(subscribed),
         }
     return topics
-
-
-def parse_stats(payload: bytes) -> tuple:
-    """STATS record -> (dropped, {topic_id: received})."""
-    dropped, count = struct.unpack_from("<IH", payload, 0)
-    received = {}
-    for i in range(count):
-        tid, n = struct.unpack_from("<HI", payload, 6 + i * 6)
-        received[tid] = n
-    return dropped, received
