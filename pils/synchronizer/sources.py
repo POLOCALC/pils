@@ -9,6 +9,15 @@ import polars as pl
 logger = logging.getLogger(__name__)
 
 
+def _require(data: pl.DataFrame, columns: list[str], what: str) -> None:
+    """Raise ValueError if ``data`` lacks one of ``columns`` or has no rows."""
+    missing = [col for col in columns if col not in data.columns]
+    if missing:
+        raise ValueError(f"{what} missing columns: {missing}")
+    if len(data) == 0:
+        raise ValueError(f"{what} data is empty")
+
+
 class SourcesMixin:
     """The ``add_*`` methods of :class:`~pils.synchronizer.Synchronizer`.
 
@@ -91,14 +100,7 @@ class SourcesMixin:
         ValueError
             If required columns are missing or data is empty
         """
-        required_cols = [timestamp_col, lat_col, lon_col, alt_col]
-        missing_cols = [col for col in required_cols if col not in gps_data.columns]
-
-        if missing_cols:
-            raise ValueError(f"GPS payload missing columns: {missing_cols}")
-
-        if len(gps_data) == 0:
-            raise ValueError("GPS payload data is empty")
+        _require(gps_data, [timestamp_col, lat_col, lon_col, alt_col], "GPS payload")
 
         self._ref_height = gps_data[alt_col][0]
         self._ref_names = {
@@ -151,14 +153,7 @@ class SourcesMixin:
         else:
             df = gps_data
 
-        required_cols = [timestamp_col, lat_col, lon_col, alt_col]
-        missing_cols = [col for col in required_cols if col not in df.columns]
-
-        if missing_cols:
-            raise ValueError(f"Drone GPS missing columns: {missing_cols}")
-
-        if len(df) == 0:
-            raise ValueError("Drone GPS data is empty")
+        _require(df, [timestamp_col, lat_col, lon_col, alt_col], "Drone GPS")
 
         self.drone_gps = df
 
@@ -204,14 +199,7 @@ class SourcesMixin:
         ValueError
             If required columns are missing or data is empty
         """
-        required_cols = [timestamp_col, lat_col, lon_col, alt_col]
-        missing_cols = [col for col in required_cols if col not in gps_data.columns]
-
-        if missing_cols:
-            raise ValueError(f"Litchi GPS missing columns: {missing_cols}")
-
-        if len(gps_data) == 0:
-            raise ValueError("Litchi GPS data is empty")
+        _require(gps_data, [timestamp_col, lat_col, lon_col, alt_col], "Litchi GPS")
 
         # Take-off at the height of the reference GPS when it starts
         self.litchi_gps = gps_data.with_columns(
@@ -258,16 +246,7 @@ class SourcesMixin:
         ValueError
             If required columns are missing or data is empty
         """
-        required_cols = [timestamp_col, pitch_col]
-        missing_cols = [
-            col for col in required_cols if col not in inclinometer_data.columns
-        ]
-
-        if missing_cols:
-            raise ValueError(f"Inclinometer missing columns: {missing_cols}")
-
-        if len(inclinometer_data) == 0:
-            raise ValueError("Inclinometer data is empty")
+        _require(inclinometer_data, [timestamp_col, pitch_col], "Inclinometer")
 
         self.inclinometer = inclinometer_data
         self._inclinometer_names = {"timestamp": timestamp_col, "pitch": pitch_col}
@@ -285,16 +264,7 @@ class SourcesMixin:
     ):
         """Add camera data, aligned by its pitch (photogrammetry) or its clock."""
         if use_photogrammetry:
-            required_cols = [timestamp_col, pitch_col]
-            missing_cols = [
-                col for col in required_cols if col not in camera_data.columns
-            ]
-
-            if missing_cols:
-                raise ValueError(f"Photogrammetry data missing columns: {missing_cols}")
-
-            if len(camera_data) == 0:
-                raise ValueError("Photogrammetry data is empty")
+            _require(camera_data, [timestamp_col, pitch_col], "Photogrammetry")
 
             self._camera_model = "photogrammetry"
 
@@ -363,15 +333,7 @@ class SourcesMixin:
         ValueError
             If required columns are missing or data is empty
         """
-        missing = [
-            c
-            for c in (timestamp_col, lat_col, lon_col, alt_col)
-            if c not in data.columns
-        ]
-        if missing:
-            raise ValueError(f"{name} position missing columns: {missing}")
-        if data.height == 0:
-            raise ValueError(f"{name} position data is empty")
+        _require(data, [timestamp_col, lat_col, lon_col, alt_col], f"{name} position")
         self.position_sources[name] = data.sort(timestamp_col)
         self._position_names[name] = {
             "timestamp": timestamp_col,
