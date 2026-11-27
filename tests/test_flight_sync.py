@@ -130,7 +130,7 @@ def test_sync_drone_records(tmp_path):
     flight.raw_data.drone_data = DroneData(
         drone, pl.DataFrame(), {"imu_atti_0": imu, "motor": motor}
     )
-    flight._Flight__drone_model = "dji"
+    flight._drone_model = "dji"
 
     synced = flight.sync(target_rate={"drone": 10.0})
     assert "drone_imu_atti_0" in synced

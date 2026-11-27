@@ -1,7 +1,7 @@
 """Containers of the loaded data of a flight: raw, drone and payload tables."""
 
 import logging
-from typing import Any, Optional, Union, overload
+from typing import Any, Optional, Union
 
 import polars as pl
 
@@ -163,16 +163,6 @@ class DroneData:
         """The app's flight record (.txt) of the Matrice 400, or None."""
         return self.sources.get("flight_record")
 
-    def has_data(self) -> bool:
-        """Whether any drone source is loaded."""
-        return bool(
-            (isinstance(self.drone, dict) and self.drone)
-            or (isinstance(self.drone, pl.DataFrame) and self.drone.height)
-            or self.litchi.height
-            or self.records
-            or self.sources
-        )
-
     def __getitem__(self, key: str) -> Union["pl.DataFrame", dict[str, "pl.DataFrame"]]:
         """
         Dictionary-style access to drone data.
@@ -235,13 +225,6 @@ class PayloadData:
     >>> print(payload_data)
     """
 
-    def __init__(self):
-        """Initialize empty PayloadData container.
-
-        Sensor attributes are set dynamically via add_sensor_data().
-        """
-        pass
-
     def __getattr__(self, name: str) -> Any:
         """
         Access sensor data attributes.
@@ -279,25 +262,6 @@ class PayloadData:
             raise AttributeError(
                 f"Sensor '{name}' not loaded. No sensors currently loaded."
             )
-
-    @overload
-    def __setattr__(self, name: str, value: pl.DataFrame) -> None: ...
-
-    @overload
-    def __setattr__(self, name: str, value: Any) -> None: ...
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        """
-        Set sensor data attribute dynamically.
-
-        Parameters
-        ----------
-        name : str
-            Sensor name (gps, imu, adc, inclinometer, etc.)
-        value : Any
-            Sensor data (typically pl.DataFrame or sensor object)
-        """
-        object.__setattr__(self, name, value)
 
     def __getitem__(self, key: str) -> Any:
         """

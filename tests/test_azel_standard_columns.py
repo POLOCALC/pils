@@ -52,7 +52,7 @@ dji rtk base (antenna base),-105.0005,40.0005,1001.000"""
             )
         }
 
-        flight._Flight__drone_model = "dji"
+        flight._drone_model = "dji"
         return flight
 
     def test_sync_data_uses_standard_latitude(self, mock_flight_standard_sync):

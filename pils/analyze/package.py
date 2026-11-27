@@ -23,7 +23,7 @@ The steps, in order:
 1. load the payload sensors (:data:`PAYLOAD_SENSORS`, in any file format of
    2022-2025, see ``pils.sensors``) and the drone data;
 2. synchronize on the payload GPS, or on the drone GPS when no payload GPS
-   covers the flight (``pils.flight.MIN_REFERENCE_COVERAGE``), at
+   covers the flight (``pils.flight.sync.MIN_REFERENCE_COVERAGE``), at
    :data:`SYNC_RATES`, and report every time offset;
 3. save the raw and synchronized data in ``proc/flight/`` (``Flight.save``);
 4. compute AZEL for each telescope and write the telescope's AZEL file;

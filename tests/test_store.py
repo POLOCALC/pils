@@ -126,7 +126,7 @@ def test_table_does_not_replace_other_files(tmp_path, tables):
 
 def test_flight_save_and_load(tmp_path):
     flight = Flight({"drone_data_folder_path": str(tmp_path / "drone")})
-    flight._Flight__drone_model = "dji"
+    flight._drone_model = "dji"
     flight.raw_data.drone_data = DroneData(
         pl.DataFrame({"timestamp": [0.0], "rtk_lat_deg": [1.0]}),
         None,
@@ -144,7 +144,7 @@ def test_flight_save_and_load(tmp_path):
     assert first != second
 
     loaded = Flight.load(tmp_path / "out", sync_revision=first)
-    assert loaded._Flight__drone_model == "dji"
+    assert loaded._drone_model == "dji"
     assert loaded.raw_data.drone_data.records["imu_atti_0"]["yaw_deg"][0] == 3.0
     assert loaded.raw_data.payload_data.inclinometer["ins"].height == 1
     assert loaded.sync_data["drone"].height == 3

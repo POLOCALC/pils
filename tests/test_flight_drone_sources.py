@@ -88,7 +88,6 @@ def test_a_matrice_400_flight_has_telemetry_and_gimbal_without_a_dat(tmp_path):
     lager_folder(tmp_path / "aux")  # the payload computer's folder
     flight.add_drone_data()
     d = flight.raw_data.drone_data
-    assert flight.raw_data.drone_data.has_data()
     assert not isinstance(d.drone, pl.DataFrame) or d.drone.is_empty()
     t = d.telemetry
     assert t is not None and t.height == 5

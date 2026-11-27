@@ -13,7 +13,8 @@ import numpy as np
 import polars as pl
 import pytest
 
-from pils.flight import DroneData, Flight, PayloadData, _time_coverage
+from pils.flight import DroneData, Flight, PayloadData
+from pils.flight.sync import _time_coverage
 from pils.sensors import legacy
 from pils.sensors.adc import ADC, decode_adc_file_struct, detect_struct_layout
 from pils.sensors.gps import GPS, read_ubx
@@ -324,7 +325,7 @@ def test_dji_rtk_without_a_fix_falls_back_to_the_drone_gnss(gps_span):
     ).with_columns(
         rtk_lat_deg=pl.lit(0.0), rtk_lon_deg=pl.lit(0.0), rtk_h_ell_m=pl.lit(0.0)
     )
-    flight._Flight__drone_model = "dji"
+    flight._drone_model = "dji"
     synced = flight.sync(target_rate={"drone": 5.0, "payload": 10.0})
     assert flight.sync_position_columns["drone"]["lat"] == "gps_lat_deg"
     assert synced["drone"]["lat_deg"].drop_nulls().len() > 100

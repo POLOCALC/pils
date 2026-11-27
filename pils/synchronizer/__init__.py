@@ -19,15 +19,10 @@ The package splits :class:`Synchronizer` by responsibility:
 - :mod:`pils.synchronizer.sources`: the ``add_*`` methods
 - :mod:`pils.synchronizer.offsets`: time offsets by correlation
 - :mod:`pils.synchronizer.resample`: resampling tables on a time grid
-
-Every name of the former ``pils/synchronizer.py`` module is re-exported here.
 """
 
 from pils.synchronizer.core import Synchronizer
-from pils.synchronizer.resample import (  # noqa: F401
-    _ANGLE_PATTERNS,
-    _CLOCK_FIELDS,
-    _HELD_COLUMNS,
+from pils.synchronizer.resample import (
     REDUNDANT_TIME_COLUMNS,
     angle_period,
     interp_angle,

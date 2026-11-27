@@ -371,9 +371,7 @@ class AZELAnalysis:
             )
 
         # 2. Detect drone format from flight's drone_model attribute
-        drone_model = (
-            getattr(self.flight, "_Flight__drone_model", None) or "dji"
-        ).lower()
+        drone_model = (getattr(self.flight, "_drone_model", None) or "dji").lower()
         logger.info(f"Detected drone model: {drone_model}")
 
         # Determine format type
