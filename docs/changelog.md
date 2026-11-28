@@ -22,6 +22,9 @@ All notable changes to PILS are documented here.
   the record's 10 Hz track tied to that RTK (`record_track`: RTK latency and
   offset found, reported by `pils package`), and AZEL takes the base position
   it broadcast from the record.
+- Docs: "DJI flight record" (`docs/api/drones/dji-flight-record.md`), the
+  decoding in full: container, XOR and AES, keys, the records' byte layouts
+  (with 45 and 48), the frame table and its time, and the record track.
 - `--telescope-source campaign` (and `telescope_source="campaign"`): the
   telescope position from the campaign's own survey, else the so3g site
   (never another campaign's survey). `$PILS_TELESCOPE_SOURCE` sets the default

@@ -43,37 +43,24 @@ was left out (CRC failures, unknown topics, truncated frames).
 # Matrice 400 flight record (`.txt`)
 
 The app of the Matrice 400's remote controller saves `DJIFlightRecord_*.txt`
-(about 10 Hz). PILS decodes it itself (`pils.drones.dji.m400`: `txtlog` for
-the container and its decryption, `records` for what the records hold,
-`flightrecord` for the table), log formats 6 to 14.
-The records of a log of version 13 or later are encrypted: the keys come from
-DJI's keychain API with a DJI Open API app key, read from the `api_key`
-argument or the `DJI_API_KEY` environment variable (never stored by PILS).
+(about 10 Hz). PILS decodes it itself; the container, the decryption, the
+record layouts (including the RTK solution, record 45, and the position of
+record 48), the frame table, its time and the synchronization on its track
+are described in [DJI flight record](dji-flight-record.md).
 
 ```python
 from pils.drones import M400FlightRecord
 
 r = M400FlightRecord("DJIFlightRecord_2026-11-19_[10-15-00].txt")
-r.load_data()            # uses $DJI_API_KEY
+r.load_data()            # uses $DJI_API_KEY (formats 13+)
 r.data                   # one row per frame: timestamp, datetime, osd_*, home_*, rc_*, battery<i>_*, rtk_*, ...
 r.details                # aircraft and serial numbers, app version, start time, totals
 ```
 
-- Only the keychain request leaves the machine (the log's encrypted key
-  blocks and the app key); PILS caches the answer for 30 days in
+- The records of a log of format 13 or later are encrypted: the keys come from
+  DJI's keychain API with a DJI Open API app key, read from the `api_key`
+  argument or `$DJI_API_KEY` (never stored by PILS). Only the log's encrypted
+  key blocks and the app key leave the machine; the answer is cached 30 days in
   `$XDG_CACHE_HOME/pils/dji-keychains`. Keep the decoded table, not the cache.
-- The frames are timed with the log's start (UTC, in its details) plus the
-  aircraft's fly time: the app's own times are not usable, and the file's name
-  is in the remote controller's time zone (not necessarily the site's).
-- Two records no public parser reads are decoded: the RTK solution (type 45,
-  1 Hz, `rtk_*`: position, fix flag and the base's broadcast position) and a
-  position with a height of known reference (type 48, `osd_abs_*`, every
-  frame). Without a payload GPS, a .DAT or LAGER telemetry, the flight's
-  reference is the record's 10 Hz track tied to its RTK
-  (`pils.drones.sources.record_track`): the RTK's latency (0.1-0.3 s on the
-  first flights) is found by matching the two, and the track is moved by the
-  median RTK - track offset (a few decimetres) into the RTK's frame.
-  `pils package` reports the offset, scatter and latency ("record track"),
-  and AZEL takes the broadcast base position from the record.
 - The street address the app writes in the header is not kept.
 - This is not the onboard high-rate `.DAT` log and not LAGER's telemetry.
