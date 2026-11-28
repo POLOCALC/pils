@@ -149,11 +149,13 @@ def feature_point(record_type: int, version: int) -> int:
         return WAYPOINT
     if record_type in (21, 41, 43, 44, 45, 46, 47, 48):
         return AGRICULTURE
-    if record_type == 49:
+    if record_type in (49, 57):  # 57: found on Matrice 400 logs (format 14)
         return AIR_LINK
     if record_type == 62:
         return RC
-    if record_type in (5, 9, 10, 20, 24, 30, 54):
+    # 253, 254: found on Matrice 400 logs (format 14); while they were left
+    # undecrypted, the IV chain of this group broke (record 5's first block)
+    if record_type in (5, 9, 10, 20, 24, 30, 54, 253, 254):
         return DJI_FLY_CUSTOM
     if version >= 14:  # format 14 has groups of its own
         if record_type == 3:

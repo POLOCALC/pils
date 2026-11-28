@@ -352,6 +352,17 @@ DJI_RECORD = {
     "rtk_base_latitude": Field("rtk_base_lat_deg"),
     "rtk_base_longitude": Field("rtk_base_lon_deg"),
     "rtk_base_height": Field("rtk_base_h_ell_m"),
+    # From the home point, in metres (OSD bytes 74, 78 of the Matrice 400)
+    "osd_north": Field("north_m"),
+    "osd_east": Field("east_m"),
+    # The app's record (5) and the position of its device (14)
+    "app_time": Field("app_time_s"),
+    "app_distance": Field("app_distance_m"),
+    "app_gps_latitude": Field("app_gps_lat_deg"),
+    "app_gps_longitude": Field("app_gps_lon_deg"),
+    "app_gps_altitude": Field("app_gps_h_m"),
+    "link_uplink_signal": Field("link_uplink_signal_pct"),
+    "link_downlink_signal": Field("link_downlink_signal_pct"),
 }
 
 CAMERA = {

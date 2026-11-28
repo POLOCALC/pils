@@ -114,6 +114,14 @@ DEFAULT_RECORDS = [
 ]
 
 
+# Groups found on Matrice 400 logs that the decoder must know (see the test below)
+APP_GROUPS = {
+    254: txtlog.DJI_FLY_CUSTOM,
+    253: txtlog.DJI_FLY_CUSTOM,
+    57: txtlog.AIR_LINK,
+}
+
+
 class Writer:
     """A log of format 14 (or 12) with the records given, encrypted with KEYS."""
 
@@ -141,7 +149,8 @@ class Writer:
 
     def record(self, kind, plain) -> bytes:
         data = plain
-        fp = txtlog.feature_point(kind, self.version)
+        # the groups of the app's logs, independently of the decoder's table
+        fp = APP_GROUPS.get(kind) or txtlog.feature_point(kind, self.version)
         if self.version >= 13 and fp in KEYS:
             key, _ = KEYS[fp]
             padder = padding.PKCS7(128).padder()
@@ -350,3 +359,67 @@ def test_files_that_are_not_flight_records(tmp_path):
 def test_missing_file(tmp_path):
     with pytest.raises(FileNotFoundError):
         M400FlightRecord(tmp_path / "none.txt").load_data(api_key="KEY")
+
+
+# --- More records (custom, app GPS, flight controller, link, components) -----
+
+
+def custom(ms, distance_km=0.5) -> bytes:
+    return struct.pack("<BBffq", 0, 1, 6.3, distance_km, ms)
+
+
+def test_a_record_left_undecrypted_does_not_break_its_groups_chain(tmp_path, api):
+    # 254 shares the key (and the chained IV) of the app's records (5, 9, 10):
+    # if it were not decrypted, the next custom record's first block would be
+    # garbage (as the app's time was, before)
+    t0 = int(START.timestamp() * 1000)
+    records = [
+        *frame(0),
+        (5, custom(t0)),
+        (254, bytes.fromhex("05000200020000000834")),
+        (5, custom(t0 + 100, 0.6)),
+        *frame(1),
+    ]
+    r = M400FlightRecord(write(tmp_path, Writer(records)))
+    r.load_data(api_key="KEY")
+    t = r.data
+    # both custom records in frame 0: the second is kept, and decoded right
+    assert t["app_time"][0] == pytest.approx(t0 / 1000 + 0.1)
+    assert t["app_time"][1] is None
+    assert t["app_distance"][0] == pytest.approx(600.0, rel=1e-6)
+    assert t["app_is_video"][0] is True
+
+
+def test_app_gps_flight_controller_link_and_home_relative_position(tmp_path, api):
+    o = bytearray(osd(0.0))
+    o += bytes(85 - len(o))
+    struct.pack_into("<ff", o, 74, 12.5, -3.25)
+    records = [
+        (1, bytes(o)),
+        (14, struct.pack("<ddf", -22.95975, -67.78687, 5181.5)),
+        (19, bytes([2, 0x07]) + bytes(31)),
+        (49, bytes([0x80 | 90])),
+        (49, bytes([75])),
+        *frame(1),
+    ]
+    r = M400FlightRecord(write(tmp_path, Writer(records)))
+    r.load_data(api_key="KEY")
+    t = r.data
+    assert (t["osd_north"][0], t["osd_east"][0]) == (12.5, -3.25)
+    assert t["app_gps_latitude"][0] == pytest.approx(-22.95975)
+    assert t["app_gps_altitude"].to_list() == pytest.approx([5181.5] * 2)  # holds
+    assert t["mc_fail_safe"][0] == 2 and t["mc_is_obstacle_avoidance_on"][0]
+    assert (t["link_uplink_signal"][0], t["link_downlink_signal"][0]) == (90, 75)
+
+
+def test_firmware_and_component_serials_go_to_the_details(tmp_path, api):
+    serial = b"1581F00TEST0000A2XYZ"
+    records = [
+        (15, bytes([3, 0, 9, 5, 0, 32]) + bytes(12)),
+        (40, struct.pack("<HB", 2, len(serial) + 1) + serial + b"\0"),
+        *frame(0),
+    ]
+    r = M400FlightRecord(write(tmp_path, Writer(records)))
+    r.load_data(api_key="KEY")
+    assert r.details["firmware"] == {"flight controller": "9.5.0.32"}
+    assert r.details["component_serials"] == {"aircraft": serial.decode()}

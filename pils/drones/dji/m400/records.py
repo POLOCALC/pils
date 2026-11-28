@@ -12,11 +12,19 @@ type        section                   notes
 2           ``home_``                 home point
 3           ``gimbal_``               gimbal attitude
 4, 62       ``rc_``                   sticks (62: as the remote controller shows them)
+5           ``app_``                  the app's time, distance flown, shooting
 9, 10       ``app_tip``, ``app_warn`` the app's messages
-22          ``battery<i>_``           smart batteries (Matrice 400: two)
+14          ``app_gps_``              the app's device position (0.5 Hz)
+19          ``mc_``                   flight controller settings
+22          ``battery<i>_``           smart batteries
 45          ``rtk_``                  RTK solution, 1 Hz (see below)
 48          ``osd_abs_``              position with a height of known reference
+49          ``link_``                 radio link signal (up and down)
+15, 40      (details)                 firmware versions, component serial numbers
 ==========  ========================  ===========================================
+
+The full list of the record types of a Matrice 400 log, those read and those
+not, is in the docs (API reference, Drones, Matrice 400 flight record).
 
 Types 45 and 48 are documented nowhere public: their layouts were found by
 comparing them with the OSD record of Matrice 400 flights (November 2026):
@@ -39,6 +47,7 @@ from typing import Any
 
 OSD, HOME, GIMBAL, RC, APP_TIP, APP_WARN, RC_DISPLAY = 1, 2, 3, 4, 9, 10, 62
 SMART_BATTERY_GROUP, RTK, POSITION = 22, 45, 48
+CUSTOM, APP_GPS, MC_PARAMS, LINK = 5, 14, 19, 49
 
 Row = dict[str, Any]
 
@@ -96,6 +105,8 @@ def osd(data: bytes, version: int) -> Row:
     }
     if version >= 2 and len(data) > 48:
         row["osd_drone_type"] = data[48]
+    if len(data) >= 82:  # Matrice 400 (85 bytes): from the home point, in metres
+        row["osd_north"], row["osd_east"] = struct.unpack_from("<ff", data, 74)
     return row
 
 
@@ -151,6 +162,49 @@ def rc(data: bytes, version: int) -> Row:
 def rc_display(data: bytes, version: int) -> Row:
     """Return the sticks as the remote controller shows them (type 62): after 7 bytes, as type 4."""
     return rc(data[7:], version)
+
+
+def custom(data: bytes, version: int) -> Row:
+    """Return the app's own record (type 5): its time, the distance flown, shooting.
+
+    ``app_time`` is the app's clock (UNIX s, UTC); on Matrice 400 logs it agrees
+    with ``start_time + osd_fly_time`` within 0.1 s. Its horizontal speed
+    (bytes 2-5) is the OSD's and is not kept.
+    """
+    photo, video, _h_speed, distance_km, ms = struct.unpack_from("<BBffq", data, 0)
+    return {
+        "app_is_photo": bool(photo),
+        "app_is_video": bool(video),
+        "app_distance": distance_km * 1000.0,  # flown since take-off, m
+        "app_time": ms / 1000.0 if ms > 0 else float("nan"),
+    }
+
+
+def app_gps(data: bytes, version: int) -> Row:
+    """Return the position of the app's device (type 14): the remote controller's GNSS."""
+    lat, lon, alt = struct.unpack_from("<ddf", data, 0)
+    return {"app_gps_latitude": lat, "app_gps_longitude": lon, "app_gps_altitude": alt}
+
+
+def mc_params(data: bytes, version: int) -> Row:
+    """Return the flight controller's settings (type 19).
+
+    ``mc_fail_safe``: the action on a lost link (0 hover, 1 land, 2 go home).
+    """
+    return {
+        "mc_fail_safe": data[0],
+        "mc_is_vision_positioning_on": bool(_bit(data[1], 0x01)),
+        "mc_is_obstacle_avoidance_on": bool(_bit(data[1], 0x02)),
+        "mc_is_user_avoidance_on": bool(_bit(data[1], 0x04)),
+    }
+
+
+def link(data: bytes, version: int) -> Row:
+    """Return the radio link's signal (type 49, one byte): up- or downlink, in %."""
+    if len(data) != 1:
+        return {}  # a longer variant, not read
+    side = "up" if data[0] & 0x80 else "down"
+    return {f"link_{side}link_signal": data[0] & 0x7F}
 
 
 def _message(data: bytes) -> str:
@@ -226,6 +280,43 @@ def rtk(data: bytes, version: int) -> Row:
     }
 
 
+FIRMWARE, COMPONENT_SERIAL = 15, 40
+SENDERS = {
+    0: "none",
+    1: "camera",
+    3: "flight controller",
+    4: "gimbal",
+    6: "remote controller",
+    11: "battery",
+}
+COMPONENTS = {1: "camera", 2: "aircraft", 3: "remote controller", 4: "battery"}
+
+
+def metadata(records: Any) -> dict[str, Any]:
+    """Return what the log says of its components: firmware versions (type 15), serial numbers (type 40).
+
+    Parameters
+    ----------
+    records : iterable of txtlog.Record
+    """
+    firmware: dict[str, str] = {}
+    serials: dict[str, str] = {}
+    for record in records:
+        data = record.data
+        if record.type == FIRMWARE and len(data) >= 6:
+            who = SENDERS.get(data[0], f"sender {data[0]}")
+            if data[1]:
+                who += f" {data[1]}"
+            firmware[who] = ".".join(str(b) for b in data[2:6])
+        elif record.type == COMPONENT_SERIAL and len(data) >= 3:
+            (kind,) = struct.unpack_from("<H", data, 0)
+            n = data[2]
+            serials[COMPONENTS.get(kind, f"component {kind}")] = _message(
+                data[3 : 3 + n]
+            )
+    return {"firmware": firmware, "component_serials": serials}
+
+
 # type -> (parser, minimum size, whether its values hold until the next record)
 PARSERS: dict[int, tuple[Callable[[bytes, int], Row], int, bool]] = {
     OSD: (osd, 44, True),
@@ -235,12 +326,17 @@ PARSERS: dict[int, tuple[Callable[[bytes, int], Row], int, bool]] = {
     RC_DISPLAY: (rc_display, 15, True),
     APP_TIP: (app_tip, 0, False),
     APP_WARN: (app_warn, 0, False),
+    CUSTOM: (custom, 18, False),
+    APP_GPS: (app_gps, 20, True),
+    MC_PARAMS: (mc_params, 2, True),
+    LINK: (link, 1, True),
     SMART_BATTERY_GROUP: (smart_battery, 1, True),
     POSITION: (position, 70, False),
     RTK: (rtk, 51, False),
 }
-"""The records read: an event (app message) or a solution of its own epoch
-(RTK, record 48) only in its frame, a state (OSD, home...) until it changes."""
+"""The records read: an event (app message) or a value of its own epoch
+(RTK, record 48, the app's time) only in its frame, a state (OSD, home...)
+until it changes."""
 
 
 def parse(kind: int, data: bytes, version: int) -> tuple[Row, bool] | None:

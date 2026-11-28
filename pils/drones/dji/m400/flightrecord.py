@@ -171,7 +171,8 @@ class M400FlightRecord:
                 if log.version >= 13
                 else None
             )
-            self.data = frames_table(log, log.records(keychains))
+            records = list(log.records(keychains))
+            self.data = frames_table(log, records)
         except FlightLogError as e:
             raise DJIFlightRecordError(f"{self.path.name}: {e}") from e
         self.details = {
@@ -180,6 +181,7 @@ class M400FlightRecord:
                 k: (v.astimezone(UTC).isoformat() if isinstance(v, datetime) else v)
                 for k, v in dataclasses.asdict(log.details).items()
             },
+            **rec.metadata(records),
         }
         logger.info(
             "DJI flight record %s: version %d, %d frames",

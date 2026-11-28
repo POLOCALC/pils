@@ -316,6 +316,15 @@ writes no other HDF5.
 | `rtk_base_latitude` | `rtk_base_lat_deg` | deg |
 | `rtk_base_longitude` | `rtk_base_lon_deg` | deg |
 | `rtk_base_height` | `rtk_base_h_ell_m` | m |
+| `osd_north` | `north_m` | m |
+| `osd_east` | `east_m` | m |
+| `app_time` | `app_time_s` | s |
+| `app_distance` | `app_distance_m` | m |
+| `app_gps_latitude` | `app_gps_lat_deg` | deg |
+| `app_gps_longitude` | `app_gps_lon_deg` | deg |
+| `app_gps_altitude` | `app_gps_h_m` | m |
+| `link_uplink_signal` | `link_uplink_signal_pct` | % |
+| `link_downlink_signal` | `link_downlink_signal_pct` | % |
 
 ### Camera (`payload_data.camera`)
 
@@ -479,5 +488,4 @@ writes no other HDF5.
 | `PPMrecv:RSide` | `ppm_recv_rside_pct` | % |
 | `V_out:RSide` | `v_out_rside` |  |
 | `PPMsend:RSide` | `ppm_send_rside_pct` | % |
-
 <!-- end generated -->
