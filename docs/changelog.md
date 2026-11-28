@@ -18,8 +18,10 @@ All notable changes to PILS are documented here.
 
 ### Added
 - The RTK solution (record 45) and the positions of record 48 of the flight
-  record; a Matrice 400 flight with only its flight record is synchronized to
-  that RTK, and AZEL takes the base position it broadcast from the record.
+  record. A Matrice 400 flight with only its flight record is synchronized to
+  the record's 10 Hz track tied to that RTK (`record_track`: RTK latency and
+  offset found, reported by `pils package`), and AZEL takes the base position
+  it broadcast from the record.
 - `--telescope-source campaign` (and `telescope_source="campaign"`): the
   telescope position from the campaign's own survey, else the so3g site
   (never another campaign's survey). `$PILS_TELESCOPE_SOURCE` sets the default

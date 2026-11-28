@@ -8,7 +8,7 @@ import numpy as np
 import polars as pl
 
 from pils import schema
-from pils.drones.sources import record_positions, telemetry_positions
+from pils.drones.sources import record_positions, record_track, telemetry_positions
 from pils.synchronizer import Synchronizer
 
 logger = logging.getLogger(__name__)
@@ -160,17 +160,24 @@ class FlightSyncMixin:
             if usable is not None:
                 drone_data, drone_has_data, telemetry_is_drone = telemetry, True, True
         # Neither: the Matrice 400's flight record, if it has the RTK
-        # solution (its other positions have heights of unknown reference);
-        # the whole record (10 Hz) is then a table on the drone GPS's clock
+        # solution: its 10 Hz track (on the drone's GPS time) tied to the RTK
+        # (1 Hz, late by its latency) is the drone GPS; the whole record is
+        # then a table on the same clock
         drone_sources = self.raw_data.drone_data.sources
         flight_record = drone_sources.get("flight_record")
         record_is_drone = False
+        self.sync_record_track: dict[str, float] | None = None
         if not drone_has_data and use_rtk_data and flight_record is not None:
-            usable = telemetry_positions(flight_record, receivers_only=True)
-            if usable is not None and usable[1]["lat"] == "rtk_lat_deg":
-                drone_data, drone_has_data, record_is_drone = flight_record, True, True
+            tied = record_track(flight_record)
+            if tied is not None:
+                drone_data, self.sync_record_track = tied
+                drone_has_data, record_is_drone = True, True
                 logger.info(
-                    "No .DAT and no telemetry: the flight record's RTK is the drone GPS"
+                    "No .DAT and no telemetry: the drone GPS is the flight "
+                    "record's 10 Hz track tied to its RTK (%s)",
+                    ", ".join(
+                        f"{k}={v:.3f}" for k, v in self.sync_record_track.items()
+                    ),
                 )
         if gps_data is None and not drone_has_data:
             raise ValueError(
@@ -196,7 +203,10 @@ class FlightSyncMixin:
             )
             records_gps = (self.raw_data.drone_data.records or {}).get("gps")
             rtk_df = None
-            if "dji" in model and use_rtk_data and "rtk_lat_deg" in drone_df.columns:
+            if record_is_drone:
+                lat_col, lon_col = "rtk_track_lat_deg", "rtk_track_lon_deg"
+                alt_col = "rtk_track_h_ell_m"
+            elif "dji" in model and use_rtk_data and "rtk_lat_deg" in drone_df.columns:
                 # Positions only where the RTK receiver has a solution (rows
                 # without one are at 0, 0, 0)
                 rtk_df = _valid_positions(drone_df, "rtk_lat_deg", "rtk_lon_deg")
@@ -205,7 +215,9 @@ class FlightSyncMixin:
                         "Drone RTK has no solution: the drone GNSS is used instead"
                     )
                     rtk_df = None
-            if rtk_df is not None:
+            if record_is_drone:
+                pass  # the track's columns, above
+            elif rtk_df is not None:
                 drone_df = rtk_df
                 lat_col, lon_col, alt_col = "rtk_lat_deg", "rtk_lon_deg", "rtk_h_ell_m"
             else:

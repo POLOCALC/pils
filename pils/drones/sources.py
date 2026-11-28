@@ -241,3 +241,114 @@ def record_rtk_base(table: pl.DataFrame | None) -> dict[str, float] | None:
         key: float(rows[col].median())  # type: ignore[arg-type]
         for key, col in zip(("lat", "lon", "alt"), cols, strict=True)
     }
+
+
+RTK_FIXED_FLAG = 50  # rtk_pos_flag_1 of a fixed solution (as the .DAT's)
+
+
+def record_track(
+    table: pl.DataFrame,
+    min_epochs: int = 10,
+    max_lag_s: float = 1.0,
+    hold_s: float = 2.0,
+) -> tuple[pl.DataFrame, dict[str, float]] | None:
+    """Return the 10 Hz track of a flight record, tied to its RTK solution.
+
+    The positions of every frame (record 48, ``abs_*``) are the drone's at
+    the frame's time (the drone's GPS time); the RTK solution (record 45,
+    1 Hz) comes with a latency. The latency is the shift of the RTK epochs
+    that best matches the track (horizontal scatter, within ``max_lag_s``);
+    the track is then moved by the median of RTK minus track at the RTK
+    epochs (east, north, up), so that it is in the RTK's frame (that of the
+    base, which AZEL corrects to the survey). Each frame has the fix flag of
+    the last RTK epoch within ``hold_s`` (``rtk_pos_flag_1``, null without).
+
+    Parameters
+    ----------
+    table : pl.DataFrame
+        A flight record (schema names): ``abs_lat_deg``, ``abs_lon_deg``,
+        ``abs_h_m`` and ``rtk_lat_deg``, ``rtk_lon_deg``, ``rtk_h_ell_m``.
+    min_epochs : int
+        Fixed RTK epochs needed (else None).
+
+    Returns
+    -------
+    (track, info) or None
+        ``track``: the frames with positions, the record's other columns and
+        ``rtk_track_lat_deg``, ``rtk_track_lon_deg``, ``rtk_track_h_ell_m``
+        (the raw ``rtk_*`` columns of the 1 Hz epochs left out). ``info``:
+        ``offset_e_m``, ``offset_n_m``, ``offset_u_m`` (RTK minus track),
+        ``rms_h_m``, ``rms_u_m`` (scatter about them), ``rtk_latency_s``
+        and ``epochs``.
+    """
+    import numpy as np
+    import pymap3d as pm
+
+    track_cols = ["abs_lat_deg", "abs_lon_deg", "abs_h_m"]
+    rtk_cols = ["rtk_lat_deg", "rtk_lon_deg", "rtk_h_ell_m"]
+    if not {"timestamp", *track_cols, *rtk_cols} <= set(table.columns):
+        return None
+    track = table.filter(
+        pl.all_horizontal(pl.col(c).is_finite() for c in track_cols)
+        & ((pl.col("abs_lat_deg") != 0) | (pl.col("abs_lon_deg") != 0))
+    ).sort("timestamp")
+    fixed = pl.all_horizontal(pl.col(c).is_not_null() for c in rtk_cols) & (
+        (pl.col("rtk_lat_deg") != 0) | (pl.col("rtk_lon_deg") != 0)
+    )
+    if "rtk_pos_flag_1" in table.columns:
+        fixed = fixed & (pl.col("rtk_pos_flag_1") == RTK_FIXED_FLAG)
+    rtk = table.filter(fixed).sort("timestamp")
+    if rtk.height < min_epochs or track.height < 2:
+        return None
+
+    lat0, lon0, h0 = (float(rtk[c].median()) for c in rtk_cols)  # type: ignore[arg-type]
+    t = track["timestamp"].to_numpy()
+    e, n, u = pm.geodetic2enu(
+        *(track[c].to_numpy() for c in track_cols), lat0, lon0, h0
+    )
+    tr = rtk["timestamp"].to_numpy()
+    er, nr, ur = pm.geodetic2enu(*(rtk[c].to_numpy() for c in rtk_cols), lat0, lon0, h0)
+
+    def residuals(lag: float):
+        at = tr + lag
+        return (
+            er - np.interp(at, t, e),
+            nr - np.interp(at, t, n),
+            ur - np.interp(at, t, u),
+        )
+
+    def scatter(lag: float) -> float:
+        de, dn, _ = residuals(lag)
+        return float(np.mean((de - np.median(de)) ** 2 + (dn - np.median(dn)) ** 2))
+
+    lags = np.arange(-max_lag_s, max_lag_s + 1e-9, 0.02)
+    lag = float(lags[int(np.argmin([scatter(x) for x in lags]))])
+    de, dn, du = residuals(lag)
+    off = (float(np.median(de)), float(np.median(dn)), float(np.median(du)))
+    lat, lon, h = pm.enu2geodetic(e + off[0], n + off[1], u + off[2], lat0, lon0, h0)
+
+    flags = (
+        rtk.select("timestamp", pl.col("rtk_pos_flag_1").alias("_flag"))
+        if "rtk_pos_flag_1" in rtk.columns
+        else rtk.select("timestamp", pl.lit(RTK_FIXED_FLAG).alias("_flag"))
+    )
+    out = (
+        track.drop([c for c in track.columns if c.startswith("rtk_")])
+        .with_columns(
+            rtk_track_lat_deg=pl.Series(np.asarray(lat, dtype=float)),
+            rtk_track_lon_deg=pl.Series(np.asarray(lon, dtype=float)),
+            rtk_track_h_ell_m=pl.Series(np.asarray(h, dtype=float)),
+        )
+        .join_asof(flags, on="timestamp", strategy="backward", tolerance=hold_s)
+        .rename({"_flag": "rtk_pos_flag_1"})
+    )
+    info = {
+        "offset_e_m": off[0],
+        "offset_n_m": off[1],
+        "offset_u_m": off[2],
+        "rms_h_m": float(np.sqrt(np.mean((de - off[0]) ** 2 + (dn - off[1]) ** 2))),
+        "rms_u_m": float(np.sqrt(np.mean((du - off[2]) ** 2))),
+        "rtk_latency_s": -lag,
+        "epochs": float(rtk.height),
+    }
+    return out, info

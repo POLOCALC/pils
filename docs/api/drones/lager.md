@@ -67,9 +67,13 @@ r.details                # aircraft and serial numbers, app version, start time,
   is in the remote controller's time zone (not necessarily the site's).
 - Two records no public parser reads are decoded: the RTK solution (type 45,
   1 Hz, `rtk_*`: position, fix flag and the base's broadcast position) and a
-  position with a height of known reference (type 48, `osd_abs_*`). Without a
-  payload GPS, a .DAT or LAGER telemetry, the RTK solution is the flight's
-  time and position reference (`pils package` says "synchronized to the flight
-  record's RTK"), and AZEL takes the broadcast base position from the record.
+  position with a height of known reference (type 48, `osd_abs_*`, every
+  frame). Without a payload GPS, a .DAT or LAGER telemetry, the flight's
+  reference is the record's 10 Hz track tied to its RTK
+  (`pils.drones.sources.record_track`): the RTK's latency (0.1-0.3 s on the
+  first flights) is found by matching the two, and the track is moved by the
+  median RTK - track offset (a few decimetres) into the RTK's frame.
+  `pils package` reports the offset, scatter and latency ("record track"),
+  and AZEL takes the broadcast base position from the record.
 - The street address the app writes in the header is not kept.
 - This is not the onboard high-rate `.DAT` log and not LAGER's telemetry.

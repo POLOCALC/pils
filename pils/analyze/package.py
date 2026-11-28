@@ -41,7 +41,8 @@ Every step is ``done``, ``skipped`` or ``failed`` (:class:`StepResult`);
 | ``load drone`` | failed | no drone log (e.g. an empty ``drone/`` folder) |
 | ``load drone <source>`` | done | LAGER ``uav_telemetry`` and ``gimbal``, the Matrice 400 ``flight_record`` |
 | ``load drone <source>`` | skipped | could not be decoded (e.g. ``flight_record`` without ``DJI_API_KEY``) |
-| ``load`` | done | with "synchronized to the drone GPS": no payload GPS; "to the flight record's RTK": a Matrice 400 with neither .DAT nor telemetry |
+| ``load`` | done | with "synchronized to the drone GPS": no payload GPS; "to the flight record's track": a Matrice 400 with neither .DAT nor telemetry |
+| ``record track`` | done | that track (10 Hz) tied to the record's RTK: offset, scatter, RTK latency |
 | ``rtk base`` | done | the position the DJI base broadcast, from the Matrice 400's flight record (instead of the config's) |
 | ``load`` | failed | no payload GPS and no drone GPS: nothing to synchronize on |
 | ``sync`` | failed | the synchronization raised (the error is given) |
@@ -311,19 +312,19 @@ class FlightPackager:
         record = flight.raw_data.drone_data.sources.get("flight_record")
         record_is_drone = False
         if not has_drone and record is not None:
-            # Nor telemetry: the RTK solution of the Matrice 400's flight record
-            from pils.drones.sources import telemetry_positions
+            # Nor telemetry: the Matrice 400's flight record, its 10 Hz track
+            # tied to its RTK solution
+            from pils.drones.sources import record_track
 
-            usable = telemetry_positions(record, receivers_only=True)
-            has_drone = record_is_drone = (
-                usable is not None and usable[1]["lat"] == "rtk_lat_deg"
-            )
+            has_drone = record_is_drone = record_track(record) is not None
         if not has_gps and not has_drone:
             result.add("load", "failed", "no payload GPS and no drone GPS to sync to")
             return None
         if not has_gps:
             reference = (
-                "the flight record's RTK" if record_is_drone else "the drone GPS"
+                "the flight record's track (tied to its RTK)"
+                if record_is_drone
+                else "the drone GPS"
             )
             result.add("load", "done", f"no payload GPS: synchronized to {reference}")
         return flight
@@ -353,6 +354,17 @@ class FlightPackager:
             "done",
             f"reference {flight.sync_reference}: " + ", ".join(offsets),
         )
+        track = getattr(flight, "sync_record_track", None)
+        if track:
+            result.add(
+                "record track",
+                "done",
+                "10 Hz track tied to the RTK: offset "
+                f"E {track['offset_e_m']:+.2f}, N {track['offset_n_m']:+.2f}, "
+                f"U {track['offset_u_m']:+.2f} m (scatter {track['rms_h_m']:.2f} m "
+                f"horizontal, {track['rms_u_m']:.2f} m vertical), RTK latency "
+                f"{track['rtk_latency_s']:.2f} s, {track['epochs']:.0f} epochs",
+            )
         # Sources loaded but left out of the synchronized data
         drone = flight.raw_data.drone_data
         payload = flight.raw_data.payload_data
