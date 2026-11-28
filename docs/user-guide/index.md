@@ -59,7 +59,7 @@ flowchart TB
 
     ---
 
-    Description for handling the data from the DJI Matrice 600
+    The data of the DJI Matrice 600 and Matrice 400: what each writes and how PILS reads it
 
 </div>
 

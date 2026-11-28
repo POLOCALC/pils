@@ -15,6 +15,10 @@ All notable changes to PILS are documented here.
   is gone.
 - Its frames are timed with the log's start plus the fly time (the app's times
   in these logs were garbage, and the table was sorted by them).
+- Flight record: records 57, 253 and 254 are decrypted with their key groups
+  (AirLink, DJIFlyCustom), found on Matrice 400 logs. Left encrypted, they
+  broke their groups' IV chain, so the app's record (5) and the link signal
+  (49) came out as noise, in `pydjirecord` too.
 
 ### Added
 - The RTK solution (record 45) and the positions of record 48 of the flight
@@ -22,9 +26,18 @@ All notable changes to PILS are documented here.
   the record's 10 Hz track tied to that RTK (`record_track`: RTK latency and
   offset found, reported by `pils package`), and AZEL takes the base position
   it broadcast from the record.
-- Docs: "DJI flight record" (`docs/api/drones/dji-flight-record.md`), the
-  decoding in full: container, XOR and AES, keys, the records' byte layouts
-  (with 45 and 48), the frame table and its time, and the record track.
+- Flight record columns: the app's clock and distance flown (record 5,
+  `app_time`, `app_distance`), the controller's GNSS position (14,
+  `app_gps_*`), the flight controller's settings (19, `mc_*`), the radio link
+  (49, `link_*`), the position from the home point (OSD bytes 74-81,
+  `osd_north`, `osd_east`); firmware versions and component serial numbers
+  (15, 40) in `details`.
+- Docs: the drone pages are split by drone (Matrice 600, Matrice 400, LAGER
+  and the gimbal for both); the `.DAT` format moved from the user guide to the
+  Matrice 600 page. "Matrice 400 flight record" documents the decoding in
+  full: container, XOR and AES, keys, every record type of a Matrice 400 log
+  with its layout (decoded or not, with what was found), the frame table and
+  its time, and the record track.
 - `--telescope-source campaign` (and `telescope_source="campaign"`): the
   telescope position from the campaign's own survey, else the so3g site
   (never another campaign's survey). `$PILS_TELESCOPE_SOURCE` sets the default

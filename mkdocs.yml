@@ -67,11 +67,12 @@ nav:
       - Inclinometer: api/sensors/inclinometer.md
     - Drones:
       - api/drones/index.md
-      - DJI: api/drones/dji.md
+      - Matrice 600: api/drones/matrice-600.md
+      - Matrice 400:
+        - api/drones/matrice-400.md
+        - Flight record (.txt): api/drones/matrice-400-flight-record.md
+      - LAGER telemetry and gimbal: api/drones/lager.md
       - BlackSquare: api/drones/blacksquare.md
-      - Litchi: api/drones/litchi.md
-      - LAGER telemetry: api/drones/lager.md
-      - DJI flight record: api/drones/dji-flight-record.md
     - Analysis:
       - api/analysis/index.md
       - Packaging: api/analysis/package.md

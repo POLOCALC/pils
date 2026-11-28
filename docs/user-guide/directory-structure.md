@@ -70,9 +70,11 @@ This structure is designed to work with both available loaders in PILS, [PathLoa
 
 Drone: DJI `*_drone.dat` (and the DatCon `*_drone.csv` export) every year,
 and `*_litchi.csv` where Litchi flew the mission (see
-[Litchi](../api/drones/litchi.md)).
+[Matrice 600](../api/drones/matrice-600.md)).
 
-Matrice 400: the app's `DJIFlightRecord_*.txt` from the remote controller.
+Matrice 400: the app's `DJIFlightRecord_*.txt` from the remote controller,
+kept under its own name (see
+[Matrice 400 flight record](../api/drones/matrice-400-flight-record.md)).
 Matrice 400 and 600: the telemetry LAGER logs on the payload computer,
 `uav_telemetry.bin` and `gimbal_telemetry.bin` with the run's YAML (in the
 `drone` or `aux` folder, or a subfolder), decoded by the drone model the YAML

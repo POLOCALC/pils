@@ -1,8 +1,8 @@
-# DJI flight record (`DJIFlightRecord_*.txt`)
+# Matrice 400: flight record (`DJIFlightRecord_*.txt`)
 
-The app on the remote controller (DJI Pilot 2 for the Matrice 400) writes a
-flight record for every flight: `DJIFlightRecord_<date>_[<time>].txt`. PILS
-decodes it itself, with no third-party parser:
+The app on the Matrice 400's remote controller (DJI Pilot 2) writes a flight
+record for every flight: `DJIFlightRecord_<date>_[<time>].txt`. PILS decodes
+it itself, with no third-party parser:
 
 | Module | Role |
 |---|---|
@@ -17,25 +17,68 @@ from pils.drones import M400FlightRecord
 r = M400FlightRecord("DJIFlightRecord_2026-11-28_[12-38-29].txt")
 r.load_data()      # DJI Open API app key from $DJI_API_KEY (formats 13+)
 r.data             # one row per frame
-r.details          # the log's details: start time, duration, aircraft, app
+r.details          # start time, duration, aircraft, app, firmware, serial numbers
 ```
 
-Formats 6 to 14 are read; the Matrice 400 writes format 14.
+Formats 6 to 14 are read; the Matrice 400 writes format 14. All integers and
+floats are little-endian.
 
 !!! note "Where the layouts come from"
     The container, the decryption and the standard records (OSD, home,
-    gimbal, sticks, batteries, messages) follow DJI's FlightRecordParsingLib
-    (C++) and the MIT-licensed `dji-log-parser` (Rust) and `pydjirecord`
-    (Python), which documented them. PILS's decoder was checked record by
-    record against `pydjirecord` 1.3.0 on four Matrice 400 logs: the same
-    records in the same order, byte-identical decryption, the same details,
-    identical OSD values.
+    gimbal, sticks, batteries, messages, custom, app GPS, flight controller,
+    link, firmware, components) follow DJI's FlightRecordParsingLib (C++) and
+    the MIT-licensed `dji-log-parser` (Rust) and `pydjirecord` (Python), which
+    documented them. PILS's decoder was checked record by record against
+    `pydjirecord` 1.3.0 on four Matrice 400 logs (November 2026): the same
+    records in the same order, the same details, identical OSD values.
 
-    Records **45** and **48** are documented nowhere public. Their layouts
-    were found by comparing them with the OSD record of real Matrice 400
-    flights (November 2026); see [Records 45 and 48](#records-45-and-48).
+    Where PILS differs from them, the Matrice 400 logs showed why:
 
-All integers and floats are little-endian.
+    - **Key groups of types 57, 253 and 254** (see [Decryption](#aes-format-13)).
+      The reference parsers leave them encrypted, which breaks the IV chain of
+      their group: the app's time (record 5) and the link signal (49) came out
+      as noise.
+    - **The app GPS (14)** is latitude, longitude (degrees) and altitude, in
+      that order.
+    - **Records 45, 48 and OSD bytes 74-81** are documented nowhere public.
+      Their layouts were found by comparing them with known values in the
+      same logs; see [Records found on the Matrice 400](#records-found-on-the-matrice-400).
+
+## Record types of a Matrice 400 log
+
+Every record type in four Matrice 400 logs (format 14; 2358 s of flight),
+with its rate, its key group and what PILS does with it. Sizes are after
+decryption.
+
+| Type | Name | Rate | Size (bytes) | Key group | In PILS |
+|---|---|---|---|---|---|
+| 1 | OSD | 10 Hz | 85 | Base | **read** (`osd_*`), starts a frame |
+| 2 | home point | 0.7 Hz | 97 | Base | **read** (`home_*`) |
+| 5 | custom (the app's) | 10 Hz | 18 | DJIFlyCustom | **read** (`app_time`, `app_distance`, ...) |
+| 9 | app tip | events | 28-52 | DJIFlyCustom | **read** (`app_tip`) |
+| 10 | app warning | events | 41-194 | DJIFlyCustom | **read** (`app_warn`) |
+| 13 | recover | 5 per flight, first 50 s | 110 | Base | not read: repeats the details (aircraft, serial numbers, app) |
+| 14 | app GPS | 0.5 Hz | 20 | Base | **read** (`app_gps_*`) |
+| 15 | firmware | at start | 18 | Base | **read** (`details["firmware"]`) |
+| 17 | vision | rare | 9 | Vision | not decoded (constant flags) |
+| 19 | flight controller settings | 0.1 Hz | 33 | AfterSales | **read** (`mc_*`) |
+| 22 | smart battery | 2 Hz | 29-46 | Battery | **read** in part (`battery<i>_*`) |
+| 26 | ? | once | 2 | AfterSales | not decoded (`41 00`) |
+| 40 | component serial | once | 24 | Base | **read** (`details["component_serials"]`) |
+| 45 | RTK solution | 1 Hz | 83 | Agriculture | **read** (`rtk_*`) |
+| 48 | position | 10 Hz | 71 | Agriculture | **read** (`osd_abs_*`, `osd_unix_time`) |
+| 49 | radio link | 4 Hz | 1 | AirLink | **read** (`link_*`) |
+| 50 | key-storage recover | | | Plaintext | container: starts the next set of keys |
+| 55 | security | 1 Hz | 257 | Security | **cannot be decrypted**: DJI's API does not return this group's key |
+| 56 | key storage | at start | 261 | Plaintext | container: the encrypted keys |
+| 57 | link configuration | 6 Hz | 3, 35 | AirLink | not decoded (two constant blocks) |
+| 62 | sticks (display) | 2 Hz | 19 | RC | **read** (`rc_*`) |
+| 63 | ? | 1 Hz | 10 | Base | not decoded, see below |
+| 253 | component information | at start | 25, 32 | DJIFlyCustom | not decoded (holds a battery serial and a time) |
+| 254 | key-value log | 35 Hz | 8-16 | DJIFlyCustom | not decoded (protobuf values), see below |
+
+The Matrice 400 logs have no gimbal record (3) and no stick record (4); both
+are read when present.
 
 ## The container
 
@@ -99,8 +142,7 @@ u8 type | u16 n | n bytes of data | 0xFF
 ```
 
 The stream ends at the first record not followed by `0xFF`, or one that is cut
-short. A log that ends in the middle of a record therefore loses only that
-record.
+short. A log that ends in the middle of a record loses only that record.
 
 ## Decryption
 
@@ -116,25 +158,24 @@ key   = CRC-64(seed, input) as 8 bytes, little-endian
 plain[i] = data[i + 1] XOR key[i mod 8]      (i = 0 .. n - 2)
 ```
 
-So the decoded data is one byte shorter than the stored data.
-
-CRC-64 is the Jones polynomial in reflected form (`0x95AC9329AC4BC9B5`), with
-the seed as its initial value and no final XOR.
+So the decoded data is one byte shorter than the stored data. CRC-64 is the
+Jones polynomial in reflected form (`0x95AC9329AC4BC9B5`), with the seed as
+its initial value and no final XOR.
 
 ### AES (format 13+)
 
 After the XOR, most records are also encrypted with AES-256-CBC. Each record
-type belongs to a *feature point*, a group with its own key and IV:
+type belongs to a *key group* (DJI's "feature point"), with its own key and IV:
 
-| Feature point | Record types |
+| Key group | Record types |
 |---|---|
 | 1 Base | 1 OSD, 2 home, 6, 13, 14, 15, 40, 58, 59, 63 (and 3, 4, 7, 8, 11, 25, 29, 33 in format 13) |
 | 2 Vision | 17, 18 |
 | 3 Waypoint | 31, 32, 34, 35, 36, 38, 39 |
 | 4 Agriculture | 21, 41, 43, 44, **45**, 46, 47, **48** |
-| 5 AirLink | 49 |
+| 5 AirLink | 49, **57** |
 | 6 AfterSales | 12, 16, 19, 23, 26, 27, 93, 102, 103, 113 (and 22, 28, 51, 52 in format 13) |
-| 7 DJIFlyCustom | 5, 9, 10, 20, 24, 30, 54 |
+| 7 DJIFlyCustom | 5, 9, 10, 20, 24, 30, 54, **253**, **254** |
 | 8 Plaintext | 50, 56, and any type not listed |
 | 9 FlightHub | 53 |
 | 10 Gimbal (14) | 3 |
@@ -145,17 +186,25 @@ type belongs to a *feature point*, a group with its own key and IV:
 | 15 Security | 55 |
 
 The XOR-decoded data minus its last byte is the ciphertext, which must be a
-whole number of 16-byte blocks. It is decrypted with the feature point's key
-and current IV, and the PKCS#7 padding is removed when it is valid. The IV is
-chained: the next record of the same feature point uses the last 16 bytes of
-this record's ciphertext.
+whole number of 16-byte blocks. It is decrypted with the group's key and
+current IV, and the PKCS#7 padding is removed when it is valid. The IV is
+chained: the next record of the same group uses the last 16 bytes of this
+record's ciphertext.
+
+**Types 57, 253 and 254** were found on the Matrice 400 logs. For records of
+two blocks or more, only the right key gives a valid padding (the last block
+is decrypted with the block before it, whatever the IV): on the four logs,
+every multi-block record of 254 and 253 had a valid padding with the
+DJIFlyCustom key, every one of 57 with the AirLink key, and essentially never
+with another. A record of a group left undecrypted breaks that group's IV
+chain, so the first 16 bytes of the group's next record come out wrong.
 
 ### Keys
 
 The keys are in the log, encrypted by DJI:
 
-- **Type 56** (key storage, XOR only): `u16 feature point, u16 n, n bytes`,
-  the encrypted key of that feature point.
+- **Type 56** (key storage, XOR only): `u16 key group, u16 n, n bytes`, the
+  encrypted key of that group.
 - **Type 50** (key-storage recover): starts the next set of keys. The records
   after it use the next set.
 
@@ -171,12 +220,13 @@ Api-Key: <DJI Open API app key>
 ```
 
 The answer's `data` has the same shape, with `aesKey` (32 bytes) and `aesIv`
-(16 bytes) in base64. Only the log's encrypted key blocks and the app key
-leave the machine, nothing of the flight. The answer is cached for 30 days in
-`$XDG_CACHE_HOME/pils/dji-keychains`, under the SHA-256 of the request, so a
-log can be read again offline in that time. Keep the decoded table, not the
-cache. The app key comes from the `api_key` argument or `$DJI_API_KEY`, and
-PILS never stores it.
+(16 bytes) in base64. For the Matrice 400 logs it returned groups 1, 2, 4, 5,
+6, 7, 11 and 13: not 15 (Security, record 55). Only the log's encrypted key
+blocks and the app key leave the machine, nothing of the flight. The answer
+is cached for 30 days in `$XDG_CACHE_HOME/pils/dji-keychains`, under the
+SHA-256 of the request, so a log can be read again offline in that time. Keep
+the decoded table, not the cache. The app key comes from the `api_key`
+argument or `$DJI_API_KEY`, and PILS never stores it.
 
 ## Records
 
@@ -207,6 +257,10 @@ integers.
 | 41 | u8 / 10 | `osd_vps_height` (downward sensor, m) |
 | 42 | u16 / 10 | **`osd_fly_time`** (s): the aircraft's counter, 0.1 s steps |
 | 48 | u8 | `osd_drone_type` (format 2+) |
+| 74, 78 | f32 | **`osd_north`, `osd_east`**: from the home point (m); Matrice 400, see below |
+
+Bytes 44-47, 49-73 and 82-84 of the Matrice 400's OSD are not decoded; see
+[below](#present-not-decoded).
 
 ### 2: home point
 
@@ -217,7 +271,7 @@ integers.
 | 20 | bits | `home_is_home_record` (0x01) |
 | 22 | u16 | `home_go_home_height` (m) |
 | 30 | u16 | `home_flight_record_index` |
-| 37 | f32 | `home_max_allowed_height` (format 8+) |
+| 37 | f32 | `home_max_allowed_height` (format 8+; 600 m on the Matrice 400) |
 
 ### 3: gimbal
 
@@ -227,18 +281,45 @@ integers.
 | 6 | bits | `gimbal_mode` (0xC0) |
 | 10 | bits | `gimbal_is_pitch_at_limit` (0x01), `_roll_` (0x02), `_yaw_` (0x04), `gimbal_is_stuck` (0x40) |
 
-The Matrice 400 logs read so far have no gimbal record.
-
 ### 4 and 62: sticks
 
 Type 4 is `4 × u16`: `rc_aileron`, `rc_elevator`, `rc_throttle`, `rc_rudder`,
 raw (1024 is the centre). Type 62 (the sticks as the remote controller shows
 them) has the same four values after 7 bytes; the Matrice 400 writes this one.
 
+### 5: the app's record
+
+| Offset | Type | Column |
+|---|---|---|
+| 0 | u8 | `app_is_photo` |
+| 1 | u8 | `app_is_video` |
+| 2 | f32 | horizontal speed (m/s): the OSD's, not kept |
+| 6 | f32 (km) | `app_distance` (m): distance flown since take-off |
+| 10 | i64 (ms) | `app_time` (s): the app's clock, UNIX time (UTC) |
+
+On the four logs, `app_time` agreed with `start_time + osd_fly_time` within
+0.1 s (median offset −0.01 to +0.04 s, drift about 0.01 s per 10 minutes).
+
 ### 9 and 10: the app's messages
 
 NUL-terminated UTF-8: `app_tip` (9), `app_warn` (10). Several in one frame are
 joined with `; `.
+
+### 14: app GPS
+
+The position of the app's device, here the remote controller: `f64 latitude,
+f64 longitude` (degrees), `f32 altitude` (m): `app_gps_latitude`,
+`app_gps_longitude`, `app_gps_altitude`. On the flights checked, it stayed
+about 5 m from the home point, within 1 m.
+
+### 19: flight controller settings
+
+| Offset | Type | Column |
+|---|---|---|
+| 0 | u8 | `mc_fail_safe`: the action on a lost link (0 hover, 1 land, 2 go home) |
+| 1 | bits | `mc_is_vision_positioning_on` (0x01), `mc_is_obstacle_avoidance_on` (0x02), `mc_is_user_avoidance_on` (0x04) |
+
+Bytes 2-32 were zero on the Matrice 400.
 
 ### 22: smart batteries
 
@@ -248,12 +329,35 @@ The first byte is the sub-type; the second is the battery's index `i`.
 |---|---|---|
 | 2 (dynamic) | i32 mV, i32 mA, u32 full, u32 remaining (mAh), i16 temperature × 10 (°C), u8 cells, u8 percent | `battery<i>_voltage`, `_current` (negative when discharging), `_full_capacity`, `_remaining_capacity`, `_temperature`, `_percent` |
 | 3 (cells) | u8 n, n × u16 mV | `battery<i>_cell_voltage_1` ... `_n` |
-| 1 (static) | serial number, design | not kept |
+| 1 (static) | serial number, design, model strings | not kept |
 
-### Records 45 and 48
+The Matrice 400 logs showed one battery entry (index 0, 13 cells). Its
+dynamic record is 43-45 bytes: bytes 22-29 are a state word (u64) and bytes
+30-44 are not decoded.
 
-**48** comes with every frame (10 Hz). It holds the aircraft's position with a
-height of known reference, and the frame's UNIX second:
+### 49: radio link
+
+One byte: the signal in % (0x7F), and whether it is the uplink (0x80 set) or
+the downlink: `link_uplink_signal`, `link_downlink_signal`. The two alternate,
+at 2 Hz each; both stayed at 90 on the flights checked.
+
+### 15 and 40: firmware and components (details)
+
+Not in the table; in `details`:
+
+- **15** (firmware): `u8 sender` (1 camera, 3 flight controller, 4 gimbal,
+  6 remote controller, 11 battery), `u8 sub-sender`, 4 bytes of version:
+  `details["firmware"]`, e.g. `{"flight controller": "9.5.0.32"}`.
+- **40** (component serial): `u16 component` (1 camera, 2 aircraft,
+  3 remote controller, 4 battery), `u8 n`, n bytes:
+  `details["component_serials"]`.
+
+## Records found on the Matrice 400
+
+### 48: position
+
+Every frame (10 Hz). The aircraft's position with a height of known
+reference, and the frame's UNIX second:
 
 | Offset | Type | Column |
 |---|---|---|
@@ -263,15 +367,17 @@ height of known reference, and the frame's UNIX second:
 | 58 | f32 | `osd_abs_altitude`: height of the aircraft (m) |
 
 On the flights checked: the position equals the OSD's; `osd_abs_altitude` =
-`home_abs_altitude` + `osd_height` to within 1.5 m; `osd_abs_altitude`
-agrees with the RTK height to 0.1 m; `osd_unix_time` agrees with the frame's
-time to the second. The take-off height was the same on all flights from the
-same spot (5180.2 m), while the app's barometric `home_altitude` varied
-between 4980 and 5378 m. Bytes 16-23, 28-49, 54-57 and 62-70 are not read
-(62 holds a second height 1.5-3 m lower, and 66 a constant of 31.46 that looks
-like a geoid separation; both unconfirmed).
+`home_abs_altitude` + `osd_height` within 1.5 m; `osd_abs_altitude` agrees
+with the RTK height to 0.1 m; `osd_unix_time` agrees with the frame's time to
+the second. The take-off height was the same on all flights from the same
+spot (5180.2 m), while the app's barometric `home_altitude` varied between
+4980 and 5378 m. Bytes 16-23, 28-49, 54-57 and 62-70 are not read (62 holds a
+second height 1.5-3 m lower, and 66 a constant of 31.46 that looks like a
+geoid separation; both unconfirmed).
 
-**45** comes once a second. It is the RTK solution:
+### 45: RTK solution
+
+Once a second:
 
 | Offset | Type | Column |
 |---|---|---|
@@ -281,16 +387,44 @@ like a geoid separation; both unconfirmed).
 | 27 | f32 | `rtk_height` (m) |
 | 31, 39 | f64 (deg) | `rtk_base_latitude`, `rtk_base_longitude`: the position the base broadcasts |
 | 47 | f32 | `rtk_base_height` (m) |
+| 51-82 | | not read |
 
 The flag was 50 in every epoch of the flights checked, so its other values are
 not confirmed. The RTK heights are taken as ellipsoidal, as those of the
 `.DAT` (the base broadcasts an ellipsoidal height); to check against a payload
 GPS. With a survey, AZEL's base correction absorbs a constant datum offset.
+The solution is logged late: 0.1-0.3 s on the flights checked (see
+[the record track](#synchronization-the-records-track-tied-to-its-rtk)).
+
+### OSD bytes 74-81: position from home
+
+`f32 north, f32 east` from the home point, in metres (`osd_north`,
+`osd_east`). They equal the OSD latitude and longitude minus the home
+point's, in metres, within 0.1 m.
 
 In the schema (`pils.schema`, table `dji_record`) these become `abs_lat_deg`,
 `abs_lon_deg`, `abs_h_m`, `home_abs_h_m`, `unix_time_s`, `rtk_pos_flag_1`,
-`rtk_lat_deg`, `rtk_lon_deg`, `rtk_h_ell_m` and `rtk_base_lat_deg`,
-`rtk_base_lon_deg`, `rtk_base_h_ell_m`.
+`rtk_lat_deg`, `rtk_lon_deg`, `rtk_h_ell_m`, `rtk_base_lat_deg`,
+`rtk_base_lon_deg`, `rtk_base_h_ell_m`, `north_m` and `east_m`.
+
+### Present, not decoded
+
+What the investigation found, without a meaning that the logs could confirm:
+
+| Where | What was seen |
+|---|---|
+| OSD u16 @ 63 | 0 on the ground, 1900-2100 in flight: possibly the motors' speed (rpm); nothing in the log to check it against |
+| OSD u8 @ 68 | a code that follows `osd_flight_action` (r ≈ 0.9) |
+| OSD i16 @ 53, u8 @ 66, 71, 82, 83 | vary, with no relation to a known signal |
+| OSD 44-52, 55-62, 65, 67, 69-70, 72-73, 84 | constant |
+| Home 32-96 | byte 33 repeats the OSD's ground/air state; 52-67 a serial number (`…2YUW`); 68-72 vary; the rest is constant |
+| 63 (1 Hz, 10 bytes) | byte 6 rises with the aircraft's height and distance (r = 0.999 with height, 0.993 with distance: these flights cannot tell them apart); u16 @ 2 varies (0-1500) |
+| 254 (35 Hz) | a key-value log: `u16 5, u16 id, u16 n`, then n bytes of a protobuf value (`08 xx`: field 1, varint). Id 2 follows height and distance like record 63 (r ≈ 0.85); id 3 takes a few values (1-8); ids 6 and 7 hold a millisecond time, constant per flight. The meaning of the ids would need DJI's protobuf schema |
+| 57 (6 Hz) | two constant blocks (3 and 35 bytes): link configuration |
+| 17 | 9 bytes of flags, nearly constant |
+| 253 | at start: component information with a battery serial number and a millisecond time |
+| 26 | once: `41 00` |
+| 55 | encrypted with the Security key, which DJI does not return |
 
 ## The table
 
@@ -298,11 +432,12 @@ In the schema (`pils.schema`, table `dji_record`) these become `abs_lat_deg`,
 
 - **Frames.** A frame starts at each OSD record (type 1) and takes every
   record after it up to the next OSD record.
-- **States hold.** The values of OSD, home, gimbal, sticks and batteries hold
-  until the next record of the same type. Records before the first frame give
-  its starting state.
-- **Epochs do not.** The RTK solution (45), record 48 and the app's messages
-  are only in the frame they came in; the other frames have nulls.
+- **States hold.** The values of OSD, home, gimbal, sticks, batteries, app
+  GPS, flight controller settings and link hold until the next record of the
+  same type. Records before the first frame give its starting state.
+- **Epochs do not.** The RTK solution (45), record 48, the app's record (5)
+  and the app's messages are only in the frame they came in; the other frames
+  have nulls.
 - **Order.** Rows stay in the order of the file.
 
 ### Time
@@ -311,18 +446,13 @@ In the schema (`pils.schema`, table `dji_record`) these become `abs_lat_deg`,
 timestamp = details.start_time + osd_fly_time
 ```
 
-`datetime` is the same time as a UTC datetime. Other time sources are not
-used:
+`datetime` is the same time as a UTC datetime. Two values check it:
+`osd_unix_time` (record 48), within the truncation to the second, and
+`app_time` (record 5), within 0.1 s, with no drift on four flights.
 
-- The app's *custom* record (type 5) has no usable time in these logs: zeros,
-  or values from 2010 to 2099. Sorting by it used to scramble the rows.
-- The file's name is in the remote controller's time zone. On the first
-  flights that was UTC+1, so `12-38-29` in the name was a take-off at
-  11:38:29 UTC (08:38 in Chile).
-
-`osd_unix_time` (record 48) checks the result: on four flights,
-`timestamp − osd_unix_time` stayed between −0.6 and +0.7 s, the truncation to
-the second, with no drift.
+The file's name is not used: it is in the remote controller's time zone. On
+the first flights that was UTC+1, so `12-38-29` in the name was a take-off at
+11:38:29 UTC (08:38 in Chile).
 
 ## Synchronization: the record's track tied to its RTK
 
@@ -367,3 +497,11 @@ the motion between epochs by up to 2.5-3.8 m in the turns.
 AZEL also takes the base position it uses for the correction from the record
 (`rtk_base_*`, median), not from `TELESCOPES_CONFIG["dji_broadcast_geod"]`,
 which is an earlier campaign's.
+
+## API
+
+::: pils.drones.dji.m400.flightrecord
+
+::: pils.drones.dji.m400.txtlog
+
+::: pils.drones.dji.m400.records
