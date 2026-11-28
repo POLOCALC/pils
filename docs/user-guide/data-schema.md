@@ -304,7 +304,11 @@ writes no other HDF5.
 | `home_latitude` | `home_lat_deg` | deg |
 | `home_longitude` | `home_lon_deg` | deg |
 | `home_altitude` | `home_h_m` | m |
-| `osd_unix_time` | `unix_time_s` | s |
+| `osd_aircraft_time` | `aircraft_time_s` | s |
+| `osd_abs_yaw` | `abs_yaw_deg` | deg |
+| `osd_abs_gps_num` | `abs_gps_num` |  |
+| `osd_home_distance` | `home_distance_m` | m |
+| `osd_geoid_height` | `geoid_height_m` | m |
 | `osd_abs_latitude` | `abs_lat_deg` | deg |
 | `osd_abs_longitude` | `abs_lon_deg` | deg |
 | `osd_abs_altitude` | `abs_h_m` | m |
@@ -316,6 +320,14 @@ writes no other HDF5.
 | `rtk_base_latitude` | `rtk_base_lat_deg` | deg |
 | `rtk_base_longitude` | `rtk_base_lon_deg` | deg |
 | `rtk_base_height` | `rtk_base_h_ell_m` | m |
+| `rtk_std_latitude` | `rtk_std_lat_m` | m |
+| `rtk_std_longitude` | `rtk_std_lon_m` | m |
+| `rtk_std_height` | `rtk_std_h_m` | m |
+| `fc_flight_time_left` | `fc_flight_time_left_s` | s |
+| `fc_go_home_time` | `fc_go_home_time_s` | s |
+| `fc_land_time` | `fc_land_time_s` | s |
+| `fc_go_home_battery` | `fc_go_home_battery_pct` | % |
+| `fc_land_battery` | `fc_land_battery_pct` | % |
 | `osd_north` | `north_m` | m |
 | `osd_east` | `east_m` | m |
 | `app_time` | `app_time_s` | s |
@@ -488,4 +500,5 @@ writes no other HDF5.
 | `PPMrecv:RSide` | `ppm_recv_rside_pct` | % |
 | `V_out:RSide` | `v_out_rside` |  |
 | `PPMsend:RSide` | `ppm_send_rside_pct` | % |
+
 <!-- end generated -->

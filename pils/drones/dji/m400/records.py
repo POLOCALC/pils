@@ -18,7 +18,8 @@ type        section                   notes
 19          ``mc_``                   flight controller settings
 22          ``battery<i>_``           smart batteries
 45          ``rtk_``                  RTK solution, 1 Hz (see below)
-48          ``osd_abs_``              position with a height of known reference
+48          ``osd_abs_``              position with a height of known reference, the aircraft's time
+63          ``fc_``                   flight time left, return home and landing estimates
 49          ``link_``                 radio link signal (up and down)
 15, 40      (details)                 firmware versions, component serial numbers
 ==========  ========================  ===========================================
@@ -26,16 +27,24 @@ type        section                   notes
 The full list of the record types of a Matrice 400 log, those read and those
 not, is in the docs (API reference, Drones, Matrice 400 flight record).
 
-Types 45 and 48 are documented nowhere public: their layouts were found by
-comparing them with the OSD record of Matrice 400 flights (November 2026):
+Types 45, 48 and 63 follow dji-log-parser 0.6.0 (MIT, L. Vauvillier), checked
+on Matrice 400 logs (November 2026); byte 58 of type 48 (the aircraft's
+height) was found on those logs:
 
-* 48 (each frame): 0 f64 longitude, 8 f64 latitude (rad, as the OSD's);
-  24 u32 UNIX time (s, UTC); 50 f32 height of the take-off point; 58 f32
-  height of the aircraft (= 50 + the OSD's height above the take-off point).
-* 45 (1 Hz): 1 u8 RTK position flag (50: fixed, as in the .DAT); 11 f64
-  latitude, 19 f64 longitude (deg), 27 f32 height of the RTK solution;
-  31 f64, 39 f64, 47 f32 the position the RTK base broadcasts. The heights are
-  taken as ellipsoidal, as those of the .DAT; to check against the payload GPS.
+* 48 (each frame): 0 f64 longitude, 8 f64 latitude (rad); 16 f32 height above
+  the take-off point; 20 i16 yaw x 10; 24 u32 seconds + 28 u32 nanoseconds,
+  the aircraft's time (UNIX, UTC on these logs); 33 u8 satellites; 34, 42 f64
+  home position (rad); 50 f32 height of the take-off point (ellipsoidal);
+  54 f32 horizontal distance to the home point; 58 f32 height of the aircraft
+  (= 50 + its height above the take-off point); 66 f32 geoid height.
+* 45 (1 Hz): 1 u8 RTK solution flag (50: fixed); 2-10 satellites by receiver
+  (antenna 1, antenna 2, base) and constellation (GPS, BeiDou, GLONASS); 11 f64
+  latitude, 19 f64 longitude (deg), 27 f32 ellipsoidal height; 31, 39 f64, 47
+  f32 the position the base broadcasts; 65 3 x f32 standard deviations
+  (latitude, longitude, height, m); 77-79 Galileo, 80-82 QZSS satellites.
+  Satellite counts are stored shifted by one bit, the low bit set when known.
+* 63 (1 Hz, subtype 0): flight time left, time to return home (0xFFFF: none)
+  and to land (s), battery needed to return home and to land (%).
 """
 
 from __future__ import annotations
@@ -46,7 +55,7 @@ from collections.abc import Callable
 from typing import Any
 
 OSD, HOME, GIMBAL, RC, APP_TIP, APP_WARN, RC_DISPLAY = 1, 2, 3, 4, 9, 10, 62
-SMART_BATTERY_GROUP, RTK, POSITION = 22, 45, 48
+SMART_BATTERY_GROUP, RTK, POSITION, FC_OSD = 22, 45, 48, 63
 CUSTOM, APP_GPS, MC_PARAMS, LINK = 5, 14, 19, 49
 
 Row = dict[str, Any]
@@ -168,7 +177,8 @@ def custom(data: bytes, version: int) -> Row:
     """Return the app's own record (type 5): its time, the distance flown, shooting.
 
     ``app_time`` is the app's clock (UNIX s, UTC); on Matrice 400 logs it agrees
-    with ``start_time + osd_fly_time`` within 0.1 s. Its horizontal speed
+    with ``start_time + osd_fly_time`` within 0.1 s, and runs 0.24-0.49 s behind
+    the aircraft's time (record 48). Its horizontal speed
     (bytes 2-5) is the OSD's and is not kept.
     """
     photo, video, _h_speed, distance_km, ms = struct.unpack_from("<BBffq", data, 0)
@@ -252,24 +262,48 @@ def smart_battery(data: bytes, version: int) -> Row:
 
 
 def position(data: bytes, version: int) -> Row:
-    """Return the aircraft's position with a height of known reference (type 48, see the notes)."""
+    """Return the aircraft's position and time (type 48, see the notes).
+
+    Layout as dji-log-parser 0.6.0 (``GroundStationPushData``), plus the
+    aircraft's height at byte 58 (found on Matrice 400 logs).
+    """
     lon, lat = struct.unpack_from("<dd", data, 0)
-    (unix,) = struct.unpack_from("<I", data, 24)
-    home_h, _, h = struct.unpack_from("<3f", data, 50)
-    return {
-        "osd_unix_time": float(unix),
+    (yaw,) = struct.unpack_from("<h", data, 20)
+    seconds, nanoseconds = struct.unpack_from("<II", data, 24)
+    home_h, home_distance, h = struct.unpack_from("<fff", data, 50)
+    row: Row = {
+        "osd_aircraft_time": seconds + nanoseconds * 1e-9,
         "osd_abs_latitude": math.degrees(lat),
         "osd_abs_longitude": math.degrees(lon),
         "osd_abs_altitude": h,
+        "osd_abs_yaw": yaw / 10.0,
+        "osd_abs_gps_num": data[33],
+        "osd_home_distance": home_distance,
         "home_abs_altitude": home_h,
     }
+    if len(data) >= 70:
+        (row["osd_geoid_height"],) = struct.unpack_from("<f", data, 66)
+    return row
+
+
+def _satellites(value: int) -> int | None:
+    """Return a satellite count: stored shifted by one bit, the low bit set when known."""
+    return value >> 1 if value & 0x01 else None
+
+
+RTK_RECEIVERS = ("antenna1", "antenna2", "base")
+RTK_CONSTELLATIONS = ("gps", "beidou", "glonass")
 
 
 def rtk(data: bytes, version: int) -> Row:
-    """Return the RTK solution (type 45, see the notes)."""
+    """Return the RTK solution (type 45, see the notes).
+
+    Layout as dji-log-parser 0.6.0 (``RTKDifference``). ``rtk_pos_flag``:
+    0-15 none, 16 single, 17-49 float, 50 fixed.
+    """
     lat, lon, h = struct.unpack_from("<ddf", data, 11)
     base_lat, base_lon, base_h = struct.unpack_from("<ddf", data, 31)
-    return {
+    row: Row = {
         "rtk_pos_flag": data[1],
         "rtk_latitude": lat,
         "rtk_longitude": lon,
@@ -277,6 +311,42 @@ def rtk(data: bytes, version: int) -> Row:
         "rtk_base_latitude": base_lat,
         "rtk_base_longitude": base_lon,
         "rtk_base_height": base_h,
+    }
+    if (base_lat, base_lon) == (0.0, 0.0):  # no base station
+        row["rtk_base_latitude"] = row["rtk_base_longitude"] = None
+    if base_h == 0.0:
+        row["rtk_base_height"] = None
+    if len(data) >= 77:
+        std = struct.unpack_from("<3f", data, 65)
+        row["rtk_std_latitude"], row["rtk_std_longitude"], row["rtk_std_height"] = std
+    for r, receiver in enumerate(RTK_RECEIVERS):
+        for c, constellation in enumerate(RTK_CONSTELLATIONS):
+            row[f"rtk_{receiver}_{constellation}"] = _satellites(data[2 + 3 * r + c])
+        if len(data) >= 83:
+            row[f"rtk_{receiver}_galileo"] = _satellites(data[77 + r])
+            row[f"rtk_{receiver}_qzss"] = _satellites(data[80 + r])
+    return row
+
+
+def fc_osd(data: bytes, version: int) -> Row:
+    """Return the flight controller's battery estimates (type 63, subtype 0).
+
+    Layout as dji-log-parser 0.6.0 (``FlightControllerCommonOSDField``,
+    ``BatteryOsd``): flight time left, time and battery needed to return home
+    and to land. Other subtypes (1 counts down from 9, unknown) are not read.
+    """
+    (subtype,) = struct.unpack_from("<H", data, 0)
+    if subtype != 0 or len(data) < 10:
+        return {}
+    useful, go_home, land, go_home_battery, land_battery = struct.unpack_from(
+        "<HHHBB", data, 2
+    )
+    return {
+        "fc_flight_time_left": useful,  # s, 0 on the ground
+        "fc_go_home_time": go_home if go_home != 0xFFFF else None,  # s
+        "fc_land_time": land,  # s
+        "fc_go_home_battery": go_home_battery,  # % needed to return home
+        "fc_land_battery": land_battery,  # % needed to land
     }
 
 
@@ -331,7 +401,8 @@ PARSERS: dict[int, tuple[Callable[[bytes, int], Row], int, bool]] = {
     MC_PARAMS: (mc_params, 2, True),
     LINK: (link, 1, True),
     SMART_BATTERY_GROUP: (smart_battery, 1, True),
-    POSITION: (position, 70, False),
+    POSITION: (position, 62, False),
+    FC_OSD: (fc_osd, 2, True),
     RTK: (rtk, 51, False),
 }
 """The records read: an event (app message) or a value of its own epoch

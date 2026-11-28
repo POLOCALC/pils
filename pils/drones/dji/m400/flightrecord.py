@@ -10,15 +10,18 @@ The table
 ---------
 A frame starts at each OSD record (type 1) and takes the records that follow
 it until the next one. The state records (OSD, home, gimbal, sticks,
-batteries) hold their values until they change; the RTK solution (1 Hz), the
-record 48 and the app's messages are only in the frame they came in (nulls
-elsewhere).
+batteries, estimates) hold their values until they change; the RTK solution
+(1 Hz), the app's record and messages are only in the frame they came in
+(nulls elsewhere). Record 48 goes to the frame of its own time: it comes a
+frame early or late at times.
 
-The time of the frames: ``start_time`` of the log's details (UTC) plus the
-OSD's ``fly_time`` (the aircraft's counter, 0.1 s). The app's own times (the
-``custom`` record) are not usable in these logs, and the file's name is in the
-remote controller's time zone. The record 48 has the UNIX second of each frame
-(``osd_unix_time``): it agrees with this time to the second.
+The time of the frames: the aircraft's own time in record 48 (seconds and
+nanoseconds, ``osd_aircraft_time``). The app's time (``start_time`` of the
+log's details plus the OSD's ``fly_time``) runs behind it by
+``details["aircraft_minus_app_s"]`` (0.24 to 0.49 s on the first Matrice 400
+flights); a frame without a record 48 gets its time interpolated between its
+neighbours, at the ends of the log the app's time moved by that offset. The
+file's name is in the remote controller's time zone.
 
 The keys
 --------
@@ -39,6 +42,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import polars as pl
 
 from ....utils.logging_config import get_logger
@@ -84,6 +88,7 @@ def frames_table(log: FlightLog, records: Any) -> pl.DataFrame:
     state: dict[str, Any] = {}
     rows: list[dict[str, Any]] = []
     row: dict[str, Any] | None = None
+    positions: list[dict[str, Any]] = []  # record 48: placed by its own time
     for record in records:
         parsed = rec.parse(record.type, record.data, log.version)
         if parsed is None:
@@ -101,6 +106,8 @@ def frames_table(log: FlightLog, records: Any) -> pl.DataFrame:
             continue  # before the first frame: only its state is kept
         if holds:
             row.update(values)
+        elif record.type == rec.POSITION:
+            positions.append({**values, "_frame": len(rows)})
         else:
             for k, v in values.items():  # several messages in a frame: joined
                 row[k] = f"{row[k]}; {v}" if isinstance(v, str) and row.get(k) else v
@@ -114,10 +121,18 @@ def frames_table(log: FlightLog, records: Any) -> pl.DataFrame:
         raise DJIFlightRecordError(
             "the log has no start time: its frames cannot be timed"
         )
-    t0 = start.timestamp()
-    table = table.with_columns(
-        (pl.col("osd_fly_time").cast(pl.Float64) + t0).alias("timestamp")
-    ).with_columns(
+    if positions:
+        table = _place_positions(table, pl.from_dicts(positions), start)
+    app = _app_time(start)
+    offset = aircraft_minus_app(table, start)
+    if offset is None:
+        time = app
+    else:
+        # The aircraft's own time (record 48); a frame without one gets it
+        # interpolated between its neighbours (the frames are 0.1 s apart),
+        # at the ends the app's time moved by the median difference
+        time = pl.coalesce(pl.col("osd_aircraft_time").interpolate(), app + offset)
+    table = table.with_columns(time.alias("timestamp")).with_columns(
         (pl.col("timestamp") * 1e6)
         .round()
         .cast(pl.Int64)
@@ -125,6 +140,61 @@ def frames_table(log: FlightLog, records: Any) -> pl.DataFrame:
         .alias("datetime")
     )
     return table.select("timestamp", "datetime", pl.exclude("timestamp", "datetime"))
+
+
+def _place_positions(
+    table: pl.DataFrame, positions: pl.DataFrame, start: datetime
+) -> pl.DataFrame:
+    """Join the records 48 to the frames by their own time.
+
+    A record 48 usually follows the OSD record of its frame, but at times
+    arrives a frame early or late (a frame then has two, its neighbour none).
+    Its time (``osd_aircraft_time``) minus the median offset to the app's
+    time of the frames puts it in the frame whose app time is the nearest;
+    of two records for one frame the nearer is kept.
+    """
+    app = table["osd_fly_time"].cast(pl.Float64).to_numpy() + start.timestamp()
+    frame = positions["_frame"].to_numpy().clip(0, len(app) - 1)
+    aircraft = positions["osd_aircraft_time"].to_numpy()
+    offset = float(np.median(aircraft - app[frame]))
+    at = aircraft - offset
+    # the nearest frame in app time (the frames are in time order)
+    i = np.searchsorted(app, at).clip(1, len(app) - 1)
+    nearest = np.where(np.abs(app[i - 1] - at) <= np.abs(app[i] - at), i - 1, i)
+    placed = (
+        positions.drop("_frame")
+        .with_columns(
+            pl.Series("_row", nearest), pl.Series("_miss", np.abs(app[nearest] - at))
+        )
+        .sort("_miss")
+        .unique("_row", keep="first")
+        .drop("_miss")
+    )
+    return (
+        table.drop([c for c in placed.columns if c in table.columns and c != "_row"])
+        .with_row_index("_row")
+        .with_columns(pl.col("_row").cast(pl.Int64))
+        .join(placed.with_columns(pl.col("_row").cast(pl.Int64)), on="_row", how="left")
+        .sort("_row")
+        .drop("_row")
+    )
+
+
+def _app_time(start: datetime) -> pl.Expr:
+    """Return the app's time of the frames: the log's start plus the fly time."""
+    return pl.col("osd_fly_time").cast(pl.Float64) + start.timestamp()
+
+
+def aircraft_minus_app(table: pl.DataFrame, start: datetime | None) -> float | None:
+    """Return the median of the aircraft's time (record 48) minus the app's, in s.
+
+    None when the frames have no aircraft time (no record 48) or no start.
+    """
+    if start is None or "osd_aircraft_time" not in table.columns:
+        return None
+    diff = table.select(pl.col("osd_aircraft_time") - _app_time(start)).to_series()
+    diff = diff.drop_nulls()
+    return float(diff.median()) if diff.len() else None  # type: ignore[arg-type]
 
 
 class M400FlightRecord:
@@ -182,6 +252,10 @@ class M400FlightRecord:
                 for k, v in dataclasses.asdict(log.details).items()
             },
             **rec.metadata(records),
+            # The app's clock against the aircraft's, which times the frames
+            "aircraft_minus_app_s": aircraft_minus_app(
+                self.data, log.details.start_time
+            ),
         }
         logger.info(
             "DJI flight record %s: version %d, %d frames",

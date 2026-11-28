@@ -37,13 +37,15 @@ record (`rtk_base_*`) when it has one, instead of the configuration's.
 
 ## Time
 
-- **Flight record:** `start_time` of its details (UTC) plus the aircraft's
-  fly time; checked against the record's own UNIX seconds and the app's
-  clock. The file's name is in the remote controller's time zone (UTC+1 on
-  the first flights), not the site's: tools that name the flight folder
-  should read the start time from the details
+- **Flight record:** the aircraft's own time, in record 48 (seconds and
+  nanoseconds). The app's clock (the log's start time, its own `app_time`)
+  runs behind it by 0.24-0.49 s, a different amount each flight
+  (`details["aircraft_minus_app_s"]`); see
+  [Time](matrice-400-flight-record.md#time). The file's name is in the remote
+  controller's time zone (UTC+1 on the first flights), not the site's: tools
+  that name the flight folder should read the start time from the details
   (`pils.drones.dji.m400.txtlog.FlightLog.read(path).details.start_time`,
-  no key needed).
+  no key needed; the app's, so within half a second).
 - **LAGER telemetry:** `timestamp` is the logging computer's clock;
   `t_aircraft_ms` the aircraft's.
 

@@ -40,9 +40,12 @@ floats are little-endian.
       as noise.
     - **The app GPS (14)** is latitude, longitude (degrees) and altitude, in
       that order.
-    - **Records 45, 48 and OSD bytes 74-81** are documented nowhere public.
-      Their layouts were found by comparing them with known values in the
-      same logs; see [Records found on the Matrice 400](#records-found-on-the-matrice-400).
+
+    Records **45** (RTK), **48** (position and time) and **63** (battery
+    estimates) follow `dji-log-parser` **0.6.0** (November 2026), which added
+    them along with the key groups above; every field PILS reads was checked
+    on the Matrice 400 logs (see [Records 45, 48 and 63](#records-45-48-and-63)).
+    Byte 58 of record 48 and OSD bytes 74-81 were found on those logs.
 
 ## Record types of a Matrice 400 log
 
@@ -65,16 +68,16 @@ decryption.
 | 22 | smart battery | 2 Hz | 29-46 | Battery | **read** in part (`battery<i>_*`) |
 | 26 | ? | once | 2 | AfterSales | not decoded (`41 00`) |
 | 40 | component serial | once | 24 | Base | **read** (`details["component_serials"]`) |
-| 45 | RTK solution | 1 Hz | 83 | Agriculture | **read** (`rtk_*`) |
-| 48 | position | 10 Hz | 71 | Agriculture | **read** (`osd_abs_*`, `osd_unix_time`) |
+| 45 | RTK solution | 1 Hz | 83 | Agriculture | **read** (`rtk_*`: position, solution, sigmas, satellites, base) |
+| 48 | position and time | 10 Hz | 71 | Agriculture | **read** (`osd_aircraft_time`, `osd_abs_*`, home distance, geoid): **times the frames** |
 | 49 | radio link | 4 Hz | 1 | AirLink | **read** (`link_*`) |
 | 50 | key-storage recover | | | Plaintext | container: starts the next set of keys |
 | 55 | security | 1 Hz | 257 | Security | **cannot be decrypted**: DJI's API does not return this group's key |
 | 56 | key storage | at start | 261 | Plaintext | container: the encrypted keys |
 | 57 | link configuration | 6 Hz | 3, 35 | AirLink | not decoded (two constant blocks) |
 | 62 | sticks (display) | 2 Hz | 19 | RC | **read** (`rc_*`) |
-| 63 | ? | 1 Hz | 10 | Base | not decoded, see below |
-| 253 | component information | at start | 25, 32 | DJIFlyCustom | not decoded (holds a battery serial and a time) |
+| 63 | flight controller estimates | 1 Hz | 10 | Base | **read** (`fc_*`: flight time left, return home and landing) |
+| 253 | aircraft information | at start | 25, 32 | DJIFlyCustom | not read: a header and a time, then protobuf (total flight time, serial numbers; read by `dji-log-parser`) |
 | 254 | key-value log | 35 Hz | 8-16 | DJIFlyCustom | not decoded (protobuf values), see below |
 
 The Matrice 400 logs have no gimbal record (3) and no stick record (4); both
@@ -257,7 +260,7 @@ integers.
 | 41 | u8 / 10 | `osd_vps_height` (downward sensor, m) |
 | 42 | u16 / 10 | **`osd_fly_time`** (s): the aircraft's counter, 0.1 s steps |
 | 48 | u8 | `osd_drone_type` (format 2+) |
-| 74, 78 | f32 | **`osd_north`, `osd_east`**: from the home point (m); Matrice 400, see below |
+| 74, 78 | f32 | **`osd_north`, `osd_east`**: from the home point (m); Matrice 400, see [below](#osd-bytes-74-81-position-from-home) |
 
 Bytes 44-47, 49-73 and 82-84 of the Matrice 400's OSD are not decoded; see
 [below](#present-not-decoded).
@@ -297,8 +300,10 @@ them) has the same four values after 7 bytes; the Matrice 400 writes this one.
 | 6 | f32 (km) | `app_distance` (m): distance flown since take-off |
 | 10 | i64 (ms) | `app_time` (s): the app's clock, UNIX time (UTC) |
 
-On the four logs, `app_time` agreed with `start_time + osd_fly_time` within
-0.1 s (median offset −0.01 to +0.04 s, drift about 0.01 s per 10 minutes).
+On the four logs, `app_time` agreed with the app's time of the frames
+(`start_time + osd_fly_time`) within 0.1 s (median offset −0.01 to +0.04 s,
+drift about 0.01 s per 10 minutes): both are the app's clock, which runs
+0.24-0.49 s behind the aircraft's (see [Time](#time)).
 
 ### 9 and 10: the app's messages
 
@@ -352,28 +357,34 @@ Not in the table; in `details`:
   3 remote controller, 4 battery), `u8 n`, n bytes:
   `details["component_serials"]`.
 
-## Records found on the Matrice 400
+## Records 45, 48 and 63
 
-### 48: position
+Layouts as `dji-log-parser` 0.6.0 (`RTKDifference`, `GroundStationPushData`,
+`FlightControllerCommonOSDField`), checked on the four Matrice 400 logs.
 
-Every frame (10 Hz). The aircraft's position with a height of known
-reference, and the frame's UNIX second:
+### 48: position and time
 
-| Offset | Type | Column |
-|---|---|---|
-| 0, 8 | f64 (rad) | `osd_abs_longitude`, `osd_abs_latitude` |
-| 24 | u32 | `osd_unix_time`: UNIX seconds, UTC |
-| 50 | f32 | `home_abs_altitude`: height of the take-off point (m) |
-| 58 | f32 | `osd_abs_altitude`: height of the aircraft (m) |
+Every frame (10 Hz):
 
-On the flights checked: the position equals the OSD's; `osd_abs_altitude` =
-`home_abs_altitude` + `osd_height` within 1.5 m; `osd_abs_altitude` agrees
-with the RTK height to 0.1 m; `osd_unix_time` agrees with the frame's time to
-the second. The take-off height was the same on all flights from the same
-spot (5180.2 m), while the app's barometric `home_altitude` varied between
-4980 and 5378 m. Bytes 16-23, 28-49, 54-57 and 62-70 are not read (62 holds a
-second height 1.5-3 m lower, and 66 a constant of 31.46 that looks like a
-geoid separation; both unconfirmed).
+| Offset | Type | Column | Check on the Matrice 400 logs |
+|---|---|---|---|
+| 0, 8 | f64 (rad) | `osd_abs_longitude`, `osd_abs_latitude` | the OSD's position, within 0.35 m |
+| 16 | f32 | height above the take-off point (not kept: `osd_height`) | |
+| 20 | i16 / 10 | `osd_abs_yaw` (deg) | the OSD's yaw within 0.1° |
+| 24, 28 | u32, u32 | **`osd_aircraft_time`** = seconds + nanoseconds × 10⁻⁹: the aircraft's time, UNIX (UTC on these logs) | see [Time](#time) |
+| 33 | u8 | `osd_abs_gps_num` | 19-25, 2-5 below the OSD's `osd_gps_num`: another count, not confirmed |
+| 34, 42 | f64 (rad) | home position (not kept: `home_*`) | |
+| 50 | f32 | `home_abs_altitude`: ellipsoidal height of the take-off point (m) | 5180.2 m on every flight from the same spot |
+| 54 | f32 | `osd_home_distance`: horizontal distance to the home point (m) | √(north² + east²) within 0.4 m |
+| 58 | f32 | `osd_abs_altitude`: the aircraft's height (m), found on these logs | `home_abs_altitude` + `osd_height` within 1.5 m; the RTK height within 0.1 m |
+| 66 | f32 | `osd_geoid_height` (m, when the record has 70 bytes): the geoid above the ellipsoid | 31.46 m |
+
+The app's barometric `home_altitude` (record 2) varied between 4980 and
+5378 m over the same flights. Bytes 22-23, 32 and 62-65 are not read.
+
+A record 48 usually follows the OSD record of its frame, but at times comes a
+frame early or late (on one flight 86 frames had two and 87 none). PILS
+places each in the frame whose time is nearest its own (see [Time](#time)).
 
 ### 45: RTK solution
 
@@ -381,20 +392,42 @@ Once a second:
 
 | Offset | Type | Column |
 |---|---|---|
-| 1 | u8 | `rtk_pos_flag`: 50 when fixed (the code of the `.DAT`) |
-| 2-10 | 9 × u8 | not read (they look like satellite counts) |
+| 1 | u8 | `rtk_pos_flag`: 0-15 none, 16 single, 17-49 float, **50 fixed** |
+| 2-10 | 9 × u8 | satellites: antenna 1, antenna 2, base, each GPS, BeiDou, GLONASS: `rtk_antenna1_gps`, ..., `rtk_base_glonass` |
 | 11, 19 | f64 (deg) | `rtk_latitude`, `rtk_longitude` |
-| 27 | f32 | `rtk_height` (m) |
-| 31, 39 | f64 (deg) | `rtk_base_latitude`, `rtk_base_longitude`: the position the base broadcasts |
-| 47 | f32 | `rtk_base_height` (m) |
-| 51-82 | | not read |
+| 27 | f32 | `rtk_height`: above the WGS84 ellipsoid (m) |
+| 31, 39 | f64 (deg) | `rtk_base_latitude`, `rtk_base_longitude`: the position the base broadcasts (null when 0, 0: no base) |
+| 47 | f32 | `rtk_base_height` (m, null when 0) |
+| 65, 69, 73 | 3 × f32 | `rtk_std_latitude`, `rtk_std_longitude`, `rtk_std_height`: standard deviations (m) |
+| 77-79 | 3 × u8 | Galileo satellites of antenna 1, antenna 2, base: `rtk_*_galileo` |
+| 80-82 | 3 × u8 | QZSS satellites: `rtk_*_qzss` |
 
-The flag was 50 in every epoch of the flights checked, so its other values are
-not confirmed. The RTK heights are taken as ellipsoidal, as those of the
-`.DAT` (the base broadcasts an ellipsoidal height); to check against a payload
-GPS. With a survey, AZEL's base correction absorbs a constant datum offset.
-The solution is logged late: 0.1-0.3 s on the flights checked (see
+A satellite count is stored shifted by one bit, the low bit set when it is
+known (null otherwise: QZSS on these logs). Bytes 0 and 51-64 are not read.
+
+On the flights checked: fixed in every epoch; standard deviations of 2.1-2.4 mm
+horizontally and 5-7 mm vertically; 9-10 GPS, 6-8 BeiDou, 6-8 GLONASS and 6-7
+Galileo satellites per antenna. The solution is logged late: 0.1-0.3 s on
+the flights checked (see
 [the record track](#synchronization-the-records-track-tied-to-its-rtk)).
+With a survey, AZEL's base correction absorbs a constant datum offset between
+the base's broadcast position and the survey.
+
+### 63: flight controller estimates
+
+`u16 subtype`, then for subtype 0 (once a second):
+
+| Offset | Type | Column |
+|---|---|---|
+| 2 | u16 | `fc_flight_time_left` (s, 0 on the ground) |
+| 4 | u16 | `fc_go_home_time` (s; null when 0xFFFF, before take-off) |
+| 6 | u16 | `fc_land_time` (s) |
+| 8 | u8 | `fc_go_home_battery`: battery needed to return home (%) |
+| 9 | u8 | `fc_land_battery`: battery needed to land (%) |
+
+On the flights checked: up to about 1500 s of flight time left, up to 129 s
+to land (it grows with the height), 27-32 % of battery to return home and
+5-10 % to land. Subtype 1 (a countdown from 9, meaning unknown) is not read.
 
 ### OSD bytes 74-81: position from home
 
@@ -402,10 +435,11 @@ The solution is logged late: 0.1-0.3 s on the flights checked (see
 `osd_east`). They equal the OSD latitude and longitude minus the home
 point's, in metres, within 0.1 m.
 
-In the schema (`pils.schema`, table `dji_record`) these become `abs_lat_deg`,
-`abs_lon_deg`, `abs_h_m`, `home_abs_h_m`, `unix_time_s`, `rtk_pos_flag_1`,
-`rtk_lat_deg`, `rtk_lon_deg`, `rtk_h_ell_m`, `rtk_base_lat_deg`,
-`rtk_base_lon_deg`, `rtk_base_h_ell_m`, `north_m` and `east_m`.
+In the schema (`pils.schema`, table `dji_record`) these become, among others,
+`aircraft_time_s`, `abs_lat_deg`, `abs_lon_deg`, `abs_h_m`, `home_abs_h_m`,
+`home_distance_m`, `geoid_height_m`, `rtk_pos_flag_1`, `rtk_lat_deg`,
+`rtk_lon_deg`, `rtk_h_ell_m`, `rtk_std_lat_m`, `rtk_base_lat_deg`,
+`fc_flight_time_left_s`, `north_m` and `east_m`.
 
 ### Present, not decoded
 
@@ -418,11 +452,9 @@ What the investigation found, without a meaning that the logs could confirm:
 | OSD i16 @ 53, u8 @ 66, 71, 82, 83 | vary, with no relation to a known signal |
 | OSD 44-52, 55-62, 65, 67, 69-70, 72-73, 84 | constant |
 | Home 32-96 | byte 33 repeats the OSD's ground/air state; 52-67 a serial number (`…2YUW`); 68-72 vary; the rest is constant |
-| 63 (1 Hz, 10 bytes) | byte 6 rises with the aircraft's height and distance (r = 0.999 with height, 0.993 with distance: these flights cannot tell them apart); u16 @ 2 varies (0-1500) |
-| 254 (35 Hz) | a key-value log: `u16 5, u16 id, u16 n`, then n bytes of a protobuf value (`08 xx`: field 1, varint). Id 2 follows height and distance like record 63 (r ≈ 0.85); id 3 takes a few values (1-8); ids 6 and 7 hold a millisecond time, constant per flight. The meaning of the ids would need DJI's protobuf schema |
+| 254 (35 Hz) | a key-value log with the header of 253: `u8 5`, 3 bytes (an id at byte 2), `u32 n` (high bit: a time follows), then a protobuf value (`08 xx`: field 1, varint). Id 2 follows height and distance (r ≈ 0.85); id 3 takes a few values (1-8); ids 6 and 7 hold a millisecond time, constant per flight. DJI's library calls it "frame data"; no parser reads its values |
 | 57 (6 Hz) | two constant blocks (3 and 35 bytes): link configuration |
 | 17 | 9 bytes of flags, nearly constant |
-| 253 | at start: component information with a battery serial number and a millisecond time |
 | 26 | once: `41 00` |
 | 55 | encrypted with the Security key, which DJI does not return |
 
@@ -433,26 +465,41 @@ What the investigation found, without a meaning that the logs could confirm:
 - **Frames.** A frame starts at each OSD record (type 1) and takes every
   record after it up to the next OSD record.
 - **States hold.** The values of OSD, home, gimbal, sticks, batteries, app
-  GPS, flight controller settings and link hold until the next record of the
-  same type. Records before the first frame give its starting state.
-- **Epochs do not.** The RTK solution (45), record 48, the app's record (5)
-  and the app's messages are only in the frame they came in; the other frames
-  have nulls.
+  GPS, flight controller settings and estimates (19, 63) and link hold until
+  the next record of the same type. Records before the first frame give its starting state.
+- **Epochs do not.** The RTK solution (45), the app's record (5) and the
+  app's messages are only in the frame they came in; the other frames have
+  nulls. Record 48 goes to the frame of its own time (below).
 - **Order.** Rows stay in the order of the file.
 
 ### Time
 
 ```
-timestamp = details.start_time + osd_fly_time
+timestamp = osd_aircraft_time        (record 48: the aircraft's seconds + nanoseconds)
 ```
 
-`datetime` is the same time as a UTC datetime. Two values check it:
-`osd_unix_time` (record 48), within the truncation to the second, and
-`app_time` (record 5), within 0.1 s, with no drift on four flights.
+Each frame is timed by the aircraft's own clock, read in record 48.
 
-The file's name is not used: it is in the remote controller's time zone. On
-the first flights that was UTC+1, so `12-38-29` in the name was a take-off at
-11:38:29 UTC (08:38 in Chile).
+1. **The app's time** of each frame is the log's `start_time` plus the OSD's
+   `fly_time` (0.1 s steps).
+2. **Placing record 48.** The median of aircraft time − app time over the
+   records gives the offset; each record 48 goes to the frame whose app
+   time + offset is nearest its own time (of two for one frame, the nearer is
+   kept). This puts back the records that came a frame early or late.
+3. **Frames without one** get their time interpolated between their
+   neighbours; at the ends of the log, the app's time + the offset.
+4. **Without any record 48** (other aircraft), the frames have the app's time.
+
+`details["aircraft_minus_app_s"]` is that offset. On the first Matrice 400
+flights it was **+0.44, +0.47, +0.49 and +0.24 s**, stable within a few
+milliseconds over each flight: the app's clock (start time and its own
+`app_time`, record 5) runs behind the aircraft's by a different amount each
+flight. At 9 m/s, half a second is 4 m along the track. Before this, the
+frames were timed by the app (start + fly time), and AZEL was that much early.
+
+The file's name is not used either: it is in the remote controller's time
+zone. On the first flights that was UTC+1, so `12-38-29` in the name was a
+take-off at 11:38:29 UTC (08:38 in Chile).
 
 ## Synchronization: the record's track tied to its RTK
 
@@ -461,7 +508,7 @@ reference is the flight record's 10 Hz track, tied to the RTK
 (`pils.drones.sources.record_track`):
 
 1. **Track and RTK.** The track is the frames with a record-48 position
-   (`abs_*`, the drone's GPS time); the RTK is the fixed epochs (flag 50).
+   (`abs_*`, on the aircraft's time); the RTK is the fixed epochs (flag 50).
    At least 10 are needed.
 2. **Latency.** The RTK solution is logged late. The shift of the RTK epochs
    that best matches the track (smallest horizontal scatter, between −1 and
@@ -486,10 +533,10 @@ record track   done   10 Hz track tied to the RTK: offset E +0.20, N -0.37, U +0
 
 | Flight (2026-11-28) | Offset E, N, U (m) | Scatter horizontal / vertical (m) | RTK latency (s) |
 |---|---|---|---|
-| 11:38 | −0.24, −0.03, +0.03 | 0.50 / 0.63 | 0.34 |
+| 11:38 | −0.23, −0.03, +0.03 | 0.50 / 0.63 | 0.34 |
 | 12:02 | +0.20, −0.37, +0.08 | 0.51 / 0.39 | 0.22 |
-| 12:18 | +0.20, −0.40, +0.05 | 0.41 / 0.34 | 0.12 |
-| 12:32 | +0.21, −0.40, +0.04 | 0.41 / 0.37 | 0.28 |
+| 12:18 | +0.21, −0.38, +0.05 | 0.41 / 0.39 | 0.14 |
+| 12:32 | +0.21, −0.40, +0.04 | 0.40 / 0.39 | 0.28 |
 
 Syncing on the 1 Hz RTK alone, interpolated to the 100 Hz grid, would miss
 the motion between epochs by up to 2.5-3.8 m in the turns.

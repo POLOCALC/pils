@@ -233,7 +233,8 @@ def _string(raw: bytes) -> str:
 class Details:
     """The log's details (its header): what the app wrote about the flight.
 
-    ``start_time`` is the log's start (UTC); ``total_time`` its duration (s);
+    ``start_time`` is the log's start (UTC, the app's clock: within half a
+    second of the aircraft's); ``total_time`` its duration (s);
     ``take_off_altitude`` as the app wrote it (barometric on the Matrice 400:
     not a height of known reference).
     """

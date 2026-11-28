@@ -26,6 +26,18 @@ All notable changes to PILS are documented here.
   the record's 10 Hz track tied to that RTK (`record_track`: RTK latency and
   offset found, reported by `pils package`), and AZEL takes the base position
   it broadcast from the record.
+- Flight record time: the frames are timed by the aircraft's own clock
+  (record 48: seconds and nanoseconds), no longer by the app's (the log's
+  start plus the fly time), which ran 0.24-0.49 s behind on the first
+  Matrice 400 flights: their AZEL moves later by that much. Records 48 that
+  come a frame early or late are placed by their own time.
+  `details["aircraft_minus_app_s"]` gives the app's offset.
+- Flight record, after `dji-log-parser` 0.6.0 and checked on Matrice 400
+  logs: the RTK's standard deviations and satellite counts by receiver and
+  constellation (45, `rtk_std_*`, `rtk_<receiver>_<constellation>`), the
+  yaw, home distance and geoid height of record 48, and the flight
+  controller's estimates (63, `fc_*`: flight time left, time and battery to
+  return home and to land). `osd_unix_time` is now `osd_aircraft_time`.
 - Flight record columns: the app's clock and distance flown (record 5,
   `app_time`, `app_distance`), the controller's GNSS position (14,
   `app_gps_*`), the flight controller's settings (19, `mc_*`), the radio link

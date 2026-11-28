@@ -74,19 +74,39 @@ def home(lat=-22.9597594, lon=-67.7869144) -> bytes:
     return bytes(d)
 
 
-def record48(unix, home_h=5180.2, h=5185.0) -> bytes:
+LAG = 0.37  # the aircraft's time minus the app's (start + fly time), s
+
+
+def aircraft_time(i):
+    return START.timestamp() + 0.1 * i + LAG
+
+
+def record48(t, home_h=5180.2, h=5185.0) -> bytes:
     d = bytearray(71)
     struct.pack_into("<dd", d, 0, math.radians(-67.7869), math.radians(-22.9597))
-    struct.pack_into("<I", d, 24, unix)
-    struct.pack_into("<3f", d, 50, home_h, 0.0, h)
+    struct.pack_into("<h", d, 20, 900)  # yaw x 10
+    seconds = math.floor(t)
+    struct.pack_into("<II", d, 24, seconds, round((t - seconds) * 1e9))
+    d[33] = 22
+    struct.pack_into("<fff", d, 50, home_h, 12.5, h)
+    struct.pack_into("<f", d, 66, 31.46)
     return bytes(d)
 
 
-def record45(lat=-22.95976, lon=-67.78692, h=5180.3) -> bytes:
+def sats(n):  # a satellite count as stored: shifted, the low bit set
+    return (n << 1) | 1
+
+
+def record45(
+    lat=-22.95976, lon=-67.78692, h=5180.3, base=(-22.9597319, -67.7867337, 5180.63)
+) -> bytes:
     d = bytearray(83)
     d[1] = 50
+    d[2:11] = bytes(sats(n) for n in (10, 6, 8, 10, 6, 8, 9, 6, 7))
     struct.pack_into("<ddf", d, 11, lat, lon, h)
-    struct.pack_into("<ddf", d, 31, -22.9597319, -67.7867337, 5180.63)
+    struct.pack_into("<ddf", d, 31, *base)
+    struct.pack_into("<3f", d, 65, 0.0022, 0.0021, 0.0051)
+    d[77:80] = bytes(sats(n) for n in (7, 7, 6))  # Galileo; QZSS left 0: unknown
     return bytes(d)
 
 
@@ -99,7 +119,7 @@ def message(text) -> bytes:
 
 
 def frame(i) -> list[tuple[int, bytes]]:
-    return [(1, osd(0.1 * i, height=float(i))), (48, record48(1_795_865_909 + i // 10))]
+    return [(1, osd(0.1 * i, height=float(i))), (48, record48(aircraft_time(i)))]
 
 
 DEFAULT_RECORDS = [
@@ -246,22 +266,65 @@ def test_a_stream_cut_short_ends_at_the_last_whole_record():
 # --- The table ---------------------------------------------------------------
 
 
-def test_the_frames_are_timed_from_the_start_and_the_fly_time(tmp_path, api):
+def test_the_frames_are_timed_by_the_aircraft(tmp_path, api):
     r = M400FlightRecord(write(tmp_path, Writer()))
     r.load_data(api_key="KEY")
     t = r.data
     assert t.height == 3
+    # record 48's seconds and nanoseconds, not the app's start + fly time
     assert t["timestamp"].to_list() == pytest.approx(
-        [START.timestamp() + 0.1 * i for i in range(3)]
+        [aircraft_time(i) for i in range(3)]
     )
-    assert t["datetime"][0] == START and t["datetime"].dtype == pl.Datetime("us", "UTC")
+    assert r.details["aircraft_minus_app_s"] == pytest.approx(LAG, abs=1e-6)
+    assert t["datetime"].dtype == pl.Datetime("us", "UTC")
     assert t["osd_height"].to_list() == [0.0, 1.0, 2.0]  # the file's order
     assert t["osd_latitude"][0] == pytest.approx(-22.9597)
     assert t["osd_yaw"][0] == pytest.approx(90.0) and t["osd_gps_level"][0] == 5
     assert t["osd_h_speed"][0] == pytest.approx(math.hypot(1.0, 2.0))
-    # record 48: in every frame; its UNIX second agrees with the time
-    assert t["osd_unix_time"].to_list() == [1_795_865_909.0] * 3
+    # record 48: in every frame
     assert t["osd_abs_altitude"][0] == pytest.approx(5185.0)
+    assert t["osd_abs_yaw"][0] == pytest.approx(90.0) and t["osd_abs_gps_num"][0] == 22
+    assert t["osd_home_distance"][0] == pytest.approx(12.5)
+    assert t["osd_geoid_height"][0] == pytest.approx(31.46)
+
+
+def test_without_record_48_the_frames_have_the_apps_time(tmp_path, api):
+    r = M400FlightRecord(write(tmp_path, Writer([(1, osd(0.0)), (1, osd(0.1))])))
+    r.load_data(api_key="KEY")
+    assert r.data["timestamp"].to_list() == pytest.approx(
+        [START.timestamp(), START.timestamp() + 0.1]
+    )
+    assert r.details["aircraft_minus_app_s"] is None
+
+
+def test_a_record_48_early_or_late_goes_to_its_own_frame(tmp_path, api):
+    o = lambda i: (1, osd(0.1 * i, height=float(i)))  # noqa: E731
+    p = lambda i: (48, record48(aircraft_time(i), h=5000.0 + i))  # noqa: E731
+    records = [
+        o(0),
+        p(0),
+        o(1),  # its 48 comes late, after the next OSD
+        o(2),
+        p(1),
+        p(2),
+        o(3),
+        p(3),
+        p(4),  # frame 4's 48 comes early
+        o(4),
+        o(5),
+        p(5),
+        o(6),  # none at all: interpolated
+        o(7),
+        p(7),
+    ]
+    r = M400FlightRecord(write(tmp_path, Writer(records)))
+    r.load_data(api_key="KEY")
+    t = r.data
+    assert t["osd_abs_altitude"].to_list()[:6] == [5000.0 + i for i in range(6)]
+    assert t["osd_abs_altitude"][6] is None
+    assert t["timestamp"].to_list() == pytest.approx(
+        [aircraft_time(i) for i in range(8)]
+    )
 
 
 def test_epoch_records_are_only_in_their_frame_states_hold(tmp_path, api):
@@ -273,6 +336,9 @@ def test_epoch_records_are_only_in_their_frame_states_hold(tmp_path, api):
     assert t["rtk_latitude"].to_list()[1:] == [None, None]
     assert t["rtk_pos_flag"][0] == 50
     assert t["rtk_base_height"][0] == pytest.approx(5180.63)
+    assert t["rtk_std_height"][0] == pytest.approx(0.0051)
+    assert (t["rtk_antenna1_gps"][0], t["rtk_base_glonass"][0]) == (10, 7)
+    assert t["rtk_antenna2_galileo"][0] == 7 and t["rtk_base_qzss"][0] is None
     # the app's messages of a frame, joined
     assert t["app_warn"].to_list() == ["Strong wind; Low battery", None, None]
     # the home point (before the first frame) and the sticks hold
@@ -423,3 +489,19 @@ def test_firmware_and_component_serials_go_to_the_details(tmp_path, api):
     r.load_data(api_key="KEY")
     assert r.details["firmware"] == {"flight controller": "9.5.0.32"}
     assert r.details["component_serials"] == {"aircraft": serial.decode()}
+
+
+def test_rtk_without_a_base_and_the_flight_controllers_estimates(tmp_path, api):
+    fc = struct.pack("<HHHHBB", 0, 1509, 0xFFFF, 30, 20, 9)
+    records = [*frame(0), (45, record45(base=(0.0, 0.0, 0.0))), (63, fc), *frame(1)]
+    r = M400FlightRecord(write(tmp_path, Writer(records)))
+    r.load_data(api_key="KEY")
+    t = r.data
+    assert t["rtk_base_latitude"][0] is None and t["rtk_base_height"][0] is None
+    assert t["fc_flight_time_left"].to_list() == [1509, 1509]  # holds
+    assert t["fc_go_home_time"][0] is None  # 0xFFFF: none yet
+    assert (
+        t["fc_land_time"][0],
+        t["fc_go_home_battery"][0],
+        t["fc_land_battery"][0],
+    ) == (30, 20, 9)

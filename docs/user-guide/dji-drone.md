@@ -9,7 +9,7 @@ decodes each itself:
 | Drone position | `.DAT` RTK (5 Hz) and GNSS | flight record: 10 Hz track, RTK (1 Hz) |
 | Gimbal attitude | Litchi log (`*_litchi.csv`) | LAGER's gimbal log (Gremsy T7) |
 | Payload computer's log | LAGER OSDK telemetry | LAGER `psdk_telemetry` |
-| Time | `.DAT` ticks fitted to GPS time | log start (UTC) + the aircraft's fly time |
+| Time | `.DAT` ticks fitted to GPS time | the aircraft's own time (record 48, ns resolution) |
 | Details | [Matrice 600](../api/drones/matrice-600.md) | [Matrice 400](../api/drones/matrice-400.md), [flight record](../api/drones/matrice-400-flight-record.md) |
 
 LAGER's YAML and the gimbal log, common to both, are in

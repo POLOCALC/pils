@@ -340,7 +340,11 @@ DJI_RECORD = {
     # position with a height of known reference (= take-off point +
     # osd_height), and the RTK solution (1 Hz), whose heights are taken as
     # ellipsoidal as the .DAT's
-    "osd_unix_time": Field("unix_time_s"),
+    "osd_aircraft_time": Field("aircraft_time_s"),
+    "osd_abs_yaw": Field("abs_yaw_deg"),
+    "osd_abs_gps_num": Field("abs_gps_num"),
+    "osd_home_distance": Field("home_distance_m"),
+    "osd_geoid_height": Field("geoid_height_m"),
     "osd_abs_latitude": Field("abs_lat_deg"),
     "osd_abs_longitude": Field("abs_lon_deg"),
     "osd_abs_altitude": Field("abs_h_m"),
@@ -352,6 +356,15 @@ DJI_RECORD = {
     "rtk_base_latitude": Field("rtk_base_lat_deg"),
     "rtk_base_longitude": Field("rtk_base_lon_deg"),
     "rtk_base_height": Field("rtk_base_h_ell_m"),
+    "rtk_std_latitude": Field("rtk_std_lat_m"),
+    "rtk_std_longitude": Field("rtk_std_lon_m"),
+    "rtk_std_height": Field("rtk_std_h_m"),
+    # The flight controller's battery estimates (record 63)
+    "fc_flight_time_left": Field("fc_flight_time_left_s"),
+    "fc_go_home_time": Field("fc_go_home_time_s"),
+    "fc_land_time": Field("fc_land_time_s"),
+    "fc_go_home_battery": Field("fc_go_home_battery_pct"),
+    "fc_land_battery": Field("fc_land_battery_pct"),
     # From the home point, in metres (OSD bytes 74, 78 of the Matrice 400)
     "osd_north": Field("north_m"),
     "osd_east": Field("east_m"),
