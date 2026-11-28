@@ -4,7 +4,52 @@ All notable changes to PILS are documented here.
 
 ## [Unreleased]
 
+### Changed
+- The Matrice 400 flight record (`DJIFlightRecord_*.txt`) is decoded by PILS
+  itself (`pils.drones.dji.m400.txtlog`, `.records`): `pydjirecord` and
+  `protobuf` are no longer dependencies (`cryptography` is, for the AES). The
+  output was checked record by record against `pydjirecord` 1.3.0 on four
+  Matrice 400 logs (format 14). The table's columns: `osd_*` codes are DJI's
+  integers, the batteries are `battery<i>_*`, the sticks come from the
+  record 62 too; `osd_altitude` (height + the app's barometric home altitude)
+  is gone.
+- Its frames are timed with the log's start plus the fly time (the app's times
+  in these logs were garbage, and the table was sorted by them).
+- Flight record: records 57, 253 and 254 are decrypted with their key groups
+  (AirLink, DJIFlyCustom), found on Matrice 400 logs. Left encrypted, they
+  broke their groups' IV chain, so the app's record (5) and the link signal
+  (49) came out as noise, in `pydjirecord` too.
+
 ### Added
+- The RTK solution (record 45) and the positions of record 48 of the flight
+  record. A Matrice 400 flight with only its flight record is synchronized to
+  the record's 10 Hz track tied to that RTK (`record_track`: RTK latency and
+  offset found, reported by `pils package`), and AZEL takes the base position
+  it broadcast from the record.
+- Flight record time: the frames are timed by the aircraft's own clock
+  (record 48: seconds and nanoseconds), no longer by the app's (the log's
+  start plus the fly time), which ran 0.24-0.49 s behind on the first
+  Matrice 400 flights: their AZEL moves later by that much. Records 48 that
+  come a frame early or late are placed by their own time.
+  `details["aircraft_minus_app_s"]` gives the app's offset.
+- Flight record, after `dji-log-parser` 0.6.0 and checked on Matrice 400
+  logs: the RTK's standard deviations and satellite counts by receiver and
+  constellation (45, `rtk_std_*`, `rtk_<receiver>_<constellation>`), the
+  yaw, home distance and geoid height of record 48, and the flight
+  controller's estimates (63, `fc_*`: flight time left, time and battery to
+  return home and to land). `osd_unix_time` is now `osd_aircraft_time`.
+- Flight record columns: the app's clock and distance flown (record 5,
+  `app_time`, `app_distance`), the controller's GNSS position (14,
+  `app_gps_*`), the flight controller's settings (19, `mc_*`), the radio link
+  (49, `link_*`), the position from the home point (OSD bytes 74-81,
+  `osd_north`, `osd_east`); firmware versions and component serial numbers
+  (15, 40) in `details`.
+- Docs: the drone pages are split by drone (Matrice 600, Matrice 400, LAGER
+  and the gimbal for both); the `.DAT` format moved from the user guide to the
+  Matrice 600 page. "Matrice 400 flight record" documents the decoding in
+  full: container, XOR and AES, keys, every record type of a Matrice 400 log
+  with its layout (decoded or not, with what was found), the frame table and
+  its time, and the record track.
 - `--telescope-source campaign` (and `telescope_source="campaign"`): the
   telescope position from the campaign's own survey, else the so3g site
   (never another campaign's survey). `$PILS_TELESCOPE_SOURCE` sets the default

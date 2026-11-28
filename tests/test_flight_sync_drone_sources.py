@@ -216,3 +216,117 @@ def test_the_synchronized_sources_are_saved_and_loaded_with_their_offsets(tmp_pa
     assert back.sync_data["gimbal_mount_orientation"].equals(
         flight.sync_data["gimbal_mount_orientation"]
     )
+
+
+def flight_record(offset: float = 0.0, rtk=True):
+    """A Matrice 400 flight record (schema names): 10 Hz frames, RTK once a second."""
+    t = np.arange(0, DURATION, 0.1)
+    lat, lon, h = track(t)
+    rtk_epoch = np.arange(len(t)) % 10 == 0
+    frame = pl.DataFrame(
+        {
+            "timestamp": t + offset,
+            "lat_deg": lat,
+            "lon_deg": lon,
+            "h_m": h - 300.0,  # barometric: unknown reference
+            "abs_lat_deg": lat,
+            "abs_lon_deg": lon,
+            "abs_h_m": h,
+            "yaw_deg": 90.0 + t * 0.1,
+        }
+    )
+    if rtk:
+        frame = frame.with_columns(
+            rtk_lat_deg=pl.Series(np.where(rtk_epoch, lat, np.nan)),
+            rtk_lon_deg=pl.Series(np.where(rtk_epoch, lon, np.nan)),
+            rtk_h_ell_m=pl.Series(np.where(rtk_epoch, h, np.nan)),
+            rtk_pos_flag_1=pl.Series(np.where(rtk_epoch, 50, 0)),
+            rtk_base_lat_deg=pl.Series(np.where(rtk_epoch, 45.0001, np.nan)),
+            rtk_base_lon_deg=pl.Series(np.where(rtk_epoch, 9.0001, np.nan)),
+            rtk_base_h_ell_m=pl.Series(np.where(rtk_epoch, 190.0, np.nan)),
+        ).with_columns(pl.col("^rtk_.*_(deg|m)$").fill_nan(None))
+    return frame
+
+
+def test_a_flight_record_alone_is_the_drone_gps_through_its_rtk():
+    flight = flight_with(DroneData(sources={"flight_record": flight_record()}))
+    flight.raw_data.payload_data.gps = None  # no payload GPS either
+    synced = flight.sync(target_rate={"drone": 5.0})
+    assert flight.sync_reference == "drone_gps"
+    # the 10 Hz track, tied to the RTK, not the 1 Hz RTK epochs
+    assert flight.sync_position_columns["drone"]["lat"] == "rtk_track_lat_deg"
+    assert flight.sync_record_track["epochs"] == int(DURATION)
+    # the whole record (10 Hz) on the drone GPS's clock, not as a source of its own
+    assert "flight_record" in synced and "flight_record_gps" not in flight.sync_offsets
+    assert synced["flight_record"]["timestamp"][0] == pytest.approx(
+        synced["drone"]["timestamp"][0]
+    )
+
+
+def test_a_flight_record_without_rtk_is_not_the_drone_gps():
+    flight = flight_with(DroneData(sources={"flight_record": flight_record(rtk=False)}))
+    flight.raw_data.payload_data.gps = None
+    with pytest.raises(ValueError, match="No reference timebase"):
+        flight.sync(target_rate={"drone": 5.0})
+
+
+def test_a_flight_record_next_to_the_payload_gps_keeps_its_rate():
+    flight = flight_with(DroneData(sources={"flight_record": flight_record(0.5)}))
+    synced = flight.sync(target_rate={"drone": 5.0})
+    # the RTK makes the record the drone GPS; offset found against the payload GPS
+    assert flight.sync_offsets["drone_gps"] == pytest.approx(-0.5, abs=0.15)
+    assert "flight_record" in synced
+
+
+def test_the_flight_record_as_a_source_uses_the_positions_of_every_frame():
+    from pils.drones.sources import record_positions
+
+    frame, cols = record_positions(flight_record())
+    assert cols == {"lat": "abs_lat_deg", "lon": "abs_lon_deg", "alt": "abs_h_m"}
+    assert frame.height == int(DURATION / 0.1)
+
+
+def test_the_broadcast_base_comes_from_the_flight_record():
+    from pils.drones.sources import record_rtk_base
+
+    base = record_rtk_base(flight_record())
+    assert base == pytest.approx({"lat": 45.0001, "lon": 9.0001, "alt": 190.0})
+    assert record_rtk_base(flight_record(rtk=False)) is None
+    assert record_rtk_base(None) is None
+
+
+def test_the_record_track_is_tied_to_the_rtk_and_its_latency_found():
+    from pils.drones.sources import record_track
+
+    record = flight_record()
+    t = record["timestamp"].to_numpy()
+    lat, lon, h = track(t - 0.3)  # the RTK solution is 0.3 s old when logged
+    epoch = record["rtk_lat_deg"].is_not_null().to_numpy()
+    record = record.with_columns(
+        rtk_lat_deg=pl.Series(np.where(epoch, lat + 0.5 / 111_320, np.nan)),  # 0.5 m N
+        rtk_lon_deg=pl.Series(np.where(epoch, lon, np.nan)),
+        rtk_h_ell_m=pl.Series(np.where(epoch, h - 0.2, np.nan)),  # 0.2 m lower
+    ).with_columns(pl.col("rtk_lat_deg", "rtk_lon_deg", "rtk_h_ell_m").fill_nan(None))
+    out, info = record_track(record)
+    assert info["rtk_latency_s"] == pytest.approx(0.3, abs=0.021)
+    assert info["offset_n_m"] == pytest.approx(0.5, abs=0.02)
+    assert info["offset_e_m"] == pytest.approx(0.0, abs=0.02)
+    assert info["offset_u_m"] == pytest.approx(-0.2, abs=0.02)
+    # left: the 10 Hz interpolation and the 0.02 s latency grid on fast turns
+    assert info["rms_h_m"] < 0.3
+    assert out.height == record.height  # every frame, not the 1 Hz epochs
+    assert (out["rtk_track_lat_deg"] - out["abs_lat_deg"]).median() == pytest.approx(
+        0.5 / 111_320, rel=0.05
+    )
+    # the fix flag of the last epoch holds (2 s), the raw RTK columns are gone
+    assert out["rtk_pos_flag_1"].null_count() == 0
+    assert "rtk_lat_deg" not in out.columns
+
+
+def test_a_record_with_too_few_rtk_epochs_has_no_track():
+    from pils.drones.sources import record_track
+
+    record = flight_record().with_columns(
+        rtk_lat_deg=pl.when(pl.col("timestamp") < 5).then(pl.col("rtk_lat_deg"))
+    )
+    assert record_track(record) is None

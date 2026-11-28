@@ -296,7 +296,7 @@ plus the first ellipsoidal height of the reference GPS.
 synchronized revision's manifest (`rates`). The raw payload GPS, at its own
 2 Hz, is in `raw_data`.
 
-**Drone records** (DJI `.dat`, see [DJI Drone](dji-drone.md)) take the
+**Drone records** (DJI `.dat`, see [Matrice 600](../api/drones/matrice-600.md)) take the
 drone GPS offset, since they are on the same clock. `Flight.sync`
 synchronizes `imu_atti_0`, the flight controller attitude, by default, as
 `drone_imu_atti_0`; pass `drone_records=[...]` (DJI names such as

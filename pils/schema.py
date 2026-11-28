@@ -324,7 +324,6 @@ DJI_RECORD = {
     "osd_latitude": Field("lat_deg"),
     "osd_longitude": Field("lon_deg"),
     "osd_height": Field("h_rel_m"),  # above the take-off point
-    "osd_altitude": Field("h_m"),  # height + home altitude; reference not known
     "osd_fly_time": Field("fly_time_s"),
     "osd_pitch": Field("pitch_deg"),
     "osd_roll": Field("roll_deg"),
@@ -337,6 +336,46 @@ DJI_RECORD = {
     "home_latitude": Field("home_lat_deg"),
     "home_longitude": Field("home_lon_deg"),
     "home_altitude": Field("home_h_m"),
+    # Records 48 and 45 (see pils.drones.dji.m400.records): the aircraft's
+    # position with a height of known reference (= take-off point +
+    # osd_height), and the RTK solution (1 Hz), whose heights are taken as
+    # ellipsoidal as the .DAT's
+    "osd_aircraft_time": Field("aircraft_time_s"),
+    "osd_abs_yaw": Field("abs_yaw_deg"),
+    "osd_abs_gps_num": Field("abs_gps_num"),
+    "osd_home_distance": Field("home_distance_m"),
+    "osd_geoid_height": Field("geoid_height_m"),
+    "osd_abs_latitude": Field("abs_lat_deg"),
+    "osd_abs_longitude": Field("abs_lon_deg"),
+    "osd_abs_altitude": Field("abs_h_m"),
+    "home_abs_altitude": Field("home_abs_h_m"),
+    "rtk_pos_flag": Field("rtk_pos_flag_1"),
+    "rtk_latitude": Field("rtk_lat_deg"),
+    "rtk_longitude": Field("rtk_lon_deg"),
+    "rtk_height": Field("rtk_h_ell_m"),
+    "rtk_base_latitude": Field("rtk_base_lat_deg"),
+    "rtk_base_longitude": Field("rtk_base_lon_deg"),
+    "rtk_base_height": Field("rtk_base_h_ell_m"),
+    "rtk_std_latitude": Field("rtk_std_lat_m"),
+    "rtk_std_longitude": Field("rtk_std_lon_m"),
+    "rtk_std_height": Field("rtk_std_h_m"),
+    # The flight controller's battery estimates (record 63)
+    "fc_flight_time_left": Field("fc_flight_time_left_s"),
+    "fc_go_home_time": Field("fc_go_home_time_s"),
+    "fc_land_time": Field("fc_land_time_s"),
+    "fc_go_home_battery": Field("fc_go_home_battery_pct"),
+    "fc_land_battery": Field("fc_land_battery_pct"),
+    # From the home point, in metres (OSD bytes 74, 78 of the Matrice 400)
+    "osd_north": Field("north_m"),
+    "osd_east": Field("east_m"),
+    # The app's record (5) and the position of its device (14)
+    "app_time": Field("app_time_s"),
+    "app_distance": Field("app_distance_m"),
+    "app_gps_latitude": Field("app_gps_lat_deg"),
+    "app_gps_longitude": Field("app_gps_lon_deg"),
+    "app_gps_altitude": Field("app_gps_h_m"),
+    "link_uplink_signal": Field("link_uplink_signal_pct"),
+    "link_downlink_signal": Field("link_downlink_signal_pct"),
 }
 
 CAMERA = {

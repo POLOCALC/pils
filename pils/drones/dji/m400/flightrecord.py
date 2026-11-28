@@ -1,42 +1,57 @@
 """DJI Matrice 400: the flight record the remote controller's app saves (``DJIFlightRecord_*.txt``).
 
-The app writes at about 10 Hz. The records of a log of version 13 or later are
-AES-encrypted; the keys are fetched from DJI's keychain API with a DJI Open API
-app key (the request carries the log's encrypted key blocks and the app key,
-nothing of the flight), and decoded with ``pydjirecord``. This is not the
-high-rate onboard ``.DAT`` log (see :mod:`pils.drones.dji.dat`) and not the
-telemetry LAGER logs (see :mod:`.telemetry`).
+The app (DJI Pilot 2) writes a frame about every 0.1 s. PILS reads the log
+itself: :mod:`.txtlog` (container, decryption, keys), :mod:`.records` (what
+the records hold) and here the table of the flight, one row per frame. This
+is not the high-rate onboard ``.DAT`` log (see :mod:`pils.drones.dji.dat`) and
+not the telemetry LAGER logs (see :mod:`.telemetry`).
 
-The app key is read from the ``api_key`` argument or the ``DJI_API_KEY``
-environment variable. ``pydjirecord`` caches the keychains it fetched for 30
-days (``$XDG_CACHE_HOME/pydjirecord``), so a log can be decoded again
-offline within that time; keep the decoded table (parquet), not the cache.
+The table
+---------
+A frame starts at each OSD record (type 1) and takes the records that follow
+it until the next one. The state records (OSD, home, gimbal, sticks,
+batteries, estimates) hold their values until they change; the RTK solution
+(1 Hz), the app's record and messages are only in the frame they came in
+(nulls elsewhere). Record 48 goes to the frame of its own time: it comes a
+frame early or late at times.
+
+The time of the frames: the aircraft's own time in record 48 (seconds and
+nanoseconds, ``osd_aircraft_time``). The app's time (``start_time`` of the
+log's details plus the OSD's ``fly_time``) runs behind it by
+``details["aircraft_minus_app_s"]`` (0.24 to 0.49 s on the first Matrice 400
+flights); a frame without a record 48 gets its time interpolated between its
+neighbours, at the ends of the log the app's time moved by that offset. The
+file's name is in the remote controller's time zone.
+
+The keys
+--------
+The records of a log of format 13 or later are AES-encrypted; the keys come
+from DJI's keychain API for a DJI Open API app key (the request carries the
+log's encrypted key blocks and the app key, nothing of the flight), read
+from the ``api_key`` argument or the ``DJI_API_KEY`` environment variable.
+The answer is cached 30 days (``$XDG_CACHE_HOME/pils/dji-keychains``), so a
+log can be read again offline in that time; keep the decoded table (parquet),
+not the cache.
 """
 
 from __future__ import annotations
 
 import dataclasses
-import enum
 import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import polars as pl
-from pydjirecord import DJILog
-from pydjirecord.error import DJILogError
 
 from ....utils.logging_config import get_logger
+from . import records as rec
+from .txtlog import FlightLog, FlightLogError, fetch_keychains
 
 logger = get_logger(__name__)
 
 API_KEY_VARIABLE = "DJI_API_KEY"
-MAX_VERSION = 14  # the newest log format pydjirecord reads
-
-# The sub-records of a frame that vary in time, in the order of the table's columns
-_SECTIONS = ("osd", "gimbal", "camera", "rc", "battery", "home", "app")
-# Header fields not kept: the street address the app wrote for the take-off
-_NOT_KEPT = {"sub_street", "street", "city", "area"}
 
 
 class DJIFlightRecordError(RuntimeError):
@@ -60,42 +75,126 @@ def resolve_api_key(api_key: str | None = None) -> str:
     return key
 
 
-def _value(v: Any) -> Any:
-    """Return a column value: an enum by its name, a datetime as it is, anything else unchanged."""
-    if isinstance(v, enum.Enum):
-        return v.name
-    return v
+def frames_table(log: FlightLog, records: Any) -> pl.DataFrame:
+    """Return the table of a log's frames (see the module's notes), in the file's order.
 
-
-def frame_row(frame: Any) -> dict[str, Any]:
-    """Flatten a ``pydjirecord`` frame into one row: ``osd_latitude``, ``gimbal_pitch``, ...
-
-    ``timestamp`` (UNIX seconds, UTC) and ``datetime`` are the frame's time; the
-    battery's cell voltages are ``battery_cell_voltage_1``, ``..._2``, ...
+    Parameters
+    ----------
+    log : FlightLog
+        The log (its format version and ``start_time``).
+    records : iterable of txtlog.Record
+        Its decoded records, in order.
     """
-    when: datetime = frame.custom.date_time
-    when = when.replace(tzinfo=UTC) if when.tzinfo is None else when.astimezone(UTC)
-    row: dict[str, Any] = {"timestamp": when.timestamp(), "datetime": when}
-    for name in _SECTIONS:
-        section = getattr(frame, name)
-        for f in dataclasses.fields(section):
-            v = getattr(section, f.name)
-            if isinstance(v, list):
-                for i, item in enumerate(v, start=1):
-                    row[f"{name}_{f.name[:-1]}_{i}"] = item
-            else:
-                row[f"{name}_{f.name}"] = _value(v)
-    return row
-
-
-def frames_to_table(frames: list[Any]) -> pl.DataFrame:
-    """Make a table from ``pydjirecord`` frames: one row per frame, sorted by time (stable)."""
-    if not frames:
+    state: dict[str, Any] = {}
+    rows: list[dict[str, Any]] = []
+    row: dict[str, Any] | None = None
+    positions: list[dict[str, Any]] = []  # record 48: placed by its own time
+    for record in records:
+        parsed = rec.parse(record.type, record.data, log.version)
+        if parsed is None:
+            continue
+        values, holds = parsed
+        if record.type == rec.OSD:
+            if row is not None:
+                rows.append(row)
+            state.update(values)
+            row = dict(state)
+            continue
+        if holds:
+            state.update(values)
+        if row is None:
+            continue  # before the first frame: only its state is kept
+        if holds:
+            row.update(values)
+        elif record.type == rec.POSITION:
+            positions.append({**values, "_frame": len(rows)})
+        else:
+            for k, v in values.items():  # several messages in a frame: joined
+                row[k] = f"{row[k]}; {v}" if isinstance(v, str) and row.get(k) else v
+    if row is not None:
+        rows.append(row)
+    if not rows:
         return pl.DataFrame()
-    table = pl.from_dicts(
-        [frame_row(f) for f in frames], infer_schema_length=None, strict=False
+    table = pl.from_dicts(rows, infer_schema_length=None)
+    start = log.details.start_time
+    if start is None:
+        raise DJIFlightRecordError(
+            "the log has no start time: its frames cannot be timed"
+        )
+    if positions:
+        table = _place_positions(table, pl.from_dicts(positions), start)
+    app = _app_time(start)
+    offset = aircraft_minus_app(table, start)
+    if offset is None:
+        time = app
+    else:
+        # The aircraft's own time (record 48); a frame without one gets it
+        # interpolated between its neighbours (the frames are 0.1 s apart),
+        # at the ends the app's time moved by the median difference
+        time = pl.coalesce(pl.col("osd_aircraft_time").interpolate(), app + offset)
+    table = table.with_columns(time.alias("timestamp")).with_columns(
+        (pl.col("timestamp") * 1e6)
+        .round()
+        .cast(pl.Int64)
+        .cast(pl.Datetime("us", "UTC"))
+        .alias("datetime")
     )
-    return table.sort("timestamp", maintain_order=True)
+    return table.select("timestamp", "datetime", pl.exclude("timestamp", "datetime"))
+
+
+def _place_positions(
+    table: pl.DataFrame, positions: pl.DataFrame, start: datetime
+) -> pl.DataFrame:
+    """Join the records 48 to the frames by their own time.
+
+    A record 48 usually follows the OSD record of its frame, but at times
+    arrives a frame early or late (a frame then has two, its neighbour none).
+    Its time (``osd_aircraft_time``) minus the median offset to the app's
+    time of the frames puts it in the frame whose app time is the nearest;
+    of two records for one frame the nearer is kept.
+    """
+    app = table["osd_fly_time"].cast(pl.Float64).to_numpy() + start.timestamp()
+    frame = positions["_frame"].to_numpy().clip(0, len(app) - 1)
+    aircraft = positions["osd_aircraft_time"].to_numpy()
+    offset = float(np.median(aircraft - app[frame]))
+    at = aircraft - offset
+    # the nearest frame in app time (the frames are in time order)
+    i = np.searchsorted(app, at).clip(1, len(app) - 1)
+    nearest = np.where(np.abs(app[i - 1] - at) <= np.abs(app[i] - at), i - 1, i)
+    placed = (
+        positions.drop("_frame")
+        .with_columns(
+            pl.Series("_row", nearest), pl.Series("_miss", np.abs(app[nearest] - at))
+        )
+        .sort("_miss")
+        .unique("_row", keep="first")
+        .drop("_miss")
+    )
+    return (
+        table.drop([c for c in placed.columns if c in table.columns and c != "_row"])
+        .with_row_index("_row")
+        .with_columns(pl.col("_row").cast(pl.Int64))
+        .join(placed.with_columns(pl.col("_row").cast(pl.Int64)), on="_row", how="left")
+        .sort("_row")
+        .drop("_row")
+    )
+
+
+def _app_time(start: datetime) -> pl.Expr:
+    """Return the app's time of the frames: the log's start plus the fly time."""
+    return pl.col("osd_fly_time").cast(pl.Float64) + start.timestamp()
+
+
+def aircraft_minus_app(table: pl.DataFrame, start: datetime | None) -> float | None:
+    """Return the median of the aircraft's time (record 48) minus the app's, in s.
+
+    None when the frames have no aircraft time (no record 48) or no start.
+    """
+    if start is None or "osd_aircraft_time" not in table.columns:
+        return None
+    diff = table.select(pl.col("osd_aircraft_time") - _app_time(start)).to_series()
+    diff = diff.drop_nulls()
+    return float(diff.median()) if diff.len() else None  # type: ignore[arg-type]
 
 
 class M400FlightRecord:
@@ -105,12 +204,10 @@ class M400FlightRecord:
     ----------
     path : the ``.txt`` file
     data : one row per frame, after :meth:`load_data`: ``timestamp``,
-        ``datetime`` and the ``osd_*`` (position, attitude, speeds, flight
-        state), ``gimbal_*``, ``camera_*``, ``rc_*``, ``battery_*``,
-        ``home_*`` and ``app_*`` columns of ``pydjirecord``'s frame, in its
-        units (degrees, metres, m/s); enumerations by name
-    details : the log's header: aircraft name and serial numbers, app platform and
-        version, start time, totals (``version`` is the log format's)
+        ``datetime`` and the ``osd_*``, ``home_*``, ``gimbal_*``, ``rc_*``,
+        ``battery<i>_*``, ``app_*`` and ``rtk_*`` columns of :mod:`.records`
+    details : the log's details: start time and duration, aircraft and serial
+        numbers, app platform and version (``version`` is the log format's)
     """
 
     def __init__(self, path: str | Path) -> None:
@@ -127,7 +224,7 @@ class M400FlightRecord:
             DJI Open API app key; default ``$DJI_API_KEY``. Only logs of version 13
             and later need it.
         use_cache : bool
-            Use the keychains ``pydjirecord`` cached before (and cache new ones).
+            Use the keys cached before (and cache new ones).
 
         Raises
         ------
@@ -138,49 +235,31 @@ class M400FlightRecord:
         """
         raw = self.path.read_bytes()
         try:
-            log = DJILog.from_bytes(raw)
-            if not 1 <= log.version <= MAX_VERSION:
-                raise DJIFlightRecordError(
-                    f"{self.path.name}: not a DJI flight record (format version {log.version})"
-                )
-            keychains = None
-            if log.version >= 13:
-                keychains = log.fetch_keychains(
-                    resolve_api_key(api_key), cache=use_cache
-                )
-            frames = log.frames(keychains)
-        except DJILogError as e:
-            raise DJIFlightRecordError(
-                f"{self.path.name}: {type(e).__name__}: {e}"
-            ) from e
-        except (
-            ValueError,
-            IndexError,
-            EOFError,
-        ) as e:  # not a flight record, or cut short
-            raise DJIFlightRecordError(
-                f"{self.path.name}: not a readable DJI flight record: {e}"
-            ) from e
-
+            log = FlightLog.from_bytes(raw)
+            keychains = (
+                fetch_keychains(log, resolve_api_key(api_key), use_cache=use_cache)
+                if log.version >= 13
+                else None
+            )
+            records = list(log.records(keychains))
+            self.data = frames_table(log, records)
+        except FlightLogError as e:
+            raise DJIFlightRecordError(f"{self.path.name}: {e}") from e
         self.details = {
             "version": log.version,
             **{
-                k: _value(v)
+                k: (v.astimezone(UTC).isoformat() if isinstance(v, datetime) else v)
                 for k, v in dataclasses.asdict(log.details).items()
-                if k not in _NOT_KEPT
             },
+            **rec.metadata(records),
+            # The app's clock against the aircraft's, which times the frames
+            "aircraft_minus_app_s": aircraft_minus_app(
+                self.data, log.details.start_time
+            ),
         }
-        if frames:
-            self.details.update(
-                {
-                    f"recover_{k}": _value(v)
-                    for k, v in dataclasses.asdict(frames[0].recover).items()
-                }
-            )
-        self.data = frames_to_table(frames)
         logger.info(
             "DJI flight record %s: version %d, %d frames",
             self.path.name,
             log.version,
-            len(frames),
+            self.data.height,
         )
