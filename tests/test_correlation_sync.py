@@ -8,58 +8,6 @@ import numpy as np
 import polars as pl
 import pytest
 
-# Core Correlation Functions Tests
-
-
-class TestSubsamplePeak:
-    """Test parabolic interpolation for sub-sample peak detection."""
-
-    def test_subsample_peak_perfect_integer(self):
-        """Test when peak is exactly at an integer index."""
-        from pils.synchronizer import Synchronizer
-
-        # Create correlation with peak at index 50
-        corr = np.zeros(100)
-        corr[50] = 1.0
-        corr[49] = 0.8
-        corr[51] = 0.8
-
-        peak_idx = Synchronizer._find_subsample_peak(corr)
-
-        # Should be very close to 50.0
-        assert abs(peak_idx - 50.0) < 0.1
-
-    def test_subsample_peak_shifted(self):
-        """Test parabolic interpolation with shifted peak."""
-        from pils.synchronizer import Synchronizer
-
-        # Create parabola with peak between indices
-        x = np.arange(100)
-        true_peak = 50.3
-        corr = 1.0 - 0.01 * (x - true_peak) ** 2
-
-        peak_idx = Synchronizer._find_subsample_peak(corr)
-
-        # Should recover true peak within tolerance
-        assert abs(peak_idx - true_peak) < 0.1
-
-    def test_subsample_peak_boundary_handling(self):
-        """Test handling when peak is at array boundary."""
-        from pils.synchronizer import Synchronizer
-
-        # Peak at start
-        corr = np.array([1.0, 0.8, 0.6, 0.4])
-        peak_idx = Synchronizer._find_subsample_peak(corr)
-        assert 0 <= peak_idx <= 1
-
-        # Peak at end
-        corr = np.array([0.4, 0.6, 0.8, 1.0])
-        peak_idx = Synchronizer._find_subsample_peak(corr)
-        assert 2 <= peak_idx <= 3
-
-
-# GPS Offset Detection Tests
-
 
 class TestGPSOffsetDetection:
     """Test GPS TIME offset detection via NED correlation."""

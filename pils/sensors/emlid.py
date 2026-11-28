@@ -110,7 +110,7 @@ class Emlid:
             raise FileNotFoundError(
                 f"EMLID CSV file not found: no files matching '*_coordinates.csv' in {metadata_dir}"
             )
-        elif len(coord_files) > 1:
+        if len(coord_files) > 1:
             file_list = ", ".join(f.name for f in coord_files)
             raise FileNotFoundError(
                 f"EMLID CSV file not found: multiple coordinate files found in {metadata_dir}: {file_list}. "

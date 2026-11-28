@@ -35,7 +35,6 @@ dependencies = [
     "ahrs>=0.3.0",
     "telemetry-parser>=0.1.0",
     "pyarrow>=14.0.0",
-    "numdifftools>=0.9.41",
     # The Matrice 400 flight record (.txt of the remote controller's app); its
     # compiled protobuf needs protobuf 6.31+, which pydjirecord does not declare
     "pydjirecord>=1.3.0",

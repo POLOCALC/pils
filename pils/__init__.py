@@ -38,7 +38,6 @@ from typing import Any
 # only polars and STOUT's data layout)
 _LAZY = {
     "Flight": ("pils.flight", "Flight"),
-    "PILS": ("pils.pils", "PILS"),
     "PathLoader": ("pils.loader", "PathLoader"),
     "StoutLoader": ("pils.loader", "StoutLoader"),
     "Synchronizer": ("pils.synchronizer", "Synchronizer"),
@@ -67,7 +66,6 @@ def __dir__() -> list[str]:
 
 __all__ = [
     "Flight",
-    "PILS",
     "StoutLoader",
     "PathLoader",
     "Synchronizer",

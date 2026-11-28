@@ -187,7 +187,7 @@ def get_path_from_keyword(dirpath: str | Path, keyword: str) -> str | list[str] 
 
     if len(paths) == 0:
         return None
-    elif len(paths) == 1:
+    if len(paths) == 1:
         return paths[0]
 
     return paths

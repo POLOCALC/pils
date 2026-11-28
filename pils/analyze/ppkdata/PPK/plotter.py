@@ -100,7 +100,11 @@ class PPKPlotter:
                     fontsize=8,
                     fontweight="bold",
                     ha="center",
-                    bbox=dict(facecolor="white", alpha=0.5, boxstyle="round,pad=0.2"),
+                    bbox={
+                        "facecolor": "white",
+                        "alpha": 0.5,
+                        "boxstyle": "round,pad=0.2",
+                    },
                 )
 
         ax.set_title(
@@ -174,7 +178,6 @@ class PPKPlotter:
             >>> plotter = PPKPlotter(pos_analyzer=pos_analyzer)
             >>> plotter.plot_ratio_time('ratio_time.png')
         """
-        """Plots AR Ratio over time."""
         if not self.pos or self.pos.df.is_empty():
             return
 
@@ -214,7 +217,6 @@ class PPKPlotter:
             >>> plotter = PPKPlotter(stat_analyzer=stat_analyzer)
             >>> plotter.plot_snr_vs_elevation('snr_elevation.png')
         """
-        """Plots SNR vs Elevation from .stat file, with band legends."""
         if not self.stat or self.stat.df.is_empty():
             return
 
@@ -264,7 +266,6 @@ class PPKPlotter:
             >>> plotter = PPKPlotter(pos_analyzer=pos_analyzer)
             >>> plotter.plot_enu_time_series('enu_timeseries.png')
         """
-        """Plots East, North, Up error time series colored by Q status."""
         if not self.pos or self.pos.df.is_empty():
             return
         if "e_m" not in self.pos.df.columns:
@@ -328,7 +329,6 @@ class PPKPlotter:
             >>> plotter = PPKPlotter(stat_analyzer=stat_analyzer)
             >>> plotter.plot_residual_distribution_dual('residuals.png')
         """
-        """Overimposed histograms for Phase and Pseudorange residuals split by band."""
         if not self.stat or self.stat.df.is_empty():
             return
 
@@ -388,7 +388,6 @@ class PPKPlotter:
             >>> plotter = PPKPlotter(stat_analyzer=stat_analyzer)
             >>> plotter.plot_avg_snr_time_series('avg_snr_time.png')
         """
-        """Average SNR per band as a function of time with STD shading, colored by satellite count."""
         if not self.stat or self.stat.df.is_empty():
             return
 
@@ -456,7 +455,6 @@ class PPKPlotter:
             >>> plotter = PPKPlotter(stat_analyzer=stat_analyzer)
             >>> plotter.plot_stat_constellation_hists_dual('G', 'gps_histograms.png')
         """
-        """Carrier Phase and Pseudorange residuals split by band for a constellation."""
         if not self.stat or self.stat.df.is_empty():
             return
         df = self.stat.df.filter(pl.col("constellation") == const)
@@ -519,7 +517,6 @@ class PPKPlotter:
             >>> plotter = PPKPlotter(stat_analyzer=stat_analyzer)
             >>> plotter.plot_constellation_snr_time_series('E', 'galileo_snr_time.png')
         """
-        """Split SNR vs Time into subplots per band, showing all satellites for that constellation."""
         if not self.stat or self.stat.df.is_empty():
             return
         df = self.stat.df.filter(pl.col("constellation") == const)
@@ -574,7 +571,6 @@ class PPKPlotter:
             >>> plotter = PPKPlotter(stat_analyzer=stat_analyzer)
             >>> plotter.plot_sat_residual_bar('C', 'beidou_residuals.png')
         """
-        """Bar chart of P95 phase residuals per satellite."""
         if not self.stat or self.stat.df.is_empty():
             return
         stats = self.stat.get_satellite_stats().filter(

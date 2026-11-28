@@ -42,7 +42,6 @@ logger = logging.getLogger(__name__)
 MANIFEST = "manifest.json"
 # A revision's name: STOUT's layout (rev_YYYYMMDD_HHMMSS, UTC)
 VERSION_PREFIX = layout.REVISION_PREFIX
-VERSION_FORMAT = layout.REVISION_FORMAT
 
 Tables = dict[str, "pl.DataFrame | Tables"]
 
@@ -428,15 +427,6 @@ def find_datasets(root: str | Path) -> dict[str, list[str]]:
         folder.relative_to(root).as_posix(): sorted(versions)
         for folder, versions in sorted(found.items())
     }
-
-
-def delete_version(
-    root: str | Path, version_name: str, parent: str | None = None
-) -> None:
-    """Remove a revision and its files."""
-    directory = _container(root, parent) / version_name
-    if directory.is_dir():
-        shutil.rmtree(directory)
 
 
 def find_containers(root: str | Path) -> list[Path]:

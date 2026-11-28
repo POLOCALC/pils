@@ -26,15 +26,6 @@ logger = get_logger(__name__)
 
 FILENAME = "gimbal_telemetry.bin"
 
-GIMBAL_DEVICE_ATTITUDE_STATUS = "GIMBAL_DEVICE_ATTITUDE_STATUS"
-MOUNT_ORIENTATION = "MOUNT_ORIENTATION"
-RAW_IMU = "RAW_IMU"
-MOUNT_STATUS = "MOUNT_STATUS"
-SYS_STATUS = "SYS_STATUS"
-COMMAND_ACK = "COMMAND_ACK"
-HEARTBEAT = "HEARTBEAT"
-PARAM_VALUE = "PARAM_VALUE"
-
 # What a pickle may build besides the built-in types that need no import
 _ALLOWED = {
     ("builtins", "set"),

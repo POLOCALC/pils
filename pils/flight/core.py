@@ -2,6 +2,7 @@
 
 import glob
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -41,13 +42,7 @@ def _standardize_sources(sources: dict[str, Any]) -> dict[str, Any]:
     """LAGER telemetry, gimbal and flight-record tables in the schema."""
     out: dict[str, Any] = {}
     for name, data in sources.items():
-        kind = (
-            "uav_telemetry"
-            if name == "uav_telemetry"
-            else "gimbal"
-            if name == "gimbal"
-            else "dji_record"
-        )
+        kind = name if name in ("uav_telemetry", "gimbal") else "dji_record"
         out[name] = _standardize(data, kind)
     return out
 
@@ -60,14 +55,6 @@ def _standardize_records(records: dict[str, pl.DataFrame]) -> dict[str, pl.DataF
         )
         for name, table in records.items()
     }
-
-
-def _attribute_alias(name: str) -> property:
-    """Return a property reading and writing the attribute ``name``."""
-    return property(
-        lambda self: getattr(self, name),
-        lambda self, value: setattr(self, name, value),
-    )
 
 
 class Flight(FlightSyncMixin):
@@ -90,8 +77,6 @@ class Flight(FlightSyncMixin):
         Container for drone and payload sensor data
     sync_data : Optional[dict[str, pl.DataFrame]]
         Synchronized flight data (populated after calling sync())
-    adc_gain_config : Optional
-        Configuration for ADC gain settings
 
     Examples
     --------
@@ -112,7 +97,7 @@ class Flight(FlightSyncMixin):
     >>> # Load sensor data
     >>> flight.add_sensor_data(['gps', 'imu', 'adc'])
     >>> # Load camera data (Sony or Alvium)
-    >>> flight.add_camera_data(use_photogrammetry=False, get_sony_angles=True)
+    >>> flight.add_camera_data(use_photogrammetry=False)
     >>> # Access data using attributes
     >>> drone_df = flight.raw_data.drone_data.drone
     >>> gps_df = flight.raw_data.payload_data.gps
@@ -127,13 +112,6 @@ class Flight(FlightSyncMixin):
     >>> high_altitude = drone_df.filter(pl.col('rtk_h_ell_m') > 100)
     >>> print(f"Points above 100m: {len(high_altitude)}")
     """
-
-    # The loader state was name-mangled (``self.__drone_model``); the old
-    # names stay readable and writable for the code and tests that use them
-    _Flight__drone_model = _attribute_alias("_drone_model")
-    _Flight__inclinometer = _attribute_alias("_inclinometer")
-    _Flight__camera_model = _attribute_alias("_camera_model")
-    _Flight__use_photogrammetry = _attribute_alias("_use_photogrammetry")
 
     def __init__(self, flight_info: dict[str, Any]):
         """
@@ -171,7 +149,6 @@ class Flight(FlightSyncMixin):
         # lon_deg, h_ell_m) come from, e.g. {"lat": "rtk_lat_deg", ...}:
         # RTK positions or the drone's own GNSS receiver
         self.sync_position_columns: dict[str, dict[str, str]] = {}
-        self.adc_gain_config = None
         # Set by the loaders; saved with the raw data
         self._drone_model: str | None = None
         self._inclinometer: str | None = None
@@ -534,24 +511,18 @@ class Flight(FlightSyncMixin):
         else:
             logger.info("Sensor datasets are not available")
 
-    def add_camera_data(
-        self, use_photogrammetry: bool = False, get_sony_angles: bool = True
-    ) -> None:
+    def add_camera_data(self, use_photogrammetry: bool = False) -> None:
         """
         Load camera data from the payload.
 
         Supports both video cameras (Sony RX0 MarkII with telemetry, Alvium industrial)
-        and photogrammetry-processed data. For video cameras, can compute Euler angles
-        (roll, pitch, yaw) and quaternions from inertial measurement data.
+        and photogrammetry-processed data.
 
         Parameters
         ----------
         use_photogrammetry : bool, default=False
             If True, loads pre-processed photogrammetry results from proc_data folder.
             If False, loads camera data from aux_data/camera folder (video or logs).
-        get_sony_angles : bool, default=True
-            For Sony cameras, whether to compute Euler angles and quaternions from
-            telemetry gyro/accel data using AHRS (Madgwick) filter.
 
         Raises
         ------
@@ -560,19 +531,15 @@ class Flight(FlightSyncMixin):
 
         Examples
         --------
-        >>> # Load Sony RX0 MarkII video data with angles computed
-        >>> flight.add_camera_data(use_photogrammetry=False, get_sony_angles=True)
+        >>> # Load Sony RX0 MarkII video data
+        >>> flight.add_camera_data()
         >>> # Load pre-processed photogrammetry results
         >>> flight.add_camera_data(use_photogrammetry=True)
-        >>> # Load camera video data without computing angles
-        >>> flight.add_camera_data(use_photogrammetry=False, get_sony_angles=False)
         """
         self._use_photogrammetry = use_photogrammetry
         if use_photogrammetry:
-            self._camera_data_type = "photogrammetry"
             path = Path(self.flight_info["proc_data_folder_path"]) / "photogrammetry"
         else:
-            self._camera_data_type = "camera"
             path = Path(self.flight_info["aux_data_folder_path"]) / "camera"
 
         if path.exists():
@@ -719,8 +686,6 @@ class Flight(FlightSyncMixin):
         if revision is None:
             revision = store.new_version_name()
             while (directory / "sync" / revision).exists():
-                import time
-
                 time.sleep(1)
                 revision = store.new_version_name()
         store.save_version(
@@ -835,7 +800,6 @@ class Flight(FlightSyncMixin):
         """
         if key == "raw_data":
             return self.raw_data
-        elif key == "metadata":
+        if key == "metadata":
             return self.metadata
-        else:
-            raise KeyError(f"Key '{key}' not found")
+        raise KeyError(f"Key '{key}' not found")

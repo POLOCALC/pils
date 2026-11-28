@@ -71,13 +71,12 @@ def read_pickles(path: str | Path) -> Iterator[Any]:
 def legacy_files(folder: str | Path, sensor: str) -> list[Path]:
     """List the ``*_<SENSOR>.pck`` or ``*_<SENSOR>_<n>.pck`` files, in order."""
     folder = Path(folder)
-    files = sorted(folder.glob(f"*_{sensor}.pck")) + sorted(
+    return sorted(folder.glob(f"*_{sensor}.pck")) + sorted(
         folder.glob(f"*_{sensor}_*.pck"),
         key=lambda p: (
             int(p.stem.rsplit("_", 1)[1]) if p.stem.rsplit("_", 1)[1].isdigit() else 0
         ),
     )
-    return files
 
 
 CLOCK_JUMP_S = 60.0

@@ -121,12 +121,9 @@ class RINEXSignalMixin:
             >>> high_mp = mp_df.filter(pl.col('MP').abs() > 1.0)
             >>> print(f"High multipath: {len(high_mp)} observations")
         """
-        """
-        Implements the RTKLIB multipath algorithm (Plot::updateMp).
-        1. Calculate reference ionosphere I from available dual-frequency data.
-        2. Compute raw MP for all frequencies.
-        3. Remove mean bias per arc (separated by jumps or cycle slips).
-        """
+        # RTKLIB's multipath algorithm (Plot::updateMp): the ionosphere from
+        # dual-frequency data, the raw MP of every frequency, then the mean
+        # removed per arc (arcs split at jumps and cycle slips)
         if self.df_obs.is_empty():
             return pl.DataFrame()
 
@@ -338,7 +335,7 @@ class RINEXSignalMixin:
             >>> print(f"Total cycle slips detected: {len(slips)}")
             >>> gps_slips = slips.filter(pl.col('satellite').str.starts_with('G'))
         """
-        """Restores dual-combination (GF + MW) Slip Detection."""
+        # Geometry-free (GF) and Melbourne-Wubbena (MW) combinations
         slips = []
         for sat in self.df_obs["satellite"].unique().to_list():
             const = sat[0]

@@ -356,7 +356,7 @@ class Camera:
         euler_angles = np.array([Quaternion(q).to_angles() for q in Q])  # Shape: (n, 3)
 
         # Add back to DataFrame
-        df = df.with_columns(
+        return df.with_columns(
             [
                 pl.Series("roll", euler_angles[:, 0]),
                 pl.Series("pitch", euler_angles[:, 1]),
@@ -367,5 +367,3 @@ class Camera:
                 pl.Series("qz", Q[:, 3]),
             ]
         )
-
-        return df

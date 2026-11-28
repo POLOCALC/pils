@@ -230,14 +230,14 @@ class LabStore:
         from pils.lab_analysis.base import load_run, measurement_runs
 
         results = folder / layout.PROC_FOLDER / analysis
-        runs = measurement_runs(results, analysis)
+        runs = measurement_runs(results)
         if not runs:
             return None
         stem, after = choose(list(runs), self.as_of)
         self._record(
             folder, stem, after, f"run {runs[stem]}", results / stem / runs[stem]
         )
-        return load_run(results, analysis, stem, runs[stem])
+        return load_run(results, stem, runs[stem])
 
     def _legacy_file(self, folder: Path, *patterns: str) -> Path:
         for pattern in patterns:

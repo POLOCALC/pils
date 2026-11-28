@@ -4,7 +4,8 @@ from pathlib import Path
 
 import polars as pl
 
-from pils.analyze.ppkdata.utils import GPS_EPOCH_UNIX, gps_utc_offset
+from pils.analyze.ppkdata.utils import gps_utc_offset
+from pils.utils.gnss_time import GPS_EPOCH_UNIX
 
 
 class STATAnalyzer:
@@ -137,9 +138,6 @@ class STATAnalyzer:
             >>> gps_stats = sat_stats.filter(pl.col('satellite').str.starts_with('G'))
             >>> print(f"GPS satellites: {gps_stats.height}")
             >>> high_residual = sat_stats.filter(pl.col('avg_resid_phase_m') > 0.05)
-        """
-        """
-        Aggregates residuals and SNR per satellite.
         """
         if self.df.is_empty():
             return pl.DataFrame()

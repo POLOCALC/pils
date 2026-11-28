@@ -27,6 +27,7 @@ from typing import Any, Literal
 import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
+import yaml
 
 from ..decoders import KERNEL_utils as kernel
 from ..utils.logging_config import get_logger
@@ -37,14 +38,6 @@ from ..utils.tools import (
 )
 
 logger = get_logger(__name__)
-
-# Check if yaml is available for config file reading
-try:
-    import yaml  # noqa: F401
-
-    YAML_AVAILABLE = True
-except ImportError:
-    YAML_AVAILABLE = False
 
 
 def read_csv_tolerant(path: str | Path) -> pl.DataFrame:
@@ -116,12 +109,12 @@ def decode_inclino(inclino_path: str | Path) -> dict[str, list[Any]]:
     for msg in msgs:
         try:
             msg = sequence + msg
-            tmp = kernel.KernelMsg().decode_single(msg, return_dict=True)
+            tmp = kernel.KernelMsg().decode_single(msg)
 
             if not decoded_msg.keys():
-                decoded_msg = {k: [] for k in tmp.keys()}
+                decoded_msg = {k: [] for k in tmp}
 
-            for j in tmp.keys():
+            for j in tmp:
                 decoded_msg[j].append(tmp[j])
         except Exception as e:  # Broad: one corrupted message does not lose the rest
             logger.warning(f"Failed to decode inclinometer message: {e}")
@@ -146,11 +139,6 @@ def detect_inclinometer_type_from_config(dirpath: Path) -> str | None:
     str or None
         'imx5', 'kernel', or None if not found.
     """
-    if not YAML_AVAILABLE:
-        return None
-
-    import yaml as yaml_module
-
     # Find config file - could be in dirpath or parent (aux folder)
     config_files = list(dirpath.glob("*_config.yml"))
 
@@ -159,7 +147,7 @@ def detect_inclinometer_type_from_config(dirpath: Path) -> str | None:
 
     try:
         with open(config_files[0]) as f:
-            config = yaml_module.safe_load(f)
+            config = yaml.safe_load(f)
 
         sensors = config.get("sensors", {})
 
@@ -183,14 +171,14 @@ def detect_inclinometer_type_from_config(dirpath: Path) -> str | None:
                     return "kernel"
 
         # Secondary check: look for specific sensor names
-        for sensor_name in sensors.keys():
+        for sensor_name in sensors:
             if "IMX5" in sensor_name.upper() or "IMX-5" in sensor_name.upper():
                 return "imx5"
             if "KERNEL" in sensor_name.upper() or "INERTIAL" in sensor_name.upper():
                 # Check if there are INC files to determine type
                 return None  # Let file detection handle it
 
-    except (OSError, yaml_module.YAMLError, AttributeError) as e:
+    except (OSError, yaml.YAMLError, AttributeError) as e:
         # AttributeError: a section that is not a mapping (empty file)
         logger.warning(f"Failed to detect inclinometer type from config: {e}")
 
@@ -210,12 +198,10 @@ def detect_inclinometer_type_from_files(dirpath: Path) -> str:
 
     Returns
     -------
-    tuple[str, Optional[str]]
-        Tuple of (inclinometer_type, path_to_file).
-        inclinometer_type is 'imx5', 'kernel', 'legacy' (2022-2023 pickles) or 'unknown'.
+    str
+        'imx5', 'kernel', 'legacy' (2022-2023 pickles) or 'unknown'.
     """
     # Check for IMX-5 files (CSV format with INC_ prefix)
-
     imx5_ins_files = list(dirpath.glob("*_INC_ins.csv"))
     if imx5_ins_files:
         return "imx5"
@@ -316,7 +302,7 @@ class IMX5Inclinometer:
         timestamp and datetime columns from timestamp_ns.
         """
         if self.ins_path is None:
-            return None
+            return
 
         df = read_csv_tolerant(self.ins_path)
 
@@ -349,7 +335,7 @@ class IMX5Inclinometer:
         Creates timestamp and datetime columns from timestamp_ns.
         """
         if self.imu_path is None:
-            return None
+            return
 
         df = read_csv_tolerant(self.imu_path)
 
@@ -383,7 +369,7 @@ class IMX5Inclinometer:
             INL2 data with quaternions, ECEF position, and bias estimates.
         """
         if self.inl2_path is None:
-            return None
+            return
 
         df = read_csv_tolerant(self.inl2_path)
 
@@ -467,9 +453,8 @@ class KernelInclinometer:
                 tstart, _ = read_log_time(keyphrase=keyphrase, logfile=logfile)
                 if tstart is None:
                     continue
-                else:
-                    self.tstart = tstart
-                    break
+                self.tstart = tstart
+                break
             except (OSError, ValueError) as e:
                 logger.warning(
                     f"Couldn't find start time from logfile. Skipping datetime conversion. Error: {e}"
@@ -619,34 +604,6 @@ class Inclinometer:
             self._decoder = IMX5Inclinometer(self._lookout_path, self.logpath)
         elif self.sensor_type == "legacy":
             self._decoder = LegacyInclinometer(self._lookout_path, self.logpath)
-
-    @property
-    def tstart(self):
-        """Get start time (Kernel only)."""
-        if isinstance(self._decoder, KernelInclinometer):
-            return self._decoder.tstart
-        return None
-
-    @property
-    def ins_data(self) -> pl.DataFrame | None:
-        """Get INS data (IMX-5 only)."""
-        if isinstance(self._decoder, IMX5Inclinometer):
-            return self._decoder.data["INS"]
-        return None
-
-    @property
-    def imu_data(self) -> pl.DataFrame | None:
-        """Get IMU data (IMX-5 only)."""
-        if isinstance(self._decoder, IMX5Inclinometer):
-            return self._decoder.data["IMU"]
-        return None
-
-    @property
-    def inl2_data(self) -> pl.DataFrame | None:
-        """Get INL2 data (IMX-5 only)."""
-        if isinstance(self._decoder, IMX5Inclinometer):
-            return self._decoder.data["INL2"]
-        return None
 
     def load_data(self) -> None:
         """Load inclinometer data using the detected decoder.

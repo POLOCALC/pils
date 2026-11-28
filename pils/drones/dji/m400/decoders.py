@@ -17,7 +17,6 @@ ESC = struct.Struct(
     "<hhHhH"
 )  # ESCStatusIndividual, 10 bytes (x8 in T_DjiFcSubscriptionEscData)
 ESC_COUNT = 8
-ESC_FLAGS = ("stall", "no_load", "unbalanced", "disconnected", "temp_high")
 ANOMALY_FLAGS = (
     "impact_in_air",
     "random_fly",
@@ -132,15 +131,13 @@ def _esc(p):
                 f"esc{n}_current_a": ma / 1000.0,
                 f"esc{n}_voltage_v": mv / 1000.0,
                 f"esc{n}_temp_c": temp / 10.0,
+                # bits: stall, no_load, unbalanced, disconnected, temp_high
                 f"esc{n}_flags": flags,
             }
         )  # 0.1 C on the Matrice 400
     if out:
         out["esc_max_temp_c"] = max(v for k, v in out.items() if k.endswith("_temp_c"))
     return out
-
-
-GRAVITY = 9.80665  # m/s^2 per g: the M600 keys ax/ay/az are in g
 
 
 def _flat(fmt, names, scales=None):
@@ -435,18 +432,3 @@ def decode(name: str, payload: bytes, errors: dict | None = None) -> dict:
         return entry[1](payload)
     except (ValueError, OverflowError, struct.error):
         return skip("bad_value")
-
-
-def battery_summary(state: dict) -> dict:
-    """Return the M600 battery keys, from the Matrice 400's single battery (bat1_*).
-
-    Older recordings also have bat2_*, which only repeats it: it is not added.
-    """
-    if "bat1_voltage_mv" not in state:
-        return {}
-    return {
-        "bat_percentage": state["bat1_percentage"],
-        "bat_voltage_mv": state["bat1_voltage_mv"],
-        "bat_current_ma": state["bat1_current_ma"],
-        "bat_capacity_mah": state["bat1_remaining_mah"],
-    }

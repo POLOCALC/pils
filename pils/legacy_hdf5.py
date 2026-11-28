@@ -131,17 +131,10 @@ def read_table(group: h5py.Group, legacy_time_unit: str | None = None) -> pl.Dat
     return pl.DataFrame(series)
 
 
-def read_units(group: h5py.Group) -> dict[str, str]:
-    """Units stored with a table (empty for tables written without them)."""
-    return _json_attr(group, "units", {})
-
-
-def _container(
-    f: h5py.File, parent: str | None, create: bool = False
-) -> h5py.Group | None:
+def _container(f: h5py.File, parent: str | None) -> h5py.Group | None:
     if parent is None:
         return f
-    return f[parent] if parent in f else None
+    return f.get(parent)
 
 
 def list_versions(path: str | Path, parent: str | None = None) -> list[str]:
@@ -150,10 +143,10 @@ def list_versions(path: str | Path, parent: str | None = None) -> list[str]:
     if not path.is_file():
         return []
     with h5py.File(path, "r") as f:
-        container = _container(f, parent, create=False)
+        container = _container(f, parent)
         if container is None:
             return []
-        return sorted(k for k in container.keys() if k.startswith(VERSION_PREFIX))
+        return sorted(k for k in container if k.startswith(VERSION_PREFIX))
 
 
 def load_version(
@@ -172,7 +165,7 @@ def load_version(
     if not path.is_file():
         raise FileNotFoundError(f"HDF5 file not found: {path}")
     with h5py.File(path, "r") as f:
-        container = _container(f, parent, create=False)
+        container = _container(f, parent)
         if container is None or version_name not in container:
             raise KeyError(f"Version '{version_name}' not found in {path}")
         group = container[version_name]

@@ -17,10 +17,6 @@ HEADER_LEN = 12
 CRC32_LEN = 4
 PKG_MIN = HEADER_LEN + CRC32_LEN
 
-# The M600/A3 flight controller runs at 400 Hz: the broadcast's ``t_ms`` is a
-# tick counter (1 tick = 2.5 ms), not milliseconds
-FC_TICK_MS = 2.5
-
 CMD_SET_BROADCAST = 0x02
 CMD_ID_BROADCAST = 0x00
 
@@ -30,7 +26,7 @@ FLAG_DEVICE = 0x2000
 
 # Offsets in the broadcast payload (the bytes after cmd_set and cmd_id)
 OFF_FLAG = 0
-OFF_TMS = 2  # TimeStamp.time_ms, uint32 (400 Hz ticks)
+OFF_TMS = 2  # TimeStamp.time_ms, uint32: 400 Hz ticks (2.5 ms), not milliseconds
 OFF_TNS = 6  # TimeStamp.time_ns, uint32
 OFF_Q = 17  # quaternion q0..q3, 4 x float32
 OFF_A = 33  # acceleration, 3 x float32, g

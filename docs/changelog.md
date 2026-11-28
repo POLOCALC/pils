@@ -36,9 +36,25 @@ All notable changes to PILS are documented here.
   (`gimbal_<message>`) follows the telemetry's clock. New
   `Synchronizer.add_position_source` and `add_attached_table`.
 
-### Fixed
-- BlackSquare leap seconds with astropy 8, whose leap-second table has no
-  `day` column (a leap second always starts on the 1st of a month).
+### Removed (breaking)
+- Code nothing used (in pils, gose, tripel or STOUT): the `PILS` multi-flight
+  class; `StoutLoader`'s filesystem fallback, `load_flight_data`,
+  `load_specific_data`, `get_campaign_list` and `get_available_*` (with
+  `pils.config.SENSOR_MAP`/`DRONE_MAP` and `integrations.stout.all_campaigns`);
+  `drones.drone_init` and `find_first_drone_file`; the per-message DJI .dat
+  decoder (`dat_messages.py`) and `DJIDat`'s ignored `source_format` and
+  `polars_interpolation` arguments; `Flight.add_camera_data`'s ignored
+  `get_sony_angles`; `Synchronizer.add_inclinometer`'s ignored
+  `inclinometer_type` (callers drop the second argument); BlackSquare's
+  `compute_datetime`, `get_leapseconds` (whose astropy 8 fix was listed here)
+  and `generate_log_file`; the Kernel decoder's `decode_multi`;
+  `PPKAnalysis.check_overlap` and `delete_version`, `store.delete_version`;
+  the numdifftools interpolation of `utils.uncertainty` (and the numdifftools
+  dependency); the re-exports kept for the former single-file modules
+  (`pils.flight`, `pils.synchronizer`, `pils.analyze.ppk`, `ppk_tuning`,
+  `quicklook`, `drones.dji.dat`) and the `_Flight__*` aliases; the broken
+  `utils/` scripts and the `sensors/LM76.py` prototype at the top of the
+  repository.
 
 ### Changed (breaking)
 - No HDF5 in PILS: every product is parquet (`pils.store`). Removed

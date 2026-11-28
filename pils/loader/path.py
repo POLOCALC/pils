@@ -1,23 +1,10 @@
-"""
-Stout Data Loader - Load flight data paths from the STOUT database.
+"""Find flights (their metadata and raw data folders) by walking the data folder.
 
-This module provides a convenient interface to query and load flight data
-from the STOUT campaign management system. It supports loading data at
-multiple levels: all campaigns, single flights, and filtered flights by date.
-
-Usage:
-    from polocalc_data_loader import StoutDataLoader
-
-    loader = StoutDataLoader()
-
-    # Load all flights from all campaigns
-    all_flights = loader.load_all_campaign_flights()
-
-    # Load single flight by ID
-    flight_data = loader.load_single_flight(flight_id='some-id')
-
-    # Load flights by date range
-    flights = loader.load_flights_by_date(start_date='2025-01-01', end_date='2025-01-15')
+Examples
+--------
+>>> from pils.loader import PathLoader
+>>> loader = PathLoader("/mnt/data/POLOCALC")
+>>> flight = loader.load_single_flight(flight_name="flight_20251208_1506")
 """
 
 from datetime import UTC
@@ -32,15 +19,10 @@ logger = get_logger(__name__)
 
 class PathLoader:
     """
-    Data loader for STOUT campaign management system.
-
-    Provides methods to load flight data paths and associated metadata
-    from the STOUT database and file system.
+    Find flights in the data folder (STOUT's layout), without the database.
 
     Attributes
     ----------
-    campaign_service : Service
-        Service for accessing campaign and flight data
     base_data_path : Optional[Path]
         Base path where all campaign data is stored
     """
@@ -162,7 +144,7 @@ class PathLoader:
             takeoff_date = layout.takeoff_from_name(flight_name).replace(tzinfo=UTC)
             drone, aux = layout.RAW_FOLDERS
 
-            flight_dict = {
+            return {
                 "campaign_name": campaign_name,
                 "flight_name": flight_name,
                 "flight_date": date_folder,
@@ -172,7 +154,6 @@ class PathLoader:
                 "aux_data_folder_path": str(flight_path / aux),
                 "processed_data_folder_path": str(flight_path / layout.PROC_FOLDER),
             }
-            return flight_dict
         except ValueError as e:  # not a flight folder's name
             logger.warning(
                 f"Could not build flight dict for {flight_name} {flight_path}: {e}"

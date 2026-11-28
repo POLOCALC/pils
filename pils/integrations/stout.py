@@ -30,7 +30,6 @@ from typing import Any
 __all__ = [
     "StoutNotFound",
     "StoutUnavailable",
-    "all_campaigns",
     "all_flights",
     "campaign_flights",
     "data_path",
@@ -96,11 +95,6 @@ def is_available() -> bool:
 def data_path() -> Path:
     """STOUT's data folder (``Config.data_root()``: ``STOUT_DATA_PATH`` read now)."""
     return Path(_module("stout.config").Config.data_root())
-
-
-def all_campaigns() -> list[dict[str, Any]]:
-    """Return every campaign in the database."""
-    return _campaigns().get_all_campaigns()
 
 
 def all_flights() -> list[dict[str, Any]]:

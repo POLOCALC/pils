@@ -36,25 +36,9 @@ The package:
 - :mod:`~pils.analyze.ppk.inputs`: RINEX time spans, base station, overlap
 - :mod:`~pils.analyze.ppk.storage`: saving, loading and listing revisions
 - :mod:`~pils.analyze.ppk.versions`: :class:`PPKVersion`, legacy tables
-
-Every name of the former ``pils/analyze/ppk.py`` module is re-exported here.
 """
 
 from pils.analyze.ppk.core import PPKAnalysis
-from pils.analyze.ppk.inputs import PPKInputsMixin  # noqa: F401
-from pils.analyze.ppk.storage import PPKStorageMixin  # noqa: F401
-from pils.analyze.ppk.versions import (  # noqa: F401
-    LEGACY_POSITION_NAMES,
-    LEGACY_STATISTICS_NAMES,
-    PPKVersion,
-    legacy_ppk_tables,
-)
-
-# Names the former module imported, which callers may still look up here
-from pils.analyze.ppk_tuning import rtklib_binary, tune  # noqa: F401
-from pils.analyze.ppkdata.PPK.pos_analyzer import POSAnalyzer  # noqa: F401
-from pils.analyze.ppkdata.PPK.report import RTKLIBReport  # noqa: F401
-from pils.analyze.ppkdata.PPK.stat_analyzer import STATAnalyzer  # noqa: F401
-from pils.analyze.ppkdata.RINEX.report import RINEXReport  # noqa: F401
+from pils.analyze.ppk.versions import PPKVersion, legacy_ppk_tables
 
 __all__ = ["PPKAnalysis", "PPKVersion", "legacy_ppk_tables"]

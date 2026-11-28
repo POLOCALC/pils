@@ -590,7 +590,7 @@ class QuickLook(QuickLookGNSSMixin):
             md_table(rows, digits=3),
         )
         self.tables["sync_offsets"] = pl.DataFrame(
-            [{k: v for k, v in r.items()} for r in rows],
+            [dict(r) for r in rows],
             schema={
                 "source": pl.String,
                 "offset_s": pl.Float64,

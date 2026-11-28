@@ -371,9 +371,7 @@ class AZELAnalysis:
             )
 
         # 2. Detect drone format from flight's drone_model attribute
-        drone_model = (
-            getattr(self.flight, "_Flight__drone_model", None) or "dji"
-        ).lower()
+        drone_model = (getattr(self.flight, "_drone_model", None) or "dji").lower()
         logger.info(f"Detected drone model: {drone_model}")
 
         # Determine format type
@@ -739,30 +737,24 @@ class AZELAnalysis:
 
             latest_name = versions[-1]  # Sorted chronologically, last is latest
             return self._load_version(latest_name, telescope_name=telescope_name)
-        else:
-            # Get latest across all telescopes
-            all_versions = self.list_versions()
+        # Get latest across all telescopes
+        all_versions = self.list_versions()
 
-            if not all_versions:
-                return None
+        if not all_versions:
+            return None
 
-            # Find the latest version across all telescopes
-            latest_version_name = None
-            latest_telescope = None
+        # Find the latest version across all telescopes
+        latest_version_name = None
+        latest_telescope = None
 
-            for tel_name, versions in all_versions.items():
-                if versions:
-                    last_version = versions[-1]
-                    if (
-                        latest_version_name is None
-                        or last_version > latest_version_name
-                    ):
-                        latest_version_name = last_version
-                        latest_telescope = tel_name
+        for tel_name, versions in all_versions.items():
+            if versions:
+                last_version = versions[-1]
+                if latest_version_name is None or last_version > latest_version_name:
+                    latest_version_name = last_version
+                    latest_telescope = tel_name
 
-            if latest_version_name is None:
-                return None
+        if latest_version_name is None:
+            return None
 
-            return self._load_version(
-                latest_version_name, telescope_name=latest_telescope
-            )
+        return self._load_version(latest_version_name, telescope_name=latest_telescope)

@@ -59,7 +59,7 @@ def _flight(campaign, table, sync=False, position_columns=None):
         flight.sync_position_columns = position_columns or {}
     else:
         flight.raw_data.drone_data = DroneData(drone_df=table, litchi_df=None)
-    flight._Flight__drone_model = "dji"
+    flight._drone_model = "dji"
     return flight
 
 

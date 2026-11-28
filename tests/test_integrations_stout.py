@@ -89,7 +89,6 @@ class TestWithoutStout:
         "call",
         [
             lambda: stout_db.data_path(),
-            lambda: stout_db.all_campaigns(),
             lambda: stout_db.all_flights(),
             lambda: stout_db.campaign_flights("c"),
             lambda: stout_db.flight(flight_id="f"),
@@ -121,10 +120,8 @@ class TestWithAStandIn:
 
     def test_campaign_queries(self, fake_stout):
         campaigns, _ = fake_stout
-        campaigns.get_all_campaigns.return_value = [{"name": "202511"}]
         campaigns.get_flights_by_campaign.return_value = [{"flight_name": "f"}]
         campaigns.get_payload_by_id.return_value = {"payload_id": "p"}
-        assert stout_db.all_campaigns() == [{"name": "202511"}]
         assert stout_db.campaign_flights("c1") == [{"flight_name": "f"}]
         campaigns.get_flights_by_campaign.assert_called_once_with(campaign_id="c1")
         assert stout_db.payload("p") == {"payload_id": "p"}
@@ -207,7 +204,6 @@ def test_with_stout_on_a_throwaway_database(tmp_path):
             "available": stout_db.is_available(),
             "data_path": str(stout_db.data_path()),
             "model": stout_db.drone_model(item["item_id"]),
-            "campaigns": [c["campaign_id"] for c in stout_db.all_campaigns()],
             "campaign": campaign["campaign_id"],
             "flights": stout_db.campaign_flights(campaign["campaign_id"]),
             "flight": stout_db.flight(flight_id="none"),
@@ -228,7 +224,6 @@ def test_with_stout_on_a_throwaway_database(tmp_path):
     assert result["available"] is True
     assert result["data_path"] == str(tmp_path / "data")
     assert result["model"] == "matrice 300 rtk"
-    assert result["campaigns"] == [result["campaign"]]
     assert result["flights"] == []
     assert result["flight"] is None
     assert result["missing"] is True

@@ -192,8 +192,8 @@ class TestCameraFlightIntegration:
                 flight.add_camera_data(use_photogrammetry=False)
 
                 # Check private attribute for camera model
-                assert hasattr(flight, "_Flight__camera_model")
-                assert flight._Flight__camera_model == "sony"
+                assert hasattr(flight, "_camera_model")
+                assert flight._camera_model == "sony"
 
 
 class TestCameraSynchronizerIntegration:

@@ -8,15 +8,23 @@ import numpy as np
 import polars as pl
 import pytest
 
-from pils.drones.dji.dat import (
+from pils.drones.dji.dat import DJIDat
+from pils.drones.dji.dat_format import (
+    CRC_TABLE,
     DAT_RECORDS,
-    DJIDat,
     add_euler_angles,
-    calc_checksum,
     decode_records,
     scan_records,
     unwrap_ticks,
 )
+
+
+def calc_checksum(memory: bytes, start: int, plength: int) -> int:
+    """The CRC16 of a DJI .dat record (seed 0x3692), byte by byte."""
+    v = 0x3692
+    for byte_val in memory[start : start + plength]:
+        v = (CRC_TABLE[(byte_val ^ v) & 0xFF] ^ (v >> 8)) & 0xFFFF
+    return v
 
 
 def record(msg_type: int, tick: int, payload: bytes) -> bytes:

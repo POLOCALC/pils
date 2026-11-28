@@ -72,7 +72,7 @@ def read_config(folder: str | Path) -> tuple[dict[str, Any], Path]:
     )
 
 
-def _decoder(table: dict, block: Any, kind: str, folder: Path):
+def _decoder(table: dict, block: Any, kind: str):
     name = block.get("name") if isinstance(block, dict) else None
     if name is None:
         raise ValueError(f"The '{kind}' block of the configuration has no 'name'")
@@ -90,13 +90,10 @@ def load_telemetry(folder: str | Path) -> Telemetry:
     folder = Path(folder)
     config, config_file = read_config(folder)
     result = Telemetry(config=config, config_file=config_file)
-    for kind, table, attr in (
-        ("uav", UAV_DECODERS, "uav"),
-        ("gimbal", GIMBAL_DECODERS, "gimbal"),
-    ):
+    for kind, table in (("uav", UAV_DECODERS), ("gimbal", GIMBAL_DECODERS)):
         if kind not in config:
             continue
-        decoder = _decoder(table, config[kind], kind, folder)
+        decoder = _decoder(table, config[kind], kind)
         setattr(result, f"{kind}_model", str(config[kind]["name"]))
         loader = decoder(folder)
         try:
@@ -105,5 +102,5 @@ def load_telemetry(folder: str | Path) -> Telemetry:
             logger.warning("%s", e)
             result.missing.append(kind)
             continue
-        setattr(result, attr, loader)
+        setattr(result, kind, loader)
     return result

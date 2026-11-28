@@ -69,7 +69,7 @@ def wafer_flights(
             ]
         )
         if any(p.height for p in parts)
-        else pl.DataFrame(schema={**{c: pl.Utf8 for c in cols}, "kind": pl.Utf8})
+        else pl.DataFrame(schema={**dict.fromkeys(cols, pl.Utf8), "kind": pl.Utf8})
     )
     projects_all = sorted(flights["project"].drop_nulls().unique().to_list())
     if project != ALL:

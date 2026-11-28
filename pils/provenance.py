@@ -183,12 +183,12 @@ def compare_revisions(
             for c in numeric
         }
 
-        def differs(c: str, s: dict[str, Any]) -> bool:
+        def differs(s: dict[str, Any]) -> bool:
             if s["max_diff"] is not None:
                 return s["max_diff"] > 0
             return s["mean"][0] != s["mean"][1] or s["std"][0] != s["std"][1]
 
-        changed = [c for c, s in columns.items() if differs(c, s)]
+        changed = [c for c, s in columns.items() if differs(s)]
         added = sorted(set(fa.columns) - set(fb.columns))
         removed = sorted(set(fb.columns) - set(fa.columns))
         tables.append(

@@ -224,10 +224,7 @@ class RTKLIBReport:
             report += "## Constellation-Specific Performance\n"
             for const in constellations:
                 c_full_name = CONSTELLATION_NAMES.get(const, const)
-                if c_full_name:
-                    c_full_name = c_full_name.upper()
-                else:
-                    c_full_name = const.upper()
+                c_full_name = c_full_name.upper() if c_full_name else const.upper()
                 report += f"### {c_full_name} Analysis\n"
 
                 # SNR Time Series

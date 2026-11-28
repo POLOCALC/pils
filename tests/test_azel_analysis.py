@@ -1032,7 +1032,7 @@ class TestDataSourceSelection:
         }
 
         # Set drone model to DJI
-        flight._Flight__drone_model = "dji"
+        flight._drone_model = "dji"
 
         return flight
 
@@ -1062,7 +1062,7 @@ class TestDataSourceSelection:
         from pils.flight import DroneData
 
         flight.raw_data.drone_data = DroneData(drone_df, None)
-        flight._Flight__drone_model = "dji"
+        flight._drone_model = "dji"
 
         return flight
 
@@ -1115,7 +1115,7 @@ class TestDataSourceSelection:
             },
         }
 
-        flight._Flight__drone_model = "dji"
+        flight._drone_model = "dji"
 
         from pils.analyze.azel import AZELAnalysis
 
@@ -1132,7 +1132,7 @@ class TestDataSourceSelection:
         azel = AZELAnalysis(mock_flight_with_sync_data)
 
         # Access private drone_model attribute
-        drone_model = getattr(azel.flight, "_Flight__drone_model", "").lower()
+        drone_model = getattr(azel.flight, "_drone_model", "").lower()
         assert "dji" in drone_model
 
     def test_drone_model_detection_blacksquare(self, tmp_path):
@@ -1154,13 +1154,13 @@ class TestDataSourceSelection:
             }
         }
 
-        flight._Flight__drone_model = "blacksquare"
+        flight._drone_model = "blacksquare"
 
         from pils.analyze.azel import AZELAnalysis
 
         azel = AZELAnalysis(flight)
 
-        drone_model = getattr(azel.flight, "_Flight__drone_model", "").lower()
+        drone_model = getattr(azel.flight, "_drone_model", "").lower()
         assert "blacksquare" in drone_model or "black" in drone_model
 
     def test_sync_data_missing_error(self, tmp_path):
@@ -1213,7 +1213,7 @@ class TestColumnMapping:
             }
         }
 
-        flight._Flight__drone_model = "dji"
+        flight._drone_model = "dji"
 
         # Verify expected columns exist
         drone_data = pl.DataFrame(flight.sync_data["drone"])
@@ -1242,7 +1242,7 @@ class TestColumnMapping:
             }
         }
 
-        flight._Flight__drone_model = "blacksquare"
+        flight._drone_model = "blacksquare"
 
         # Verify expected columns exist
         drone_data = pl.DataFrame(flight.sync_data["drone"])
@@ -1271,7 +1271,7 @@ class TestColumnMapping:
             }
         }
 
-        flight._Flight__drone_model = "dji"  # Litchi is used with DJI drones
+        flight._drone_model = "dji"  # Litchi is used with DJI drones
 
         # Verify expected columns exist in litchi data
         litchi_data = pl.DataFrame(flight.sync_data["litchi"])
@@ -1301,7 +1301,7 @@ class TestColumnMapping:
             }
         }
 
-        flight._Flight__drone_model = "dji"
+        flight._drone_model = "dji"
 
         # Verify timestamps are stored correctly
         drone_data = pl.DataFrame(flight.sync_data["drone"])
@@ -1327,7 +1327,7 @@ class TestColumnMapping:
             }
         }
 
-        flight._Flight__drone_model = "dji"
+        flight._drone_model = "dji"
 
         drone_data = pl.DataFrame(flight.sync_data["drone"])
         assert "timestamp" in drone_data.columns
@@ -1353,7 +1353,7 @@ class TestColumnMapping:
             }
         }
 
-        flight._Flight__drone_model = "dji"
+        flight._drone_model = "dji"
 
         # Verify timestamps remain unchanged (UTC)
         drone_data = pl.DataFrame(flight.sync_data["drone"])
@@ -1406,7 +1406,7 @@ class TestRTKCorrectionByDroneFormat:
             )
         }
 
-        flight._Flight__drone_model = "dji"
+        flight._drone_model = "dji"
         # Synchronized from the RTK columns
         flight.sync_position_columns = {
             "drone": {"lat": "rtk_lat_deg", "lon": "rtk_lon_deg", "alt": "rtk_h_ell_m"}
@@ -1450,7 +1450,7 @@ class TestRTKCorrectionByDroneFormat:
             )
         }
 
-        flight._Flight__drone_model = "blacksquare"
+        flight._drone_model = "blacksquare"
 
         from pils.analyze.azel import AZELAnalysis
 
@@ -1490,7 +1490,7 @@ class TestRTKCorrectionByDroneFormat:
             )
         }
 
-        flight._Flight__drone_model = "litchi"
+        flight._drone_model = "litchi"
         # Synchronized from the RTK columns
         flight.sync_position_columns = {
             "drone": {"lat": "rtk_lat_deg", "lon": "rtk_lon_deg", "alt": "rtk_h_ell_m"}
@@ -1532,7 +1532,7 @@ class TestRTKCorrectionByDroneFormat:
             )
         }
 
-        flight._Flight__drone_model = "blacksquare"
+        flight._drone_model = "blacksquare"
 
         from pils.analyze.azel import AZELAnalysis
 

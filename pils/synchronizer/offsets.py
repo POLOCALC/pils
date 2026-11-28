@@ -16,65 +16,6 @@ class OffsetEstimationMixin:
     """Time offsets by correlation (GPS positions, pitch), for :class:`~pils.synchronizer.Synchronizer`."""
 
     @staticmethod
-    def _find_subsample_peak(correlation: np.ndarray) -> float:
-        """
-        Find sub-sample peak location using parabolic interpolation.
-
-        Uses 3-point parabolic fit around the maximum correlation value
-        to achieve sub-sample precision in peak detection.
-
-        Parameters
-        ----------
-        correlation : np.ndarray
-            1D correlation array
-
-        Returns
-        -------
-        float
-            Sub-sample peak index
-
-        Notes
-        -----
-        - Fits parabola through 3 points: [peak-1, peak, peak+1]
-        - Returns integer index if peak is at array boundary
-        - Numerical stability: checks for zero denominator
-
-        Examples
-        --------
-        >>> # Synthetic correlation with peak between samples
-        >>> x = np.arange(100)
-        >>> corr = 1.0 - 0.01 * (x - 50.3) ** 2
-        >>> peak = Synchronizer._find_subsample_peak(corr)
-        >>> # peak ≈ 50.3
-        """
-        # Find integer peak location
-        max_idx = int(np.argmax(correlation))
-
-        # Handle boundary cases
-        if max_idx == 0 or max_idx == len(correlation) - 1:
-            return float(max_idx)
-
-        # Get 3 points around peak for parabolic fit
-        y1 = correlation[max_idx - 1]
-        y2 = correlation[max_idx]
-        y3 = correlation[max_idx + 1]
-
-        # Parabolic interpolation formula
-        # Peak offset from max_idx: delta = (y1 - y3) / (2 * (y1 - 2*y2 + y3))
-        denominator = 2.0 * (y1 - 2.0 * y2 + y3)
-
-        # Check for numerical stability
-        if abs(denominator) < 1e-10:
-            return float(max_idx)
-
-        delta = (y1 - y3) / denominator
-
-        # Sub-sample peak location
-        peak_idx = max_idx + delta
-
-        return peak_idx
-
-    @staticmethod
     def _clean_data(
         time: np.ndarray, east: np.ndarray, north: np.ndarray, up: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:

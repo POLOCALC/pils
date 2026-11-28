@@ -235,9 +235,6 @@ class POSAnalyzer:
             >>> if stats['fix_rate'] < 95:
             ...     print("Warning: Low fix rate detected")
         """
-        """
-        Calculates position statistics (Fix rate, etc.)
-        """
         if self.df.is_empty():
             return {}
 

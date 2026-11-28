@@ -35,12 +35,9 @@ The package:
 - :mod:`~pils.analyze.ppk_tuning.configs`: candidate configurations
 - :mod:`~pils.analyze.ppk_tuning.runs`: running ``rnx2rtkp`` and scoring
 - :mod:`~pils.analyze.ppk_tuning.search`: :func:`tune`
-
-Every name of the former ``pils/analyze/ppk_tuning.py`` module is re-exported
-here.
 """
 
-from pils.analyze.ppk_tuning.configs import (  # noqa: F401
+from pils.analyze.ppk_tuning.configs import (
     MAX_BASE_OFFSET_M,
     N_RANDOM,
     Candidate,
@@ -52,18 +49,17 @@ from pils.analyze.ppk_tuning.configs import (  # noqa: F401
     snr_masks,
     usable_systems,
 )
-from pils.analyze.ppk_tuning.profile import (  # noqa: F401
+from pils.analyze.ppk_tuning.profile import (
     MAX_ROVER_LLI,
     MIN_COMMON_SATS,
     MIN_L2_SNR,
     MIN_ROVER_ARC_S,
     NAVSYS_BITS,
     ObsProfile,
-    _epoch_time,
     data_quality_note,
     profile_obs,
 )
-from pils.analyze.ppk_tuning.runs import (  # noqa: F401
+from pils.analyze.ppk_tuning.runs import (
     GOOD_H_M,
     GOOD_V_M,
     SETTING_CHOICES,
@@ -76,7 +72,7 @@ from pils.analyze.ppk_tuning.runs import (  # noqa: F401
     score_against_reference,
     setting_effects,
 )
-from pils.analyze.ppk_tuning.search import (  # noqa: F401
+from pils.analyze.ppk_tuning.search import (
     TuningResult,
     tune,
 )

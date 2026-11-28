@@ -270,23 +270,10 @@ CRC_TABLE = [
 ]
 
 
-def calc_checksum(memory: bytes, start: int, plength: int) -> int:
-    """Compute the CRC16 of a DJI .dat record (seed 0x3692)."""
-    v = 0x3692  # P3
-
-    for i in range(plength):
-        byte_val = memory[start + i]
-        v = CRC_TABLE[(byte_val ^ (v & 0xFF)) & 0xFF] ^ (v >> 8)
-        v &= 0xFFFF  # keep 16-bit behavior
-
-    return v
-
-
 # Message type definitions with their struct formats and field mappings
 MESSAGE_DEFINITIONS = {
     2096: {  # GPS data
         "name": "GPS",
-        "payload_size": 66,
         "fields": [
             ("date", "I", 0),
             ("time", "I", 4),
@@ -309,7 +296,6 @@ MESSAGE_DEFINITIONS = {
     },
     53234: {  # RTK data; layout checked against DatCon 4.3.0's RTKdata columns
         "name": "RTK",
-        "payload_size": 72,
         "fields": [
             ("date", "I", 0),
             ("time", "I", 4),

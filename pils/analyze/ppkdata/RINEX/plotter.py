@@ -1,7 +1,4 @@
-"""RINEX Quality Plotter v5.
-
-Feature-Complete Visualization engine for RINEXAnalyzer.
-"""
+"""RINEXPlotter: the plots of a :class:`~pils.analyze.ppkdata.RINEX.analyzer.RINEXAnalyzer`."""
 
 from typing import TYPE_CHECKING
 
@@ -15,9 +12,6 @@ from ..utils import (
     RTKLIB_BANDS,
     GNSSColors,
 )
-
-# Backwards compatibility alias
-RTKLIB_bands = RTKLIB_BANDS
 
 if TYPE_CHECKING:
     from .analyzer import RINEXAnalyzer
@@ -49,10 +43,6 @@ class RINEXPlotter:
             analyzer: RINEXAnalyzer with parsed data
         """
         self.analyzer = analyzer
-
-    def _get_arr(self, col):
-        """Extract numpy array from Polars Series."""
-        return col.to_numpy()
 
     def plot_all_frequencies_summary(self, save_path: str | None = None) -> None:
         """Generate 2x2 global dashboard of frequency band metrics.
@@ -152,7 +142,7 @@ class RINEXPlotter:
         """
         if self.analyzer.azel_df.is_empty():
             return
-        bands = RTKLIB_bands[pool]
+        bands = RTKLIB_BANDS[pool]
         snr = self.analyzer.get_snr().filter(pl.col("frequency").is_in(bands))
         data = snr.join(self.analyzer.azel_df, on=["time", "satellite"])
         if data.is_empty():
@@ -189,7 +179,7 @@ class RINEXPlotter:
                 sat,
                 fontsize=9,
                 fontweight="bold",
-                bbox=dict(facecolor="white", alpha=0.5, boxstyle="round"),
+                bbox={"facecolor": "white", "alpha": 0.5, "boxstyle": "round"},
             )
 
         ax.set_title(
@@ -223,7 +213,7 @@ class RINEXPlotter:
         """
         if self.analyzer.azel_df.is_empty():
             return
-        bands = RTKLIB_bands[pool]
+        bands = RTKLIB_BANDS[pool]
 
         # 1. Prepare SNR Data
         snr = self.analyzer.get_snr().filter(pl.col("frequency").is_in(bands))
@@ -503,7 +493,6 @@ class RINEXPlotter:
             >>> plotter = RINEXPlotter(analyzer)
             >>> plotter.plot_cycle_slips('cycle_slips.png')
         """
-        """Restores the detailed scatter plot for Cycle Slips."""
         slips = self.analyzer.detect_cycle_slips()
         if slips.is_empty():
             return
@@ -554,10 +543,10 @@ class RINEXPlotter:
     def plot_global_l1_l2_comparison_hist(self, save_path=None):
         """Plot histograms of the L1 and L2 SNR of all constellations."""
         snr = self.analyzer.get_snr()
-        l1 = snr.filter(pl.col("frequency").is_in(RTKLIB_bands["single"]))[
+        l1 = snr.filter(pl.col("frequency").is_in(RTKLIB_BANDS["single"]))[
             "value"
         ].to_numpy()
-        l2 = snr.filter(pl.col("frequency").is_in(RTKLIB_bands["dual"]))[
+        l2 = snr.filter(pl.col("frequency").is_in(RTKLIB_BANDS["dual"]))[
             "value"
         ].to_numpy()
 

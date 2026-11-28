@@ -49,8 +49,8 @@ def legacy_ppk_tables(
     and gives their ``timestamp``. Tables already in the schema are returned
     unchanged.
     """
-    from pils.analyze.ppkdata.utils import GPS_EPOCH_UNIX, gps_utc_offset, to_utc
-    from pils.utils.gnss_time import leap_seconds
+    from pils.analyze.ppkdata.utils import gps_utc_offset, to_utc
+    from pils.utils.gnss_time import GPS_EPOCH_UNIX, leap_seconds
 
     position = position.rename(
         {k: v for k, v in LEGACY_POSITION_NAMES.items() if k in position.columns}

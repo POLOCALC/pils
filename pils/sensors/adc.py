@@ -98,10 +98,9 @@ def decode_adc_file_struct(adc_path: str | Path) -> pl.DataFrame:
     # April 2024 (12-byte records) stored volts; the later format millivolts
     columns["amplitude"] = amplitude * 1e3 if layout == "df" else amplitude
     adc_data = pl.DataFrame(columns)
-    adc_data = adc_data.with_columns(
+    return adc_data.with_columns(
         pl.from_epoch(pl.col("timestamp"), time_unit="s").alias("datetime")
     )
-    return adc_data
 
 
 def decode_adc_file_ascii(adc_path: str | Path, gain_config: int = 16) -> pl.DataFrame:
@@ -152,7 +151,7 @@ def decode_adc_file_ascii(adc_path: str | Path, gain_config: int = 16) -> pl.Dat
             continue
 
     adc_data = pl.DataFrame({"timestamp": timestamps, "amplitude": amplitudes})
-    adc_data = adc_data.with_columns(
+    return adc_data.with_columns(
         [
             (pl.col("amplitude") * gain / 2048 * 1e3).alias("amplitude"),
             (pl.col("timestamp") / 1e6).alias(
@@ -160,8 +159,6 @@ def decode_adc_file_ascii(adc_path: str | Path, gain_config: int = 16) -> pl.Dat
             ),  # convert from us to seconds
         ]
     )
-
-    return adc_data
 
 
 class ADC:
