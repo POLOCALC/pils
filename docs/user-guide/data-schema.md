@@ -290,7 +290,6 @@ writes no other HDF5.
 | `osd_latitude` | `lat_deg` | deg |
 | `osd_longitude` | `lon_deg` | deg |
 | `osd_height` | `h_rel_m` | m |
-| `osd_altitude` | `h_m` | m |
 | `osd_fly_time` | `fly_time_s` | s |
 | `osd_pitch` | `pitch_deg` | deg |
 | `osd_roll` | `roll_deg` | deg |
@@ -305,6 +304,18 @@ writes no other HDF5.
 | `home_latitude` | `home_lat_deg` | deg |
 | `home_longitude` | `home_lon_deg` | deg |
 | `home_altitude` | `home_h_m` | m |
+| `osd_unix_time` | `unix_time_s` | s |
+| `osd_abs_latitude` | `abs_lat_deg` | deg |
+| `osd_abs_longitude` | `abs_lon_deg` | deg |
+| `osd_abs_altitude` | `abs_h_m` | m |
+| `home_abs_altitude` | `home_abs_h_m` | m |
+| `rtk_pos_flag` | `rtk_pos_flag_1` |  |
+| `rtk_latitude` | `rtk_lat_deg` | deg |
+| `rtk_longitude` | `rtk_lon_deg` | deg |
+| `rtk_height` | `rtk_h_ell_m` | m |
+| `rtk_base_latitude` | `rtk_base_lat_deg` | deg |
+| `rtk_base_longitude` | `rtk_base_lon_deg` | deg |
+| `rtk_base_height` | `rtk_base_h_ell_m` | m |
 
 ### Camera (`payload_data.camera`)
 

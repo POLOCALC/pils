@@ -201,3 +201,43 @@ def telemetry_positions(
         if valid.height:
             return valid, {"lat": lat, "lon": lon, "alt": alt}
     return None
+
+
+def record_positions(table: pl.DataFrame) -> tuple[pl.DataFrame, dict[str, str]] | None:
+    """Pick the positions of a flight record as a position source of its own.
+
+    The positions of every frame (10 Hz): those of the record 48, whose
+    heights are the take-off point's plus the height above it, else the app's
+    (``lat_deg``, ``h_m``). Not the RTK solution, which comes once a second:
+    the record keeps its rate. See :func:`telemetry_positions` for the rows kept.
+    """
+    if {"abs_lat_deg", "abs_lon_deg", "abs_h_m"} <= set(table.columns):
+        valid = table.filter(
+            pl.col("abs_lat_deg").is_finite()
+            & pl.col("abs_lon_deg").is_finite()
+            & pl.col("abs_h_m").is_finite()
+            & ((pl.col("abs_lat_deg") != 0) | (pl.col("abs_lon_deg") != 0))
+        )
+        if valid.height:
+            return valid, {"lat": "abs_lat_deg", "lon": "abs_lon_deg", "alt": "abs_h_m"}
+    return telemetry_positions(table)
+
+
+def record_rtk_base(table: pl.DataFrame | None) -> dict[str, float] | None:
+    """Return the position the DJI RTK base broadcast, as the flight record has it.
+
+    The median of the rows that have it (``rtk_base_*``), as ``lat``, ``lon``
+    and ``alt`` (degrees, metres), the form of the ``dji_broadcast_geod`` of
+    AZEL; None without it.
+    """
+    cols = ["rtk_base_lat_deg", "rtk_base_lon_deg", "rtk_base_h_ell_m"]
+    if table is None or not set(cols) <= set(table.columns):
+        return None
+    rows = table.select(cols).drop_nulls()
+    rows = rows.filter((pl.col(cols[0]) != 0) | (pl.col(cols[1]) != 0))
+    if rows.is_empty():
+        return None
+    return {
+        key: float(rows[col].median())  # type: ignore[arg-type]
+        for key, col in zip(("lat", "lon", "alt"), cols, strict=True)
+    }

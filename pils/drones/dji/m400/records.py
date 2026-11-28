@@ -1,0 +1,256 @@
+"""What the records of a DJI app flight log hold (see :mod:`.txtlog` for the container).
+
+Each parser takes a record's decoded data and returns its fields as columns
+(``<section>_<field>``), in the units of the table: degrees, metres, m/s,
+seconds, volts, amperes, degrees Celsius. Codes (flight mode, flight action...)
+are kept as DJI's integers.
+
+==========  ========================  ===========================================
+type        section                   notes
+==========  ========================  ===========================================
+1           ``osd_``                  aircraft state, 10 Hz: starts a frame
+2           ``home_``                 home point
+3           ``gimbal_``               gimbal attitude
+4, 62       ``rc_``                   sticks (62: as the remote controller shows them)
+9, 10       ``app_tip``, ``app_warn`` the app's messages
+22          ``battery<i>_``           smart batteries (Matrice 400: two)
+45          ``rtk_``                  RTK solution, 1 Hz (see below)
+48          ``osd_abs_``              position with a height of known reference
+==========  ========================  ===========================================
+
+Types 45 and 48 are documented nowhere public: their layouts were found by
+comparing them with the OSD record of Matrice 400 flights (November 2026):
+
+* 48 (each frame): 0 f64 longitude, 8 f64 latitude (rad, as the OSD's);
+  24 u32 UNIX time (s, UTC); 50 f32 height of the take-off point; 58 f32
+  height of the aircraft (= 50 + the OSD's height above the take-off point).
+* 45 (1 Hz): 1 u8 RTK position flag (50: fixed, as in the .DAT); 11 f64
+  latitude, 19 f64 longitude (deg), 27 f32 height of the RTK solution;
+  31 f64, 39 f64, 47 f32 the position the RTK base broadcasts. The heights are
+  taken as ellipsoidal, as those of the .DAT; to check against the payload GPS.
+"""
+
+from __future__ import annotations
+
+import math
+import struct
+from collections.abc import Callable
+from typing import Any
+
+OSD, HOME, GIMBAL, RC, APP_TIP, APP_WARN, RC_DISPLAY = 1, 2, 3, 4, 9, 10, 62
+SMART_BATTERY_GROUP, RTK, POSITION = 22, 45, 48
+
+Row = dict[str, Any]
+
+
+def _bit(byte: int, mask: int) -> int:
+    """Return the bits of ``byte`` selected by ``mask``, shifted down."""
+    byte &= mask
+    while mask and not mask & 1:
+        byte, mask = byte >> 1, mask >> 1
+    return byte
+
+
+def osd(data: bytes, version: int) -> Row:
+    """Return the aircraft's state (type 1)."""
+    lon, lat = struct.unpack_from("<dd", data, 0)
+    height, vx, vy, vz, pitch, roll, yaw = struct.unpack_from("<7h", data, 16)
+    b = data[30:36]  # bit fields (30, 32-35) and the app's command (31)
+    (gps_num, flight_action, motor_fail, b6, battery, swave) = struct.unpack_from(
+        "<6B", data, 36
+    )
+    (fly_time,) = struct.unpack_from("<H", data, 42)
+    row: Row = {
+        "osd_longitude": math.degrees(lon),
+        "osd_latitude": math.degrees(lat),
+        "osd_height": height / 10.0,  # above the take-off point
+        "osd_x_speed": vx / 10.0,
+        "osd_y_speed": vy / 10.0,
+        "osd_z_speed": vz / 10.0,
+        "osd_h_speed": math.hypot(vx, vy) / 10.0,
+        "osd_pitch": pitch / 10.0,
+        "osd_roll": roll / 10.0,
+        "osd_yaw": yaw / 10.0,
+        "osd_flight_mode": _bit(b[0], 0x7F),
+        "osd_rc_out_of_control": bool(_bit(b[0], 0x80)),
+        "osd_app_command": b[1],
+        "osd_ground_or_sky": _bit(b[2], 0x06),
+        "osd_is_motor_on": bool(_bit(b[2], 0x08)),
+        "osd_go_home_status": _bit(b[2], 0xE0),
+        "osd_is_vision_used": bool(_bit(b[3], 0x01)),
+        "osd_voltage_warning": _bit(b[3], 0x06),
+        "osd_is_gps_valid": bool(_bit(b[3], 0x80)),
+        "osd_is_compass_error": bool(_bit(b[4], 0x01)),
+        "osd_gps_level": _bit(b[4], 0x3C),
+        "osd_is_out_of_limit": bool(_bit(b[5], 0x01)),
+        "osd_is_motor_blocked": bool(_bit(b[5], 0x08)),
+        "osd_is_not_enough_force": bool(_bit(b[5], 0x10)),
+        "osd_is_vibrating": bool(_bit(b[5], 0x40)),
+        "osd_gps_num": gps_num,
+        "osd_flight_action": flight_action,
+        "osd_motor_start_failed_cause": motor_fail,
+        "osd_non_gps_cause": _bit(b6, 0x0F),
+        "osd_battery_percent": battery,
+        "osd_vps_height": swave / 10.0,
+        "osd_fly_time": fly_time / 10.0,
+    }
+    if version >= 2 and len(data) > 48:
+        row["osd_drone_type"] = data[48]
+    return row
+
+
+def home(data: bytes, version: int) -> Row:
+    """Return the home point (type 2). Its ``altitude`` is the app's (barometric on the Matrice 400)."""
+    lon, lat, alt = struct.unpack_from("<ddf", data, 0)
+    flags = data[20]
+    go_home_height, _lock = struct.unpack_from("<Hh", data, 22)
+    (index,) = struct.unpack_from("<H", data, 30)
+    lat, lon = math.degrees(lat), math.degrees(lon)
+    if not (abs(lat) <= 90 and abs(lon) <= 180):  # no fix yet (a sentinel)
+        lat = lon = float("nan")
+    row: Row = {
+        "home_longitude": lon,
+        "home_latitude": lat,
+        "home_altitude": alt / 10.0,
+        "home_is_home_record": bool(_bit(flags, 0x01)),
+        "home_go_home_height": go_home_height,
+        "home_flight_record_index": index,
+    }
+    if version >= 8 and len(data) >= 41:
+        (row["home_max_allowed_height"],) = struct.unpack_from("<f", data, 37)
+    return row
+
+
+def gimbal(data: bytes, version: int) -> Row:
+    """Return the gimbal's attitude (type 3)."""
+    pitch, roll, yaw = struct.unpack_from("<3h", data, 0)
+    limits = data[10] if len(data) > 10 else 0
+    return {
+        "gimbal_pitch": pitch / 10.0,
+        "gimbal_roll": roll / 10.0,
+        "gimbal_yaw": yaw / 10.0,
+        "gimbal_mode": _bit(data[6], 0xC0),
+        "gimbal_is_pitch_at_limit": bool(_bit(limits, 0x01)),
+        "gimbal_is_roll_at_limit": bool(_bit(limits, 0x02)),
+        "gimbal_is_yaw_at_limit": bool(_bit(limits, 0x04)),
+        "gimbal_is_stuck": bool(_bit(limits, 0x40)),
+    }
+
+
+def rc(data: bytes, version: int) -> Row:
+    """Return the remote controller's sticks (type 4), raw (1024 is the centre)."""
+    aileron, elevator, throttle, rudder = struct.unpack_from("<4H", data, 0)
+    return {
+        "rc_aileron": aileron,
+        "rc_elevator": elevator,
+        "rc_throttle": throttle,
+        "rc_rudder": rudder,
+    }
+
+
+def rc_display(data: bytes, version: int) -> Row:
+    """Return the sticks as the remote controller shows them (type 62): after 7 bytes, as type 4."""
+    return rc(data[7:], version)
+
+
+def _message(data: bytes) -> str:
+    return data.split(b"\x00", 1)[0].decode("utf-8", errors="replace").strip()
+
+
+def app_tip(data: bytes, version: int) -> Row:
+    """Return a message of the app (type 9)."""
+    return {"app_tip": _message(data)}
+
+
+def app_warn(data: bytes, version: int) -> Row:
+    """Return a warning of the app (type 10)."""
+    return {"app_warn": _message(data)}
+
+
+def smart_battery(data: bytes, version: int) -> Row:
+    """One battery's state (type 22): its dynamic part, or its cells' voltages.
+
+    The columns are numbered by the battery's index (``battery1_voltage``...);
+    the static part (serial number, design) is not kept.
+    """
+    kind = data[0]
+    if kind == 2 and len(data) >= 22:
+        i = data[1]
+        mv, ma, full, remaining, temp, cells, percent = struct.unpack_from(
+            "<iiIIhBB", data, 2
+        )
+        return {
+            f"battery{i}_voltage": mv / 1000.0,
+            f"battery{i}_current": ma / 1000.0,  # negative: discharging
+            f"battery{i}_full_capacity": full,
+            f"battery{i}_remaining_capacity": remaining,
+            f"battery{i}_temperature": temp / 10.0,
+            f"battery{i}_percent": percent,
+        }
+    if kind == 3 and len(data) >= 3:
+        i, n = data[1], data[2]
+        n = min(n, (len(data) - 3) // 2)
+        volts = struct.unpack_from(f"<{n}H", data, 3)
+        return {
+            f"battery{i}_cell_voltage_{k + 1}": v / 1000.0 for k, v in enumerate(volts)
+        }
+    return {}
+
+
+def position(data: bytes, version: int) -> Row:
+    """Return the aircraft's position with a height of known reference (type 48, see the notes)."""
+    lon, lat = struct.unpack_from("<dd", data, 0)
+    (unix,) = struct.unpack_from("<I", data, 24)
+    home_h, _, h = struct.unpack_from("<3f", data, 50)
+    return {
+        "osd_unix_time": float(unix),
+        "osd_abs_latitude": math.degrees(lat),
+        "osd_abs_longitude": math.degrees(lon),
+        "osd_abs_altitude": h,
+        "home_abs_altitude": home_h,
+    }
+
+
+def rtk(data: bytes, version: int) -> Row:
+    """Return the RTK solution (type 45, see the notes)."""
+    lat, lon, h = struct.unpack_from("<ddf", data, 11)
+    base_lat, base_lon, base_h = struct.unpack_from("<ddf", data, 31)
+    return {
+        "rtk_pos_flag": data[1],
+        "rtk_latitude": lat,
+        "rtk_longitude": lon,
+        "rtk_height": h,
+        "rtk_base_latitude": base_lat,
+        "rtk_base_longitude": base_lon,
+        "rtk_base_height": base_h,
+    }
+
+
+# type -> (parser, minimum size, whether its values hold until the next record)
+PARSERS: dict[int, tuple[Callable[[bytes, int], Row], int, bool]] = {
+    OSD: (osd, 44, True),
+    HOME: (home, 32, True),
+    GIMBAL: (gimbal, 7, True),
+    RC: (rc, 8, True),
+    RC_DISPLAY: (rc_display, 15, True),
+    APP_TIP: (app_tip, 0, False),
+    APP_WARN: (app_warn, 0, False),
+    SMART_BATTERY_GROUP: (smart_battery, 1, True),
+    POSITION: (position, 70, False),
+    RTK: (rtk, 51, False),
+}
+"""The records read: an event (app message) or a solution of its own epoch
+(RTK, record 48) only in its frame, a state (OSD, home...) until it changes."""
+
+
+def parse(kind: int, data: bytes, version: int) -> tuple[Row, bool] | None:
+    """Return the columns of a record and whether they hold; None for a record not read or cut short."""
+    if kind not in PARSERS:
+        return None
+    parser, size, holds = PARSERS[kind]
+    if len(data) < size:
+        return None
+    try:
+        return parser(data, version), holds
+    except (struct.error, IndexError):
+        return None

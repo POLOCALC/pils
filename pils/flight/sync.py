@@ -8,7 +8,7 @@ import numpy as np
 import polars as pl
 
 from pils import schema
-from pils.drones.sources import telemetry_positions
+from pils.drones.sources import record_positions, telemetry_positions
 from pils.synchronizer import Synchronizer
 
 logger = logging.getLogger(__name__)
@@ -159,6 +159,19 @@ class FlightSyncMixin:
             usable = telemetry_positions(telemetry, receivers_only=True)
             if usable is not None:
                 drone_data, drone_has_data, telemetry_is_drone = telemetry, True, True
+        # Neither: the Matrice 400's flight record, if it has the RTK
+        # solution (its other positions have heights of unknown reference);
+        # the whole record (10 Hz) is then a table on the drone GPS's clock
+        drone_sources = self.raw_data.drone_data.sources
+        flight_record = drone_sources.get("flight_record")
+        record_is_drone = False
+        if not drone_has_data and use_rtk_data and flight_record is not None:
+            usable = telemetry_positions(flight_record, receivers_only=True)
+            if usable is not None and usable[1]["lat"] == "rtk_lat_deg":
+                drone_data, drone_has_data, record_is_drone = flight_record, True, True
+                logger.info(
+                    "No .DAT and no telemetry: the flight record's RTK is the drone GPS"
+                )
         if gps_data is None and not drone_has_data:
             raise ValueError(
                 "No reference timebase: no payload GPS data and no drone GPS. "
@@ -176,7 +189,11 @@ class FlightSyncMixin:
             if isinstance(drone_df, dict):  # ArduPilot messages
                 drone_df = drone_df.get("gps", next(iter(drone_df.values())))
 
-            model = "dji" if telemetry_is_drone else (self._drone_model or "").lower()
+            model = (
+                "dji"
+                if telemetry_is_drone or record_is_drone
+                else (self._drone_model or "").lower()
+            )
             records_gps = (self.raw_data.drone_data.records or {}).get("gps")
             rtk_df = None
             if "dji" in model and use_rtk_data and "rtk_lat_deg" in drone_df.columns:
@@ -270,17 +287,25 @@ class FlightSyncMixin:
 
         # Other sources of the drone's position: each its own offset to the
         # reference GPS (LAGER's telemetry when the .DAT is the drone GPS, the
-        # Matrice 400's flight record); the gimbal log is on the telemetry's clock
-        drone_sources = self.raw_data.drone_data.sources
+        # Matrice 400's flight record); the gimbal log is on the telemetry's clock.
+        # The flight record as the drone GPS (its RTK, 1 Hz): the whole record
+        # is on the same clock
         for name, table in (
             ("telemetry", None if telemetry_is_drone else telemetry),
-            ("flight_record", drone_sources.get("flight_record")),
+            ("flight_record", None if record_is_drone else flight_record),
         ):
-            positions = telemetry_positions(table) if table is not None else None
+            if table is None:
+                continue
+            if name == "flight_record":
+                positions = record_positions(table)
+            else:
+                positions = telemetry_positions(table)
             if positions is None:
                 continue
             frame, cols = positions
             sync.add_position_source(name, frame, cols["lat"], cols["lon"], cols["alt"])
+        if record_is_drone and flight_record is not None:
+            sync.add_attached_table("flight_record", flight_record, to="drone_gps")
         if telemetry is not None:
             clock = "drone_gps" if telemetry_is_drone else "telemetry_gps"
             for message, table in self.raw_data.drone_data.gimbal.items():

@@ -4,7 +4,22 @@ All notable changes to PILS are documented here.
 
 ## [Unreleased]
 
+### Changed
+- The Matrice 400 flight record (`DJIFlightRecord_*.txt`) is decoded by PILS
+  itself (`pils.drones.dji.m400.txtlog`, `.records`): `pydjirecord` and
+  `protobuf` are no longer dependencies (`cryptography` is, for the AES). The
+  output was checked record by record against `pydjirecord` 1.3.0 on four
+  Matrice 400 logs (format 14). The table's columns: `osd_*` codes are DJI's
+  integers, the batteries are `battery<i>_*`, the sticks come from the
+  record 62 too; `osd_altitude` (height + the app's barometric home altitude)
+  is gone.
+- Its frames are timed with the log's start plus the fly time (the app's times
+  in these logs were garbage, and the table was sorted by them).
+
 ### Added
+- The RTK solution (record 45) and the positions of record 48 of the flight
+  record; a Matrice 400 flight with only its flight record is synchronized to
+  that RTK, and AZEL takes the base position it broadcast from the record.
 - `--telescope-source campaign` (and `telescope_source="campaign"`): the
   telescope position from the campaign's own survey, else the so3g site
   (never another campaign's survey). `$PILS_TELESCOPE_SOURCE` sets the default

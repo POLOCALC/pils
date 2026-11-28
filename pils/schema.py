@@ -324,7 +324,6 @@ DJI_RECORD = {
     "osd_latitude": Field("lat_deg"),
     "osd_longitude": Field("lon_deg"),
     "osd_height": Field("h_rel_m"),  # above the take-off point
-    "osd_altitude": Field("h_m"),  # height + home altitude; reference not known
     "osd_fly_time": Field("fly_time_s"),
     "osd_pitch": Field("pitch_deg"),
     "osd_roll": Field("roll_deg"),
@@ -337,6 +336,22 @@ DJI_RECORD = {
     "home_latitude": Field("home_lat_deg"),
     "home_longitude": Field("home_lon_deg"),
     "home_altitude": Field("home_h_m"),
+    # Records 48 and 45 (see pils.drones.dji.m400.records): the aircraft's
+    # position with a height of known reference (= take-off point +
+    # osd_height), and the RTK solution (1 Hz), whose heights are taken as
+    # ellipsoidal as the .DAT's
+    "osd_unix_time": Field("unix_time_s"),
+    "osd_abs_latitude": Field("abs_lat_deg"),
+    "osd_abs_longitude": Field("abs_lon_deg"),
+    "osd_abs_altitude": Field("abs_h_m"),
+    "home_abs_altitude": Field("home_abs_h_m"),
+    "rtk_pos_flag": Field("rtk_pos_flag_1"),
+    "rtk_latitude": Field("rtk_lat_deg"),
+    "rtk_longitude": Field("rtk_lon_deg"),
+    "rtk_height": Field("rtk_h_ell_m"),
+    "rtk_base_latitude": Field("rtk_base_lat_deg"),
+    "rtk_base_longitude": Field("rtk_base_lon_deg"),
+    "rtk_base_height": Field("rtk_base_h_ell_m"),
 }
 
 CAMERA = {
